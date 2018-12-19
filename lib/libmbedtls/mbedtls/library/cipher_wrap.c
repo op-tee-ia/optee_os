@@ -11,6 +11,8 @@
 
 #include "common.h"
 
+#include <string.h>
+
 #if defined(MBEDTLS_CIPHER_C)
 
 #include "cipher_wrap.h"
@@ -127,6 +129,11 @@ static void *gcm_ctx_alloc(void)
     return ctx;
 }
 
+static void gcm_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_gcm_context));
+}
+
 static void gcm_ctx_free(void *ctx)
 {
     mbedtls_gcm_free(ctx);
@@ -145,6 +152,11 @@ static void *ccm_ctx_alloc(void)
     }
 
     return ctx;
+}
+
+static void ccm_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_ccm_context));
 }
 
 static void ccm_ctx_free(void *ctx)
@@ -251,6 +263,11 @@ static void *aes_ctx_alloc(void)
     return aes;
 }
 
+static void aes_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_aes_context));
+}
+
 static void aes_ctx_free(void *ctx)
 {
     mbedtls_aes_free((mbedtls_aes_context *) ctx);
@@ -281,6 +298,7 @@ static const mbedtls_cipher_base_t aes_info = {
     aes_setkey_enc_wrap,
     aes_setkey_dec_wrap,
     aes_ctx_alloc,
+    aes_ctx_clone,
     aes_ctx_free
 };
 
@@ -589,6 +607,7 @@ static const mbedtls_cipher_base_t gcm_aes_info = {
     gcm_aes_setkey_wrap,
     gcm_aes_setkey_wrap,
     gcm_ctx_alloc,
+    gcm_ctx_clone,
     gcm_ctx_free,
 };
 
@@ -660,6 +679,7 @@ static const mbedtls_cipher_base_t ccm_aes_info = {
     ccm_aes_setkey_wrap,
     ccm_aes_setkey_wrap,
     ccm_ctx_alloc,
+    ccm_ctx_clone,
     ccm_ctx_free,
 };
 
@@ -801,6 +821,11 @@ static void *camellia_ctx_alloc(void)
     return ctx;
 }
 
+static void camellia_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_camellia_context));
+}
+
 static void camellia_ctx_free(void *ctx)
 {
     mbedtls_camellia_free((mbedtls_camellia_context *) ctx);
@@ -831,6 +856,7 @@ static const mbedtls_cipher_base_t camellia_info = {
     camellia_setkey_enc_wrap,
     camellia_setkey_dec_wrap,
     camellia_ctx_alloc,
+    camellia_ctx_clone,
     camellia_ctx_free
 };
 
@@ -1004,6 +1030,7 @@ static const mbedtls_cipher_base_t gcm_camellia_info = {
     gcm_camellia_setkey_wrap,
     gcm_camellia_setkey_wrap,
     gcm_ctx_alloc,
+    gcm_ctx_clone,
     gcm_ctx_free,
 };
 
@@ -1073,6 +1100,7 @@ static const mbedtls_cipher_base_t ccm_camellia_info = {
     ccm_camellia_setkey_wrap,
     ccm_camellia_setkey_wrap,
     ccm_ctx_alloc,
+    ccm_ctx_clone,
     ccm_ctx_free,
 };
 
@@ -1650,6 +1678,11 @@ static void *des_ctx_alloc(void)
     return des;
 }
 
+static void des_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_des_context));
+}
+
 static void des_ctx_free(void *ctx)
 {
     mbedtls_des_free((mbedtls_des_context *) ctx);
@@ -1668,6 +1701,11 @@ static void *des3_ctx_alloc(void)
     mbedtls_des3_init(des3);
 
     return des3;
+}
+
+static void des3_ctx_clone(void *dst, const void *src)
+{
+    memcpy(dst, src, sizeof(mbedtls_des3_context));
 }
 
 static void des3_ctx_free(void *ctx)
@@ -1700,6 +1738,7 @@ static const mbedtls_cipher_base_t des_info = {
     des_setkey_enc_wrap,
     des_setkey_dec_wrap,
     des_ctx_alloc,
+    des_ctx_clone,
     des_ctx_free
 };
 
@@ -1751,6 +1790,7 @@ static const mbedtls_cipher_base_t des_ede_info = {
     des3_set2key_enc_wrap,
     des3_set2key_dec_wrap,
     des3_ctx_alloc,
+    des3_ctx_clone,
     des3_ctx_free
 };
 
@@ -1802,6 +1842,7 @@ static const mbedtls_cipher_base_t des_ede3_info = {
     des3_set3key_enc_wrap,
     des3_set3key_dec_wrap,
     des3_ctx_alloc,
+    des3_ctx_clone,
     des3_ctx_free
 };
 
@@ -2017,6 +2058,12 @@ static void *null_ctx_alloc(void)
     return (void *) 1;
 }
 
+static void null_ctx_clone(void *dst, const void *src)
+{
+    ((void) dst);
+    ((void) src);
+}
+
 static void null_ctx_free(void *ctx)
 {
     ((void) ctx);
@@ -2046,6 +2093,7 @@ static const mbedtls_cipher_base_t null_base_info = {
     null_setkey,
     null_setkey,
     null_ctx_alloc,
+    null_ctx_clone,
     null_ctx_free
 };
 
