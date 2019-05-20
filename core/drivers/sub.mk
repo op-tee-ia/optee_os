@@ -20,3 +20,5 @@ srcs-$(CFG_STIH_UART) += stih_asc.c
 srcs-$(CFG_ATMEL_UART) += atmel_uart.c
 srcs-$(CFG_MVEBU_UART) += mvebu_uart.c
 srcs-$(CFG_STM32_UART) += stm32_uart.c
+srcs-$(CFG_UART) += uart.c
+srcs-$(CFG_APIC) += apic.c

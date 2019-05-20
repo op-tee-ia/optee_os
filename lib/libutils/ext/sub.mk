@@ -8,4 +8,4 @@ srcs-y += trace.c
 srcs-y += mempool.c
 srcs-y += nex_strdup.c
 
-subdirs-$(arch_arm) += arch/$(ARCH)
+subdirs-$(arch_$(ARCH)) += arch/$(ARCH)

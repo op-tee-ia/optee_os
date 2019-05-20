@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef X86_64
 #include <arm.h>
+#endif
 #include <assert.h>
 #include <kernel/mutex.h>
 #include <kernel/panic.h>
