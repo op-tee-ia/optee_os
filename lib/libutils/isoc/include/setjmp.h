@@ -43,7 +43,7 @@
 #define _JBTYPE int
 #endif
 
-#if defined(ARM64)
+#if defined(ARM64) || defined(X86_64)
 #define _JBLEN 22
 #define _JBTYPE long long
 #endif
