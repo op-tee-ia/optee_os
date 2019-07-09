@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <keep.h>
 #include <kernel/asan.h>
+#include <kernel/fpu.h>
 #include <kernel/generic_boot.h>
 #include <kernel/linker.h>
 #include <kernel/misc.h>
@@ -341,6 +342,9 @@ KEEP_PAGER(generic_boot_get_handlers);
 void generic_boot_init_primary(void)
 {
 	IMSG("Welcome to OP-TEE\n");
+
+	/* init fpu */
+	fpu_init();
 
 	init_runtime();
 
