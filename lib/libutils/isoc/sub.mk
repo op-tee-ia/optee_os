@@ -21,4 +21,4 @@ srcs-y += isspace.c
 srcs-y += isupper.c
 
 subdirs-y += newlib
-subdirs-$(arch_arm) += arch/$(ARCH)
+subdirs-y += arch/$(ARCH)
