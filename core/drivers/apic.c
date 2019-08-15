@@ -131,13 +131,28 @@ static bool send_self_ipi(uint32_t vector)
 
 static void lapic_eoi(void)
 {
-	/* TODO: will figure out how to support X2 APIC*/
-	lapic_x1_write_reg(LAPIC_EOI, 1);
+	uint64_t apic_base_msr = read_msr(MSR_APIC_BASE);
+
+	if (!(apic_base_msr & LAPIC_ENABLED))
+		return;
+
+	if (apic_base_msr & LAPIC_X2_ENABLED)
+		lapic_x2_write_reg(LAPIC_EOI, 0);
+	else
+		lapic_x1_write_reg(LAPIC_EOI, 0);
 }
 
 void lapic_software_disable(void)
 {
-	lapic_x1_write_reg(LAPIC_SIVR, 0xFF);
+	uint64_t apic_base_msr = read_msr(MSR_APIC_BASE);
+
+	if (!(apic_base_msr & LAPIC_ENABLED))
+		return;
+
+	if (apic_base_msr & LAPIC_X2_ENABLED)
+		lapic_x2_write_reg(LAPIC_SIVR, 0xFF);
+	else
+		lapic_x1_write_reg(LAPIC_SIVR, 0xFF);
 }
 
 void apic_init(void)
