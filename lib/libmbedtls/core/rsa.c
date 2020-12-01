@@ -49,6 +49,8 @@ static uint32_t tee_algo_to_mbedtls_hash_algo(uint32_t algo)
 #endif
 #if defined(CFG_CRYPTO_MD5)
 	case TEE_ALG_RSASSA_PKCS1_V1_5_MD5:
+	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_MD5:
+	case TEE_ALG_RSAES_PKCS1_OAEP_MGF1_MD5:
 	case TEE_ALG_MD5:
 	case TEE_ALG_HMAC_MD5:
 		return MBEDTLS_MD_MD5;
@@ -532,6 +534,7 @@ TEE_Result crypto_acipher_rsassa_sign(uint32_t algo, struct rsa_keypair *key,
 	case TEE_ALG_RSASSA_PKCS1_V1_5_SHA512:
 		lmd_padding = MBEDTLS_RSA_PKCS_V15;
 		break;
+	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_MD5:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA1:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA224:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA256:
@@ -642,6 +645,7 @@ TEE_Result crypto_acipher_rsassa_verify(uint32_t algo,
 	case TEE_ALG_RSASSA_PKCS1_V1_5_SHA512:
 		lmd_padding = MBEDTLS_RSA_PKCS_V15;
 		break;
+	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_MD5:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA1:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA224:
 	case TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA256:
