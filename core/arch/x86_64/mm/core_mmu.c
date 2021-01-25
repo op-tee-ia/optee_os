@@ -94,6 +94,9 @@ uint32_t pt_user_index;
 unsigned long default_nsec_shm_size __nex_bss;
 unsigned long default_nsec_shm_paddr __nex_bss;
 
+unsigned long parameters_nsec_shm_size __nex_bss;
+unsigned long parameters_nsec_shm_vaddr __nex_bss;
+
 static struct tee_mmap_region
 	static_memory_map[CFG_MMAP_REGIONS + 1] __nex_bss;
 

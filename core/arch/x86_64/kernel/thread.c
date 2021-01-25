@@ -728,6 +728,42 @@ static void init_thread_stacks(void)
 }
 #endif /*CFG_WITH_PAGER*/
 
+#ifdef HV_ACRN
+void return_flags sm_sched_nonsecure(void)
+{
+	uint32_t smc_nr;
+	struct thread_smc_args *args = (struct thread_smc_args *)parameters_nsec_shm_vaddr;
+
+    memset(args, 0, sizeof(struct thread_smc_args));
+
+return_sm_err:
+    if (is_optee_boot_complete == 0) {
+        restore_pic();
+        x86_set_cr8(0);
+        IMSG("return to nonsecure firstly, boot=%d, args=0x%lx, a0=0x%lx\n",
+				is_optee_boot_complete, (vaddr_t)args, args->a0);
+        make_smc_hypercall(HC_TEE_BOOT_DONE);
+        is_optee_boot_complete = 1;
+    } else {
+        //args->a6 = 0xa5a5a5a5;
+        make_smc_hypercall(HC_TEE_SERVICE_DONE);
+    }
+
+	smc_nr = args->a0;
+	if (OPTEE_SMC_IS_64(smc_nr)) {/* 64bits */
+		args->a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+		goto return_sm_err;
+	}
+
+	if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
+		thread_handle_fast_smc(args);
+	else
+		thread_handle_std_smc(args);
+
+
+	goto return_sm_err;
+}
+#else
 void return_flags sm_sched_nonsecure(void)
 {
 	uint32_t smc_nr;
@@ -768,6 +804,7 @@ return_sm_err:
 
 	goto return_sm_err;
 }
+#endif
 
 void thread_init_primary(const struct thread_handlers *handlers)
 {

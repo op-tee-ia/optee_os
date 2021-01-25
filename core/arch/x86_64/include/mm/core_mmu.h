@@ -390,6 +390,9 @@ struct mmu_initial_mapping {
 extern unsigned long default_nsec_shm_paddr;
 extern unsigned long default_nsec_shm_size;
 
+extern unsigned long parameters_nsec_shm_vaddr;
+extern unsigned long parameters_nsec_shm_size;
+
 void core_init_mmu_map(void);
 void core_mmu_init(void);
 
