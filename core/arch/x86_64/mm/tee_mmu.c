@@ -867,15 +867,18 @@ void teecore_init_pub_ram(void)
 	/* get virtual addr/size of NSec shared mem allcated from teecore */
 	core_mmu_get_mem_by_type(MEM_AREA_NSEC_SHM, &s, &e);
 
-	if (s >= e || s & SMALL_PAGE_MASK || e & SMALL_PAGE_MASK)
+	if ((s + PAGE_SIZE) >= e || s & SMALL_PAGE_MASK || e & SMALL_PAGE_MASK)
 		panic("invalid PUB RAM");
 
 	/* extra check: we could rely on  core_mmu_get_mem_by_type() */
 	if (!tee_vbuf_is_non_sec(s, e - s))
 		panic("PUB RAM is not non-secure");
 
-	default_nsec_shm_paddr = virt_to_phys((void *)s);
-	default_nsec_shm_size = e - s;
+    parameters_nsec_shm_vaddr = s;
+    parameters_nsec_shm_size = PAGE_SIZE;
+
+    default_nsec_shm_paddr = virt_to_phys((void *) (s + PAGE_SIZE));
+    default_nsec_shm_size = e - s - PAGE_SIZE;
 }
 
 uint32_t tee_mmu_user_get_cache_attr(struct user_ta_ctx *utc, void *va)
