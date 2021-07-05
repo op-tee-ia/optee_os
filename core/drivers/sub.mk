@@ -41,3 +41,4 @@ subdirs-y += crypto
 subdirs-$(CFG_BNXT_FW) += bnxt
 subdirs-$(CFG_SCMI_MSG_DRIVERS) += scmi-msg
 subdirs-y += imx
+srcs-$(CFG_UART) += uart.c
