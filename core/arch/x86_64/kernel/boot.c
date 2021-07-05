@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 /*
  * Copyright (c) 2015-2020, Linaro Limited
+ * Copyright (c) 2021, Intel Corporation
  */
 
-#include <arm.h>
 #include <assert.h>
 #include <compiler.h>
 #include <config.h>
@@ -27,17 +27,14 @@
 #include <mm/fobj.h>
 #include <mm/tee_mm.h>
 #include <mm/tee_pager.h>
-#include <sm/psci.h>
 #include <stdio.h>
 #include <trace.h>
 #include <utee_defines.h>
 #include <util.h>
-
+#include <kernel/fpu.h>
+#include <drivers/apic.h>
 #include <platform_config.h>
-
-#if !defined(CFG_WITH_ARM_TRUSTED_FW)
-#include <sm/sm.h>
-#endif
+#include <sm/vmcall.h>
 
 #if defined(CFG_WITH_VFP)
 #include <kernel/vfp.h>
@@ -103,40 +100,15 @@ __weak void main_secondary_init_gic(void)
 {
 }
 
-#if defined(CFG_WITH_ARM_TRUSTED_FW)
 void init_sec_mon(unsigned long nsec_entry __maybe_unused)
 {
 	assert(nsec_entry == PADDR_INVALID);
 	/* Do nothing as we don't have a secure monitor */
 }
-#else
-/* May be overridden in plat-$(PLATFORM)/main.c */
-__weak void init_sec_mon(unsigned long nsec_entry)
-{
-	struct sm_nsec_ctx *nsec_ctx;
 
-	assert(nsec_entry != PADDR_INVALID);
-
-	/* Initialize secure monitor */
-	nsec_ctx = sm_get_nsec_ctx();
-	nsec_ctx->mon_lr = nsec_entry;
-	nsec_ctx->mon_spsr = CPSR_MODE_SVC | CPSR_I;
-	if (nsec_entry & 1)
-		nsec_ctx->mon_spsr |= CPSR_T;
-}
-#endif
-
-#if defined(CFG_WITH_ARM_TRUSTED_FW)
 static void init_vfp_nsec(void)
 {
 }
-#else
-static void init_vfp_nsec(void)
-{
-	/* Normal world can use CP10 and CP11 (SIMD/VFP) */
-	write_nsacr(read_nsacr() | NSACR_CP10 | NSACR_CP11);
-}
-#endif
 
 #if defined(CFG_WITH_VFP)
 
@@ -1195,7 +1167,8 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
 	 */
 	thread_set_exceptions(THREAD_EXCP_ALL);
 	primary_save_cntfrq();
-	init_vfp_sec();
+	fpu_init();
+
 	/*
 	 * Pager: init_runtime() calls thread_kernel_enable_vfp() so we must
 	 * set a current thread right now to avoid a chicken-and-egg problem
@@ -1219,6 +1192,9 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
 	thread_init_primary();
 	thread_init_per_cpu();
 	init_sec_mon(nsec_entry);
+#ifdef CFG_APIC
+	apic_init();
+#endif
 }
 
 /*
@@ -1290,6 +1266,17 @@ void __weak boot_init_primary_early(unsigned long pageable_part,
 #endif
 
 	init_primary(pageable_part, e);
+}
+
+void boot_init_primary(void)
+{
+	IMSG("Welcome to OP-TEE\n");
+
+	boot_init_primary_early(0, 0);
+
+	boot_init_primary_late(0);
+
+	DMSG("Primary CPU switching to normal world boot\n");
 }
 
 #if defined(CFG_WITH_ARM_TRUSTED_FW)
