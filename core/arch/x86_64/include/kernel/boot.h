@@ -48,12 +48,7 @@ void boot_init_primary_early(unsigned long pageable_part,
 void boot_init_primary_late(unsigned long fdt);
 void boot_init_primary(void);
 
-#if defined(CFG_WITH_ARM_TRUSTED_FW)
-unsigned long cpu_on_handler(unsigned long a0, unsigned long a1);
-unsigned long boot_cpu_on_handler(unsigned long a0, unsigned long a1);
-#else
 void boot_init_secondary(unsigned long nsec_entry);
-#endif
 
 void main_init_gic(void);
 void main_secondary_init_gic(void);
@@ -64,8 +59,6 @@ void init_tee_runtime(void);
 /* weak routines eventually overridden by platform */
 void plat_cpu_reset_early(void);
 void plat_primary_init_early(void);
-void arm_cl2_config(vaddr_t pl310);
-void arm_cl2_enable(vaddr_t pl310);
 
 #if defined(CFG_BOOT_SECONDARY_REQUEST)
 void boot_set_core_ns_entry(size_t core_idx, uintptr_t entry,
@@ -85,7 +78,5 @@ void *get_embedded_dt(void);
 void *get_external_dt(void);
 
 unsigned long get_aslr_seed(void *fdt);
-
-void ffa_secondary_cpu_boot_req(vaddr_t secondary_ep, uint64_t cookie);
 
 #endif /* __KERNEL_BOOT_H */
