@@ -36,10 +36,6 @@
 #include <platform_config.h>
 #include <sm/vmcall.h>
 
-#if defined(CFG_WITH_VFP)
-#include <kernel/vfp.h>
-#endif
-
 /*
  * In this file we're using unsigned long to represent physical pointers as
  * they are received in a single register when OP-TEE is initially entered.
@@ -69,17 +65,6 @@ uint32_t sem_cpu_sync[CFG_TEE_CORE_NB_CORE];
 DECLARE_KEEP_PAGER(sem_cpu_sync);
 #endif
 
-#ifdef CFG_DT
-struct dt_descriptor {
-	void *blob;
-#ifdef CFG_EXTERNAL_DTB_OVERLAY
-	int frag_id;
-#endif
-};
-
-static struct dt_descriptor external_dt __nex_bss;
-#endif
-
 #ifdef CFG_SECONDARY_INIT_CNTFRQ
 static uint32_t cntfrq;
 #endif
@@ -105,49 +90,6 @@ void init_sec_mon(unsigned long nsec_entry __maybe_unused)
 	assert(nsec_entry == PADDR_INVALID);
 	/* Do nothing as we don't have a secure monitor */
 }
-
-static void init_vfp_nsec(void)
-{
-}
-
-#if defined(CFG_WITH_VFP)
-
-#ifdef ARM32
-static void init_vfp_sec(void)
-{
-	uint32_t cpacr = read_cpacr();
-
-	/*
-	 * Enable Advanced SIMD functionality.
-	 * Enable use of D16-D31 of the Floating-point Extension register
-	 * file.
-	 */
-	cpacr &= ~(CPACR_ASEDIS | CPACR_D32DIS);
-	/*
-	 * Enable usage of CP10 and CP11 (SIMD/VFP) (both kernel and user
-	 * mode.
-	 */
-	cpacr |= CPACR_CP(10, CPACR_CP_ACCESS_FULL);
-	cpacr |= CPACR_CP(11, CPACR_CP_ACCESS_FULL);
-	write_cpacr(cpacr);
-}
-#endif /* ARM32 */
-
-#ifdef ARM64
-static void init_vfp_sec(void)
-{
-	/* Not using VFP until thread_kernel_enable_vfp() */
-	vfp_disable();
-}
-#endif /* ARM64 */
-
-#else /* CFG_WITH_VFP */
-
-static void init_vfp_sec(void)
-{
-	/* Not using VFP */
-}
-#endif
 
 #ifdef CFG_SECONDARY_INIT_CNTFRQ
 static void primary_save_cntfrq(void)
@@ -536,550 +478,14 @@ void *get_dt(void)
 	return fdt;
 }
 
-#if defined(CFG_EMBED_DTB)
-void *get_embedded_dt(void)
-{
-	static bool checked;
-
-	assert(cpu_mmu_enabled());
-
-	if (!checked) {
-		IMSG("Embedded DTB found");
-
-		if (fdt_check_header(embedded_secure_dtb))
-			panic("Invalid embedded DTB");
-
-		checked = true;
-	}
-
-	return embedded_secure_dtb;
-}
-#else
 void *get_embedded_dt(void)
 {
 	return NULL;
 }
-#endif /*CFG_EMBED_DTB*/
 
-#if defined(CFG_DT)
-void *get_external_dt(void)
-{
-	assert(cpu_mmu_enabled());
-	return external_dt.blob;
-}
-
-static TEE_Result release_external_dt(void)
-{
-	int ret = 0;
-
-	if (!external_dt.blob)
-		return TEE_SUCCESS;
-
-	ret = fdt_pack(external_dt.blob);
-	if (ret < 0) {
-		EMSG("Failed to pack Device Tree at 0x%" PRIxPA ": error %d",
-		     virt_to_phys(external_dt.blob), ret);
-		panic();
-	}
-
-	if (core_mmu_remove_mapping(MEM_AREA_EXT_DT, external_dt.blob,
-				    CFG_DTB_MAX_SIZE))
-		panic("Failed to remove temporary Device Tree mapping");
-
-	/* External DTB no more reached, reset pointer to invalid */
-	external_dt.blob = NULL;
-
-	return TEE_SUCCESS;
-}
-boot_final(release_external_dt);
-
-#ifdef CFG_EXTERNAL_DTB_OVERLAY
-static int add_dt_overlay_fragment(struct dt_descriptor *dt, int ioffs)
-{
-	char frag[32];
-	int offs;
-	int ret;
-
-	snprintf(frag, sizeof(frag), "fragment@%d", dt->frag_id);
-	offs = fdt_add_subnode(dt->blob, ioffs, frag);
-	if (offs < 0)
-		return offs;
-
-	dt->frag_id += 1;
-
-	ret = fdt_setprop_string(dt->blob, offs, "target-path", "/");
-	if (ret < 0)
-		return -1;
-
-	return fdt_add_subnode(dt->blob, offs, "__overlay__");
-}
-
-static int init_dt_overlay(struct dt_descriptor *dt, int __maybe_unused dt_size)
-{
-	int fragment;
-	int ret;
-
-	ret = fdt_check_header(dt->blob);
-	if (!ret) {
-		fdt_for_each_subnode(fragment, dt->blob, 0)
-			dt->frag_id += 1;
-		return ret;
-	}
-
-#ifdef CFG_DT_ADDR
-	return fdt_create_empty_tree(dt->blob, dt_size);
-#else
-	return -1;
-#endif
-}
-#else
-static int add_dt_overlay_fragment(struct dt_descriptor *dt __unused, int offs)
-{
-	return offs;
-}
-
-static int init_dt_overlay(struct dt_descriptor *dt __unused,
-			   int dt_size __unused)
-{
-	return 0;
-}
-#endif /* CFG_EXTERNAL_DTB_OVERLAY */
-
-static int add_dt_path_subnode(struct dt_descriptor *dt, const char *path,
-			       const char *subnode)
-{
-	int offs;
-
-	offs = fdt_path_offset(dt->blob, path);
-	if (offs < 0)
-		return -1;
-	offs = add_dt_overlay_fragment(dt, offs);
-	if (offs < 0)
-		return -1;
-	offs = fdt_add_subnode(dt->blob, offs, subnode);
-	if (offs < 0)
-		return -1;
-	return offs;
-}
-
-static int add_optee_dt_node(struct dt_descriptor *dt)
-{
-	int offs;
-	int ret;
-
-	if (fdt_path_offset(dt->blob, "/firmware/optee") >= 0) {
-		DMSG("OP-TEE Device Tree node already exists!");
-		return 0;
-	}
-
-	offs = fdt_path_offset(dt->blob, "/firmware");
-	if (offs < 0) {
-		offs = add_dt_path_subnode(dt, "/", "firmware");
-		if (offs < 0)
-			return -1;
-	}
-
-	offs = fdt_add_subnode(dt->blob, offs, "optee");
-	if (offs < 0)
-		return -1;
-
-	ret = fdt_setprop_string(dt->blob, offs, "compatible",
-				 "linaro,optee-tz");
-	if (ret < 0)
-		return -1;
-	ret = fdt_setprop_string(dt->blob, offs, "method", "smc");
-	if (ret < 0)
-		return -1;
-	return 0;
-}
-
-#ifdef CFG_PSCI_ARM32
-static int append_psci_compatible(void *fdt, int offs, const char *str)
-{
-	return fdt_appendprop(fdt, offs, "compatible", str, strlen(str) + 1);
-}
-
-static int dt_add_psci_node(struct dt_descriptor *dt)
-{
-	int offs;
-
-	if (fdt_path_offset(dt->blob, "/psci") >= 0) {
-		DMSG("PSCI Device Tree node already exists!");
-		return 0;
-	}
-
-	offs = add_dt_path_subnode(dt, "/", "psci");
-	if (offs < 0)
-		return -1;
-	if (append_psci_compatible(dt->blob, offs, "arm,psci-1.0"))
-		return -1;
-	if (append_psci_compatible(dt->blob, offs, "arm,psci-0.2"))
-		return -1;
-	if (append_psci_compatible(dt->blob, offs, "arm,psci"))
-		return -1;
-	if (fdt_setprop_string(dt->blob, offs, "method", "smc"))
-		return -1;
-	if (fdt_setprop_u32(dt->blob, offs, "cpu_suspend", PSCI_CPU_SUSPEND))
-		return -1;
-	if (fdt_setprop_u32(dt->blob, offs, "cpu_off", PSCI_CPU_OFF))
-		return -1;
-	if (fdt_setprop_u32(dt->blob, offs, "cpu_on", PSCI_CPU_ON))
-		return -1;
-	if (fdt_setprop_u32(dt->blob, offs, "sys_poweroff", PSCI_SYSTEM_OFF))
-		return -1;
-	if (fdt_setprop_u32(dt->blob, offs, "sys_reset", PSCI_SYSTEM_RESET))
-		return -1;
-	return 0;
-}
-
-static int check_node_compat_prefix(struct dt_descriptor *dt, int offs,
-				    const char *prefix)
-{
-	const size_t prefix_len = strlen(prefix);
-	size_t l;
-	int plen;
-	const char *prop;
-
-	prop = fdt_getprop(dt->blob, offs, "compatible", &plen);
-	if (!prop)
-		return -1;
-
-	while (plen > 0) {
-		if (memcmp(prop, prefix, prefix_len) == 0)
-			return 0; /* match */
-
-		l = strlen(prop) + 1;
-		prop += l;
-		plen -= l;
-	}
-
-	return -1;
-}
-
-static int dt_add_psci_cpu_enable_methods(struct dt_descriptor *dt)
-{
-	int offs = 0;
-
-	while (1) {
-		offs = fdt_next_node(dt->blob, offs, NULL);
-		if (offs < 0)
-			break;
-		if (fdt_getprop(dt->blob, offs, "enable-method", NULL))
-			continue; /* already set */
-		if (check_node_compat_prefix(dt, offs, "arm,cortex-a"))
-			continue; /* no compatible */
-		if (fdt_setprop_string(dt->blob, offs, "enable-method", "psci"))
-			return -1;
-		/* Need to restart scanning as offsets may have changed */
-		offs = 0;
-	}
-	return 0;
-}
-
-static int config_psci(struct dt_descriptor *dt)
-{
-	if (dt_add_psci_node(dt))
-		return -1;
-	return dt_add_psci_cpu_enable_methods(dt);
-}
-#else
-static int config_psci(struct dt_descriptor *dt __unused)
-{
-	return 0;
-}
-#endif /*CFG_PSCI_ARM32*/
-
-static void set_dt_val(void *data, uint32_t cell_size, uint64_t val)
-{
-	if (cell_size == 1) {
-		fdt32_t v = cpu_to_fdt32((uint32_t)val);
-
-		memcpy(data, &v, sizeof(v));
-	} else {
-		fdt64_t v = cpu_to_fdt64(val);
-
-		memcpy(data, &v, sizeof(v));
-	}
-}
-
-static int add_res_mem_dt_node(struct dt_descriptor *dt, const char *name,
-			       paddr_t pa, size_t size)
-{
-	int offs = 0;
-	int ret = 0;
-	int addr_size = -1;
-	int len_size = -1;
-	bool found = true;
-	char subnode_name[80] = { 0 };
-
-	offs = fdt_path_offset(dt->blob, "/reserved-memory");
-
-	if (offs < 0) {
-		found = false;
-		offs = 0;
-	}
-
-	if (IS_ENABLED(CFG_EXTERNAL_DTB_OVERLAY)) {
-		len_size = sizeof(paddr_t) / sizeof(uint32_t);
-		addr_size = sizeof(paddr_t) / sizeof(uint32_t);
-	} else {
-		len_size = fdt_size_cells(dt->blob, offs);
-		if (len_size < 0)
-			return -1;
-		addr_size = fdt_address_cells(dt->blob, offs);
-		if (addr_size < 0)
-			return -1;
-	}
-
-	if (!found) {
-		offs = add_dt_path_subnode(dt, "/", "reserved-memory");
-		if (offs < 0)
-			return -1;
-		ret = fdt_setprop_cell(dt->blob, offs, "#address-cells",
-				       addr_size);
-		if (ret < 0)
-			return -1;
-		ret = fdt_setprop_cell(dt->blob, offs, "#size-cells", len_size);
-		if (ret < 0)
-			return -1;
-		ret = fdt_setprop(dt->blob, offs, "ranges", NULL, 0);
-		if (ret < 0)
-			return -1;
-	}
-
-	ret = snprintf(subnode_name, sizeof(subnode_name),
-		       "%s@0x%" PRIxPA, name, pa);
-	if (ret < 0 || ret >= (int)sizeof(subnode_name))
-		DMSG("truncated node \"%s@0x%"PRIxPA"\"", name, pa);
-	offs = fdt_add_subnode(dt->blob, offs, subnode_name);
-	if (offs >= 0) {
-		uint32_t data[FDT_MAX_NCELLS * 2];
-
-		set_dt_val(data, addr_size, pa);
-		set_dt_val(data + addr_size, len_size, size);
-		ret = fdt_setprop(dt->blob, offs, "reg", data,
-				  sizeof(uint32_t) * (addr_size + len_size));
-		if (ret < 0)
-			return -1;
-		ret = fdt_setprop(dt->blob, offs, "no-map", NULL, 0);
-		if (ret < 0)
-			return -1;
-	} else {
-		return -1;
-	}
-	return 0;
-}
-
-#ifdef CFG_CORE_DYN_SHM
-static uint64_t get_dt_val_and_advance(const void *data, size_t *offs,
-				       uint32_t cell_size)
-{
-	uint64_t rv = 0;
-
-	if (cell_size == 1) {
-		uint32_t v;
-
-		memcpy(&v, (const uint8_t *)data + *offs, sizeof(v));
-		*offs += sizeof(v);
-		rv = fdt32_to_cpu(v);
-	} else {
-		uint64_t v;
-
-		memcpy(&v, (const uint8_t *)data + *offs, sizeof(v));
-		*offs += sizeof(v);
-		rv = fdt64_to_cpu(v);
-	}
-
-	return rv;
-}
-
-/*
- * Find all non-secure memory from DT. Memory marked inaccessible by Secure
- * World is ignored since it could not be mapped to be used as dynamic shared
- * memory.
- */
-static int get_nsec_memory_helper(void *fdt, struct core_mmu_phys_mem *mem)
-{
-	const uint8_t *prop = NULL;
-	uint64_t a = 0;
-	uint64_t l = 0;
-	size_t prop_offs = 0;
-	size_t prop_len = 0;
-	int elems_total = 0;
-	int addr_size = 0;
-	int len_size = 0;
-	int offs = 0;
-	size_t n = 0;
-	int len = 0;
-
-	addr_size = fdt_address_cells(fdt, 0);
-	if (addr_size < 0)
-		return 0;
-
-	len_size = fdt_size_cells(fdt, 0);
-	if (len_size < 0)
-		return 0;
-
-	while (true) {
-		offs = fdt_node_offset_by_prop_value(fdt, offs, "device_type",
-						     "memory",
-						     sizeof("memory"));
-		if (offs < 0)
-			break;
-
-		if (_fdt_get_status(fdt, offs) != (DT_STATUS_OK_NSEC |
-						   DT_STATUS_OK_SEC))
-			continue;
-
-		prop = fdt_getprop(fdt, offs, "reg", &len);
-		if (!prop)
-			continue;
-
-		prop_len = len;
-		for (n = 0, prop_offs = 0; prop_offs < prop_len; n++) {
-			a = get_dt_val_and_advance(prop, &prop_offs, addr_size);
-			if (prop_offs >= prop_len) {
-				n--;
-				break;
-			}
-
-			l = get_dt_val_and_advance(prop, &prop_offs, len_size);
-			if (mem) {
-				mem->type = MEM_AREA_DDR_OVERALL;
-				mem->addr = a;
-				mem->size = l;
-				mem++;
-			}
-		}
-
-		elems_total += n;
-	}
-
-	return elems_total;
-}
-
-static struct core_mmu_phys_mem *get_nsec_memory(void *fdt, size_t *nelems)
-{
-	struct core_mmu_phys_mem *mem = NULL;
-	int elems_total = 0;
-
-	elems_total = get_nsec_memory_helper(fdt, NULL);
-	if (elems_total <= 0)
-		return NULL;
-
-	mem = nex_calloc(elems_total, sizeof(*mem));
-	if (!mem)
-		panic();
-
-	elems_total = get_nsec_memory_helper(fdt, mem);
-	assert(elems_total > 0);
-
-	*nelems = elems_total;
-
-	return mem;
-}
-#endif /*CFG_CORE_DYN_SHM*/
-
-#ifdef CFG_CORE_RESERVED_SHM
-static int mark_static_shm_as_reserved(struct dt_descriptor *dt)
-{
-	vaddr_t shm_start;
-	vaddr_t shm_end;
-
-	core_mmu_get_mem_by_type(MEM_AREA_NSEC_SHM, &shm_start, &shm_end);
-	if (shm_start != shm_end)
-		return add_res_mem_dt_node(dt, "optee_shm",
-					   virt_to_phys((void *)shm_start),
-					   shm_end - shm_start);
-
-	DMSG("No SHM configured");
-	return -1;
-}
-#endif /*CFG_CORE_RESERVED_SHM*/
-
-static void init_external_dt(unsigned long phys_dt)
-{
-	struct dt_descriptor *dt = &external_dt;
-	void *fdt;
-	int ret;
-
-	if (!phys_dt) {
-		/*
-		 * No need to panic as we're not using the DT in OP-TEE
-		 * yet, we're only adding some nodes for normal world use.
-		 * This makes the switch to using DT easier as we can boot
-		 * a newer OP-TEE with older boot loaders. Once we start to
-		 * initialize devices based on DT we'll likely panic
-		 * instead of returning here.
-		 */
-		IMSG("No non-secure external DT");
-		return;
-	}
-
-	if (!core_mmu_add_mapping(MEM_AREA_EXT_DT, phys_dt, CFG_DTB_MAX_SIZE))
-		panic("Failed to map external DTB");
-
-	fdt = phys_to_virt(phys_dt, MEM_AREA_EXT_DT);
-	if (!fdt)
-		panic();
-
-	dt->blob = fdt;
-
-	ret = init_dt_overlay(dt, CFG_DTB_MAX_SIZE);
-	if (ret < 0) {
-		EMSG("Device Tree Overlay init fail @ %#lx: error %d", phys_dt,
-		     ret);
-		panic();
-	}
-
-	ret = fdt_open_into(fdt, fdt, CFG_DTB_MAX_SIZE);
-	if (ret < 0) {
-		EMSG("Invalid Device Tree at %#lx: error %d", phys_dt, ret);
-		panic();
-	}
-
-	IMSG("Non-secure external DT found");
-}
-
-static int mark_tzdram_as_reserved(struct dt_descriptor *dt)
-{
-	return add_res_mem_dt_node(dt, "optee_core", CFG_TZDRAM_START,
-				   CFG_TZDRAM_SIZE);
-}
-
-static void update_external_dt(void)
-{
-	struct dt_descriptor *dt = &external_dt;
-
-	if (!dt->blob)
-		return;
-
-	if (add_optee_dt_node(dt))
-		panic("Failed to add OP-TEE Device Tree node");
-
-	if (config_psci(dt))
-		panic("Failed to config PSCI");
-
-#ifdef CFG_CORE_RESERVED_SHM
-	if (mark_static_shm_as_reserved(dt))
-		panic("Failed to config non-secure memory");
-#endif
-
-	if (mark_tzdram_as_reserved(dt))
-		panic("Failed to config secure memory");
-}
-#else /*CFG_DT*/
 void *get_external_dt(void)
 {
 	return NULL;
-}
-
-static void init_external_dt(unsigned long phys_dt __unused)
-{
-}
-
-static void update_external_dt(void)
-{
 }
 
 #ifdef CFG_CORE_DYN_SHM
@@ -1089,7 +495,6 @@ static struct core_mmu_phys_mem *get_nsec_memory(void *fdt __unused,
 	return NULL;
 }
 #endif /*CFG_CORE_DYN_SHM*/
-#endif /*!CFG_DT*/
 
 #ifdef CFG_CORE_DYN_SHM
 static void discover_nsec_memory(void)
@@ -1201,13 +606,9 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
  * Note: this function is weak just to make it possible to exclude it from
  * the unpaged area.
  */
-void __weak boot_init_primary_late(unsigned long fdt)
+void __weak boot_init_primary_late(unsigned long fdt __unused)
 {
-	init_external_dt(fdt);
-	tpm_map_log_area(get_external_dt());
 	discover_nsec_memory();
-	update_external_dt();
-	configure_console_from_dt();
 
 	IMSG("OP-TEE version: %s", core_v_str);
 	IMSG("Primary CPU initializing");
@@ -1217,7 +618,6 @@ void __weak boot_init_primary_late(unsigned long fdt)
 #endif
 
 	main_init_gic();
-	init_vfp_nsec();
 #ifndef CFG_VIRTUALIZATION
 	init_tee_runtime();
 #endif
@@ -1246,8 +646,6 @@ static void init_secondary_helper(unsigned long nsec_entry)
 	thread_init_per_cpu();
 	init_sec_mon(nsec_entry);
 	main_secondary_init_gic();
-	init_vfp_sec();
-	init_vfp_nsec();
 
 	IMSG("Secondary CPU %zu switching to normal world boot", get_core_pos());
 }
@@ -1261,9 +659,7 @@ void __weak boot_init_primary_early(unsigned long pageable_part,
 {
 	unsigned long e = PADDR_INVALID;
 
-#if !defined(CFG_WITH_ARM_TRUSTED_FW)
 	e = nsec_entry;
-#endif
 
 	init_primary(pageable_part, e);
 }
@@ -1279,19 +675,10 @@ void boot_init_primary(void)
 	DMSG("Primary CPU switching to normal world boot\n");
 }
 
-#if defined(CFG_WITH_ARM_TRUSTED_FW)
-unsigned long boot_cpu_on_handler(unsigned long a0 __maybe_unused,
-				  unsigned long a1 __unused)
-{
-	init_secondary_helper(PADDR_INVALID);
-	return 0;
-}
-#else
 void boot_init_secondary(unsigned long nsec_entry)
 {
 	init_secondary_helper(nsec_entry);
 }
-#endif
 
 #if defined(CFG_BOOT_SECONDARY_REQUEST)
 void boot_set_core_ns_entry(size_t core_idx, uintptr_t entry,
@@ -1322,50 +709,18 @@ int boot_core_release(size_t core_idx, paddr_t entry)
  */
 struct ns_entry_context *boot_core_hpen(void)
 {
-#ifdef CFG_PSCI_ARM32
-	return &ns_entry_contexts[get_core_pos()];
-#else
 	do {
 		wfe();
 	} while (!spin_table[get_core_pos()]);
 	dmb();
 	return &ns_entry_contexts[get_core_pos()];
-#endif
 }
 #endif
 
 #if defined(CFG_CORE_ASLR)
-#if defined(CFG_DT)
-unsigned long __weak get_aslr_seed(void *fdt)
-{
-	int rc = fdt_check_header(fdt);
-	const uint64_t *seed = NULL;
-	int offs = 0;
-	int len = 0;
-
-	if (rc) {
-		DMSG("Bad fdt: %d", rc);
-		return 0;
-	}
-
-	offs =  fdt_path_offset(fdt, "/secure-chosen");
-	if (offs < 0) {
-		DMSG("Cannot find /secure-chosen");
-		return 0;
-	}
-	seed = fdt_getprop(fdt, offs, "kaslr-seed", &len);
-	if (!seed || len != sizeof(*seed)) {
-		DMSG("Cannot find valid kaslr-seed");
-		return 0;
-	}
-
-	return fdt64_to_cpu(*seed);
-}
-#else /*!CFG_DT*/
 unsigned long __weak get_aslr_seed(void *fdt __unused)
 {
 	DMSG("Warning: no ASLR seed");
 	return 0;
 }
-#endif /*!CFG_DT*/
 #endif /*CFG_CORE_ASLR*/
