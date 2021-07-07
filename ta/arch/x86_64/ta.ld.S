@@ -1,13 +1,6 @@
-#ifdef ARM32
-OUTPUT_FORMAT("elf32-littlearm")
-OUTPUT_ARCH(arm)
-#define MCOUNT_SYM __gnu_mcount_nc
-#endif
-#ifdef ARM64
-OUTPUT_FORMAT("elf64-littleaarch64")
-OUTPUT_ARCH(aarch64)
+OUTPUT_FORMAT("elf64-x86-64")
+OUTPUT_ARCH("i386:x86-64")
 #define MCOUNT_SYM _mcount
-#endif
 
 #ifndef CFG_FTRACE_BUF_SIZE
 #define CFG_FTRACE_BUF_SIZE 2048
