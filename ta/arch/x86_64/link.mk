@@ -33,6 +33,7 @@ link-ldflags += --sort-section=alignment
 link-ldflags += -z max-page-size=4096 # OP-TEE always uses 4K alignment
 link-ldflags += --as-needed # Do not add dependency on unused shlib
 link-ldflags += $(link-ldflags$(sm))
+link-ldflags += -z common-page-size=4096
 
 $(link-out-dir$(sm))/dyn_list:
 	@$(cmd-echo-silent) '  GEN     $@'
