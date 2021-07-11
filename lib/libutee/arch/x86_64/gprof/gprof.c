@@ -78,11 +78,7 @@
 static void *gprof_buf;
 static size_t gprof_buf_len;
 
-#if defined(ARM32)
-#define MCOUNT_SYM __gnu_mcount_nc
-#elif defined(ARM64)
 #define MCOUNT_SYM _mcount
-#endif
 
 static void dummy(void) {}
 void (*MCOUNT_SYM)(void) __weak = dummy;

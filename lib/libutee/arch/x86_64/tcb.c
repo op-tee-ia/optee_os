@@ -32,7 +32,6 @@
  *     https://www.akkadia.org/drepper/tls.pdf
  */
 
-#include <arm64_user_sysreg.h>
 #include <assert.h>
 #include <link.h>
 #include <stdlib.h>
@@ -151,13 +150,6 @@ void __utee_tcb_init(void)
 	_tcb->dtv[0].size = i;
 
 	_tls_size = total_size;
-#ifdef ARM64
-	/*
-	 * Aarch64 ABI requirement: the thread pointer shall point to the
-	 * thread's TCB. ARMv7 and Aarch32 access the TCB via _tls_get_addr().
-	 */
-	write_tpidr_el0((vaddr_t)_tcb);
-#endif
 }
 
 struct tls_index {
