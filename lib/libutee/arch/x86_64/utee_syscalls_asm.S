@@ -9,7 +9,7 @@
 
         UTEE_SYSCALL _utee_log, TEE_SCN_LOG, 2
 
-        UTEE_SYSCALL __utee_panic, TEE_SCN_PANIC, 2
+        UTEE_SYSCALL _utee_panic, TEE_SCN_PANIC, 1
 
         UTEE_SYSCALL _utee_get_property, TEE_SCN_GET_PROPERTY, 7
 
