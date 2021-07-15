@@ -11,7 +11,6 @@
 
 #include <mm/core_mmu.h>
 #include <mm/pgt_cache.h>
-#include <kernel/vfp.h>
 #include <kernel/mutex.h>
 #include <kernel/thread.h>
 
@@ -21,16 +20,13 @@ enum thread_state {
 	THREAD_STATE_ACTIVE,
 };
 
-#ifdef ARM64
+#define MAX_TA_IDX		4
+
 struct thread_user_mode_rec {
-	uint64_t ctx_regs_ptr;
 	uint64_t exit_status0_ptr;
 	uint64_t exit_status1_ptr;
-	uint64_t pad;
 	uint64_t x[31 - 19]; /* x19..x30 */
 };
-#endif /*ARM64*/
-
 #ifdef CFG_WITH_VFP
 struct thread_vfp_state {
 	bool ns_saved;
@@ -57,15 +53,13 @@ struct thread_ctx {
 	struct thread_ctx_regs regs;
 	enum thread_state state;
 	vaddr_t stack_va_end;
+	vaddr_t stack_va_curr[MAX_TA_IDX];
+	uint32_t ta_idx;
+	uint32_t hyp_clnt_id;
 	uint32_t flags;
 	struct core_mmu_user_map user_map;
 	bool have_user_map;
-#ifdef ARM64
 	vaddr_t kern_sp;	/* Saved kernel SP during user TA execution */
-#endif
-#ifdef CFG_WITH_VFP
-	struct thread_vfp_state vfp_state;
-#endif
 	void *rpc_arg;
 	struct mobj *rpc_mobj;
 	struct thread_shm_cache shm_cache;
@@ -120,14 +114,10 @@ void thread_excp_vect_workaround_a15(void);
 void thread_excp_vect_end(void);
 
 /*
- * Assembly function as the first function in a thread.  Handles a stdcall,
- * a0-a3 holds the parameters. Hands over to __thread_std_smc_entry() when
- * everything is set up and does some post processing once
- * __thread_std_smc_entry() returns.
+ * Handles a stdcall, r10-r15 holds the parameters
  */
-void thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
-uint32_t __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
-				uint32_t a3);
+void thread_std_smc_entry(void);
+void __thread_std_smc_entry(struct thread_smc_args *args);
 
 void thread_sp_alloc_and_run(struct thread_smc_args *args);
 
@@ -139,7 +129,24 @@ void thread_sp_alloc_and_run(struct thread_smc_args *args);
  * context of the current thread if THREAD_FLAGS_COPY_ARGS_ON_RETURN is set
  * in the flags field in the thread context.
  */
-void thread_resume(struct thread_ctx_regs *regs);
+void thread_resume(struct thread_ctx_regs *regs, vaddr_t tmp_stack);
+
+void thread_rpc_resume(vaddr_t sp, struct thread_smc_args *args,
+						vaddr_t tmp_stack);
+/*
+ * Resume thread status from a foreign interrupt
+ */
+void foreign_intr_resume(vaddr_t sp, vaddr_t abt_stack);
+
+/*
+ * Get the return value from a standard secure monitor call
+ */
+void thread_get_stdcall_ret(struct thread_smc_args *args);
+
+/*
+ * Main loop between secure world and non-secure world
+ */
+void sm_sched_nonsecure(void);
 
 uint32_t __thread_enter_user_mode(struct thread_ctx_regs *regs,
 				  uint32_t *exit_status0,
@@ -157,7 +164,12 @@ void *thread_get_tmp_sp(void);
  * for the thread context (see thread resume for use of flags).
  * Returns thread index of the thread that was suspended.
  */
-int thread_state_suspend(uint32_t flags, uint32_t cpsr, vaddr_t pc);
+int thread_state_suspend(uint32_t flags, vaddr_t sp);
+
+/*
+ * Save the state of current thread
+ */
+void thread_state_save(vaddr_t sp, uint32_t client);
 
 /*
  * Marks the current thread as free.
@@ -187,12 +199,10 @@ uint32_t thread_get_usr_sp(void);
 /* Checks stack canaries */
 void thread_check_canaries(void);
 
-void thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
-void thread_resume_from_rpc(uint32_t thread_id, uint32_t a0, uint32_t a1,
-			    uint32_t a2, uint32_t a3);
+void thread_alloc_and_run(struct thread_smc_args *args);
+void thread_resume_from_rpc(struct thread_smc_args *args);
 void thread_lock_global(void);
 void thread_unlock_global(void);
-
 
 /*
  * Suspends current thread and temorarily exits to non-secure world.
@@ -226,21 +236,14 @@ void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]);
 #endif
 
 /*
- * Called from assembly only, vector_fast_smc_entry(). Handles a fast SMC
- * by dispatching it to the registered fast SMC handler.
+ * Handles a fast SMC by dispatching it to the registered fast SMC handler
  */
 void thread_handle_fast_smc(struct thread_smc_args *args);
 
 /*
- * Called from assembly only, vector_std_smc_entry().  Handles a std SMC by
- * dispatching it to the registered std SMC handler.
+ * Handles a std SMC by dispatching it to the registered std SMC handler
  */
-uint32_t thread_handle_std_smc(uint32_t a0, uint32_t a1, uint32_t a2,
-			       uint32_t a3, uint32_t a4, uint32_t a5,
-			       uint32_t a6, uint32_t a7);
-
-/* Called from assembly only. Handles a SVC from user mode. */
-void thread_svc_handler(struct thread_svc_regs *regs);
+void thread_handle_std_smc(struct thread_smc_args *args);
 
 /* Frees the cache of allocated FS RPC memory */
 void thread_rpc_shm_cache_clear(struct thread_shm_cache *cache);
