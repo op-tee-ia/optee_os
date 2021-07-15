@@ -3,17 +3,16 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright (c) 2016-2017, Linaro Limited
  * Copyright (c) 2020-2021, Arm Limited
+ * Copyright (c) 2018-2021, Intel Corporation
  */
 
 #ifndef KERNEL_THREAD_H
 #define KERNEL_THREAD_H
 
 #ifndef __ASSEMBLER__
-#include <arm.h>
 #include <types_ext.h>
 #include <compiler.h>
 #include <kernel/mutex.h>
-#include <kernel/vfp.h>
 #include <mm/pgt_cache.h>
 #endif
 
@@ -24,24 +23,14 @@
 
 #ifndef __ASSEMBLER__
 
-#ifdef ARM64
 /*
  * struct thread_core_local needs to have alignment suitable for a stack
  * pointer since SP_EL1 points to this
  */
 #define THREAD_CORE_LOCAL_ALIGNED __aligned(16)
-#else
-#define THREAD_CORE_LOCAL_ALIGNED __aligned(8)
-#endif
 
 struct thread_core_local {
-#ifdef ARM32
-	uint32_t r[2];
-	paddr_t sm_pm_ctx_phys;
-#endif
-#ifdef ARM64
 	uint64_t x[4];
-#endif
 	vaddr_t tmp_stack_va_end;
 	short int curr_thread;
 	uint32_t flags;
@@ -67,12 +56,6 @@ struct thread_vector_table {
 };
 extern struct thread_vector_table thread_vector_table;
 
-struct thread_user_vfp_state {
-	struct vfp_state vfp;
-	bool lazy_saved;
-	bool saved;
-};
-
 #ifdef ARM32
 struct thread_smc_args {
 	uint32_t a0;	/* SMC function ID */
@@ -85,7 +68,6 @@ struct thread_smc_args {
 	uint32_t a7;	/* Hypervisor Client ID */
 };
 #endif /*ARM32*/
-#ifdef ARM64
 struct thread_smc_args {
 	uint64_t a0;	/* SMC function ID */
 	uint64_t a1;	/* Parameter */
@@ -96,8 +78,6 @@ struct thread_smc_args {
 	uint64_t a6;	/* Not used */
 	uint64_t a7;	/* Hypervisor Client ID */
 };
-#endif /*ARM64*/
-
 #ifdef ARM32
 struct thread_abort_regs {
 	uint32_t usr_sp;
@@ -120,6 +100,7 @@ struct thread_abort_regs {
 	uint32_t ip;
 };
 #endif /*ARM32*/
+
 #ifdef ARM64
 struct thread_abort_regs {
 	uint64_t x0;	/* r0_usr */
@@ -240,15 +221,16 @@ struct thread_ctx_regs {
 };
 #endif /*ARM32*/
 
-#ifdef ARM64
 struct thread_ctx_regs {
-	uint64_t sp;
-	uint64_t pc;
-	uint64_t cpsr;
-	uint64_t x[31];
-	uint64_t tpidr_el0;
+	uint64_t rflags;
+	uint64_t rip;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
 };
-#endif /*ARM64*/
 
 struct thread_specific_data {
 	TAILQ_HEAD(, ts_session) sess_stack;
@@ -261,7 +243,6 @@ struct thread_specific_data {
 	uint32_t abort_descr;
 	vaddr_t abort_va;
 	unsigned int abort_core;
-	struct thread_abort_regs abort_regs;
 #ifdef CFG_CORE_DEBUG_CHECK_STACKS
 	bool stackcheck_recursion;
 #endif
@@ -351,18 +332,9 @@ void thread_restore_foreign_intr(void);
 /*
  * Defines the bits for the exception mask used by the
  * thread_*_exceptions() functions below.
- * These definitions are compatible with both ARM32 and ARM64.
  */
-#if defined(CFG_ARM_GICV3)
-#define THREAD_EXCP_FOREIGN_INTR	(ARM32_CPSR_F >> ARM32_CPSR_F_SHIFT)
-#define THREAD_EXCP_NATIVE_INTR		(ARM32_CPSR_I >> ARM32_CPSR_F_SHIFT)
-#else
-#define THREAD_EXCP_FOREIGN_INTR	(ARM32_CPSR_I >> ARM32_CPSR_F_SHIFT)
-#define THREAD_EXCP_NATIVE_INTR		(ARM32_CPSR_F >> ARM32_CPSR_F_SHIFT)
-#endif
-#define THREAD_EXCP_ALL			(THREAD_EXCP_FOREIGN_INTR	\
-					| THREAD_EXCP_NATIVE_INTR	\
-					| (ARM32_CPSR_A >> ARM32_CPSR_F_SHIFT))
+#define THREAD_EXCP_FOREIGN_INTR       (1 << 9)
+#define THREAD_EXCP_ALL                THREAD_EXCP_FOREIGN_INTR
 
 /*
  * thread_get_exceptions() - return current exception mask
@@ -498,7 +470,7 @@ static inline void thread_user_clear_vfp(struct user_mode_ctx *uctx __unused)
  */
 uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 		unsigned long a2, unsigned long a3, unsigned long user_sp,
-		unsigned long entry_func, bool is_32bit,
+		unsigned long entry_func, uint32_t client,
 		uint32_t *exit_status0, uint32_t *exit_status1);
 
 /*
@@ -522,7 +494,6 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 void thread_unwind_user_mode(uint32_t ret, uint32_t exit_status0,
 		uint32_t exit_status1);
 
-#ifdef ARM64
 /*
  * thread_get_saved_thread_sp() - Returns the saved sp of current thread
  *
@@ -533,7 +504,6 @@ void thread_unwind_user_mode(uint32_t ret, uint32_t exit_status0,
  * @returns stack pointer
  */
 vaddr_t thread_get_saved_thread_sp(void);
-#endif /*ARM64*/
 
 /*
  * Provides addresses and size of kernel code that must be mapped while in
@@ -718,6 +688,14 @@ struct thread_param {
  */
 uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
 		struct thread_param *params);
+
+/**
+ * Returns current thread stack for kernel path restoring
+ * @returns current thread stack
+ */
+vaddr_t thread_state_restore(void);
+
+void foreign_intr_handle(uint32_t id);
 
 unsigned long thread_smc(unsigned long func_id, unsigned long a1,
 			 unsigned long a2, unsigned long a3);

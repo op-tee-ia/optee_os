@@ -3,11 +3,12 @@
  * Copyright (c) 2016-2021, Linaro Limited
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright (c) 2020-2021, Arm Limited
+ * Copyright (c) 2021, Intel Corporation
  */
 
 #include <platform_config.h>
-
-#include <arm.h>
+#include <x86.h>
+#include <descriptor.h>
 #include <assert.h>
 #include <config.h>
 #include <io.h>
@@ -19,10 +20,11 @@
 #include <kernel/misc.h>
 #include <kernel/panic.h>
 #include <kernel/spinlock.h>
-#include <kernel/spmc_sp_handler.h>
 #include <kernel/tee_ta_manager.h>
 #include <kernel/thread_defs.h>
 #include <kernel/thread.h>
+#include <tee/arch_svc.h>
+#include <sm/optee_smc.h>
 #include <kernel/user_mode_ctx_struct.h>
 #include <kernel/virtualization.h>
 #include <mm/core_memprot.h>
@@ -30,10 +32,9 @@
 #include <mm/tee_mm.h>
 #include <mm/tee_pager.h>
 #include <mm/vm.h>
-#include <smccc.h>
-#include <sm/sm.h>
 #include <trace.h>
 #include <util.h>
+#include <console.h>
 
 #include "thread_private.h"
 
@@ -51,35 +52,8 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
  * stack_xxx[n]          "hard" top          "soft" top       bottom
  */
 
-#ifdef CFG_WITH_ARM_TRUSTED_FW
-#define STACK_TMP_OFFS		0
-#else
-#define STACK_TMP_OFFS		SM_STACK_TMP_RESERVE_SIZE
-#endif
-
-#ifdef ARM32
-#ifdef CFG_CORE_SANITIZE_KADDRESS
-#define STACK_TMP_SIZE		(3072 + STACK_TMP_OFFS)
-#else
+#define STACK_TMP_OFFS		64
 #define STACK_TMP_SIZE		(2048 + STACK_TMP_OFFS)
-#endif
-#define STACK_THREAD_SIZE	8192
-
-#if defined(CFG_CORE_SANITIZE_KADDRESS) || defined(__clang__) || \
-	!defined(CFG_CRYPTO_WITH_CE)
-#define STACK_ABT_SIZE		3072
-#else
-#define STACK_ABT_SIZE		2048
-#endif
-
-#endif /*ARM32*/
-
-#ifdef ARM64
-#if defined(__clang__) && !defined(__OPTIMIZE_SIZE__)
-#define STACK_TMP_SIZE		(4096 + STACK_TMP_OFFS)
-#else
-#define STACK_TMP_SIZE		(2048 + STACK_TMP_OFFS)
-#endif
 #define STACK_THREAD_SIZE	8192
 
 #if TRACE_LEVEL > 0
@@ -87,15 +61,12 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 #else
 #define STACK_ABT_SIZE		1024
 #endif
-#endif /*ARM64*/
 
 #ifdef CFG_WITH_STACK_CANARIES
 #ifdef ARM32
 #define STACK_CANARY_SIZE	(4 * sizeof(uint32_t))
 #endif
-#ifdef ARM64
 #define STACK_CANARY_SIZE	(8 * sizeof(uint32_t))
-#endif
 #define START_CANARY_VALUE	0xdededede
 #define END_CANARY_VALUE	0xabababab
 #define GET_START_CANARY(name, stack_num) name[stack_num][0]
@@ -125,6 +96,7 @@ linkage uint32_t name[num_stacks] \
 		__attribute__((section(".nozi_stack." # name), \
 			       aligned(STACK_ALIGNMENT)))
 
+#define STACK_SIZE(stack) (sizeof(stack) - STACK_CANARY_SIZE / 2)
 #define GET_STACK(stack) ((vaddr_t)(stack) + STACK_SIZE(stack))
 
 DECLARE_STACK(stack_tmp, CFG_TEE_CORE_NB_CORE,
@@ -174,6 +146,13 @@ static uint8_t thread_user_kdata_page[
 #endif
 
 static unsigned int thread_global_lock __nex_bss = SPINLOCK_UNLOCK;
+
+static void syscall_init(vaddr_t sp)
+{
+	write_msr(SYSENTER_CS_MSR, CODE_64_SELECTOR); /* cs_addr */
+	write_msr(SYSENTER_ESP_MSR, sp); /* esp_addr */
+	write_msr(SYSENTER_EIP_MSR, (uint64_t)(x86_syscall)); /* eip_addr */
+}
 
 static void init_canaries(void)
 {
@@ -299,6 +278,31 @@ void __nostackcheck thread_set_exceptions(uint32_t exceptions)
 	barrier();
 }
 #endif /*ARM64*/
+
+uint32_t thread_get_exceptions(void)
+{
+	uint64_t rflags = x86_save_flags();
+
+	if (rflags & THREAD_EXCP_ALL) {
+		return 0;
+	} else {
+		return THREAD_EXCP_ALL;
+	}
+}
+
+void __nostackcheck thread_set_exceptions(uint32_t exceptions)
+{
+	uint64_t rflags = x86_save_flags();
+
+	/* Foreign interrupts must not be unmasked while holding a spinlock */
+	if (!(exceptions & THREAD_EXCP_FOREIGN_INTR))
+		assert_have_no_spinlock();
+
+	rflags &= ~THREAD_EXCP_ALL;
+	rflags |= (~exceptions & THREAD_EXCP_ALL);
+
+	x86_restore_flags(rflags);
+}
 
 uint32_t __nostackcheck thread_mask_exceptions(uint32_t exceptions)
 {
@@ -514,6 +518,28 @@ static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
 }
 #endif /*ARM64*/
 
+static void init_regs(struct thread_ctx *thread, struct thread_smc_args *args)
+{
+	struct thread_ctx_regs *regs;
+
+	thread->stack_va_curr[0] = thread->stack_va_end -
+		sizeof(struct thread_ctx_regs);
+	thread->stack_va_curr[0] = ROUNDDOWN(thread->stack_va_curr[0], 64);
+	regs = (struct thread_ctx_regs *)(thread->stack_va_curr[0]);
+
+	memset(regs, 0, sizeof(*regs));
+
+	regs->rip = (uint64_t)thread_std_smc_entry;
+	regs->rflags = 0x3002;
+
+	regs->r10 = args->a0;
+	regs->r11 = args->a1;
+	regs->r12 = args->a2;
+	regs->r13 = args->a3;
+	regs->r14 = args->a4;
+	regs->r15 = args->a5;
+}
+
 void thread_init_boot_thread(void)
 {
 	struct thread_core_local *l = thread_get_core_local();
@@ -534,10 +560,7 @@ void __nostackcheck thread_clr_boot_thread(void)
 	l->curr_thread = THREAD_ID_INVALID;
 }
 
-static void __thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2,
-				   uint32_t a3, uint32_t a4, uint32_t a5,
-				   uint32_t a6, uint32_t a7,
-				   void *pc)
+void thread_alloc_and_run(struct thread_smc_args *args)
 {
 	size_t n;
 	struct thread_core_local *l = thread_get_core_local();
@@ -563,20 +586,16 @@ static void __thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2,
 	l->curr_thread = n;
 
 	threads[n].flags = 0;
-	init_regs(threads + n, a0, a1, a2, a3, a4, a5, a6, a7, pc);
+	threads[n].ta_idx = 0;
+	init_regs(threads + n, args);
 
 	thread_lazy_save_ns_vfp();
 
 	l->flags &= ~THREAD_CLF_TMP;
-	thread_resume(&threads[n].regs);
+	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]),
+			l->tmp_stack_va_end);
 	/*NOTREACHED*/
 	panic();
-}
-
-void thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
-{
-	__thread_alloc_and_run(a0, a1, a2, a3, 0, 0, 0, 0,
-			       thread_std_smc_entry);
 }
 
 #ifdef CFG_SECURE_PARTITION
@@ -663,15 +682,9 @@ static void __noprof ftrace_resume(void)
 }
 #endif
 
-static bool is_user_mode(struct thread_ctx_regs *regs)
+void thread_resume_from_rpc(struct thread_smc_args *args)
 {
-	return is_from_user((uint32_t)regs->cpsr);
-}
-
-void thread_resume_from_rpc(uint32_t thread_id, uint32_t a0, uint32_t a1,
-			    uint32_t a2, uint32_t a3)
-{
-	size_t n = thread_id;
+	size_t n = args->a3; /* thread id */
 	struct thread_core_local *l = thread_get_core_local();
 	bool found_thread = false;
 
@@ -686,38 +699,39 @@ void thread_resume_from_rpc(uint32_t thread_id, uint32_t a0, uint32_t a1,
 
 	thread_unlock_global();
 
-	if (!found_thread)
+	if (!found_thread) {
+		args->a0 = OPTEE_SMC_RETURN_ERESUME;
 		return;
+	}
 
 	l->curr_thread = n;
-
-	if (threads[n].have_user_map) {
-		core_mmu_set_user_map(&threads[n].user_map);
-		if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR)
-			tee_ta_ftrace_update_times_resume();
-	}
-
-	if (is_user_mode(&threads[n].regs))
-		tee_ta_update_session_utime_resume();
-
-	/*
-	 * Return from RPC to request service of a foreign interrupt must not
-	 * get parameters from non-secure world.
-	 */
-	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
-		copy_a0_to_a3(&threads[n].regs, a0, a1, a2, a3);
-		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
-	}
-
-	thread_lazy_save_ns_vfp();
-
 	if (threads[n].have_user_map)
 		ftrace_resume();
 
 	l->flags &= ~THREAD_CLF_TMP;
-	thread_resume(&threads[n].regs);
-	/*NOTREACHED*/
-	panic();
+
+	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
+		if (threads[n].have_user_map) {
+			struct thread_specific_data *tsd = thread_get_tsd();
+			struct user_ta_ctx *utc = to_user_ta_ctx(tsd->ctx);
+
+			tee_ta_update_session_utime_resume();
+			core_mmu_create_user_map(utc, &threads[n].user_map);
+			core_mmu_set_user_map(&threads[n].user_map);
+		}
+
+		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
+		assert(threads[n].ta_idx < MAX_TA_IDX);
+		thread_rpc_resume(threads[n].stack_va_curr[threads[n].ta_idx],
+				args, l->tmp_stack_va_end);
+	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
+		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
+		foreign_intr_resume(l->abt_stack_va_end, l->tmp_stack_va_end);
+	} else {
+		args->a0 = OPTEE_SMC_RETURN_ERESUME;
+		return;
+	}
+
 }
 
 void __nostackcheck *thread_get_tmp_sp(void)
@@ -883,7 +897,7 @@ static void release_unused_kernel_stack(struct thread_ctx *thr __unused,
 }
 #endif
 
-int thread_state_suspend(uint32_t flags, uint32_t cpsr, vaddr_t pc)
+int thread_state_suspend(uint32_t flags, vaddr_t sp)
 {
 	struct thread_core_local *l = thread_get_core_local();
 	int ct = l->curr_thread;
@@ -895,31 +909,27 @@ int thread_state_suspend(uint32_t flags, uint32_t cpsr, vaddr_t pc)
 
 	thread_check_canaries();
 
-	release_unused_kernel_stack(threads + ct, cpsr);
-
-	if (is_from_user(cpsr)) {
-		thread_user_save_vfp();
-		tee_ta_update_session_utime_suspend();
-		tee_ta_gprof_sample_pc(pc);
-	}
-	thread_lazy_restore_ns_vfp();
+	release_unused_kernel_stack(threads + ct, 0);
 
 	thread_lock_global();
 
 	assert(threads[ct].state == THREAD_STATE_ACTIVE);
 	threads[ct].flags |= flags;
-	threads[ct].regs.cpsr = cpsr;
-	threads[ct].regs.pc = pc;
-	threads[ct].state = THREAD_STATE_SUSPENDED;
 
-	threads[ct].have_user_map = core_mmu_user_mapping_is_active();
-	if (threads[ct].have_user_map) {
-		if (threads[ct].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR)
-			tee_ta_ftrace_update_times_suspend();
-		core_mmu_get_user_map(&threads[ct].user_map);
-		core_mmu_set_user_map(NULL);
+	if (flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
+		l->abt_stack_va_end = sp;
+	} else {
+		assert(threads[ct].ta_idx < MAX_TA_IDX);
+		threads[ct].stack_va_curr[threads[ct].ta_idx] = sp;
+
+		threads[ct].have_user_map = core_mmu_user_mapping_is_active();
+		if (threads[ct].have_user_map) {
+			core_mmu_get_user_map(&threads[ct].user_map);
+			core_mmu_set_user_map(NULL);
+		}
 	}
 
+	threads[ct].state = THREAD_STATE_SUSPENDED;
 	l->curr_thread = THREAD_ID_INVALID;
 
 #ifdef CFG_VIRTUALIZATION
@@ -929,6 +939,53 @@ int thread_state_suspend(uint32_t flags, uint32_t cpsr, vaddr_t pc)
 	thread_unlock_global();
 
 	return ct;
+}
+
+void thread_state_save(vaddr_t sp, uint32_t client)
+{
+	struct thread_core_local *l = thread_get_core_local();
+	int ct = l->curr_thread;
+
+	assert(ct != THREAD_ID_INVALID);
+
+	thread_lock_global();
+
+	assert(threads[ct].state == THREAD_STATE_ACTIVE);
+
+	if (client == TEE_LOGIN_TRUSTED_APP) {
+		threads[ct].ta_idx++;
+		assert(threads[ct].ta_idx < MAX_TA_IDX+1);
+		threads[ct].stack_va_curr[threads[ct].ta_idx-1] = sp;
+	} else {
+		threads[ct].ta_idx = 1;
+		threads[ct].stack_va_curr[0] = sp;
+	}
+
+	syscall_init(sp - 64);
+
+	thread_unlock_global();
+}
+
+vaddr_t thread_state_restore(void)
+{
+	struct thread_core_local *l = thread_get_core_local();
+	int ct = l->curr_thread;
+
+	assert(ct != THREAD_ID_INVALID);
+
+	assert(threads[ct].state == THREAD_STATE_ACTIVE);
+
+	assert(threads[ct].ta_idx < MAX_TA_IDX+1);
+
+	if (threads[ct].ta_idx > 1) {
+		threads[ct].ta_idx--;
+		syscall_init(threads[ct].stack_va_curr[threads[ct].ta_idx]
+				- 64);
+		return threads[ct].stack_va_curr[threads[ct].ta_idx];
+	}
+
+	threads[ct].ta_idx = 0;
+	return threads[ct].stack_va_curr[0];
 }
 
 #ifdef ARM32
@@ -947,7 +1004,6 @@ static void set_abt_stack(struct thread_core_local *l, vaddr_t sp)
 }
 #endif /*ARM32*/
 
-#ifdef ARM64
 static void set_tmp_stack(struct thread_core_local *l, vaddr_t sp)
 {
 	/*
@@ -962,7 +1018,6 @@ static void set_abt_stack(struct thread_core_local *l, vaddr_t sp)
 {
 	l->abt_stack_va_end = sp;
 }
-#endif /*ARM64*/
 
 bool thread_init_stack(uint32_t thread_id, vaddr_t sp)
 {
@@ -1108,23 +1163,20 @@ void thread_init_primary(void)
 	init_user_kcode();
 }
 
-static void init_sec_mon_stack(size_t pos __maybe_unused)
-{
-#if !defined(CFG_WITH_ARM_TRUSTED_FW)
-	/* Initialize secure monitor */
-	sm_init(GET_STACK_BOTTOM(stack_tmp, pos));
-#endif
-}
+/* main tss */
+static tss_t system_tss;
 
-static uint32_t __maybe_unused get_midr_implementer(uint32_t midr)
+static void init_tss(struct thread_core_local *l)
 {
-	return (midr >> MIDR_IMPLEMENTER_SHIFT) & MIDR_IMPLEMENTER_MASK;
-}
+	memset(&system_tss, 0, sizeof(system_tss));
 
-static uint32_t __maybe_unused get_midr_primary_part(uint32_t midr)
-{
-	return (midr >> MIDR_PRIMARY_PART_NUM_SHIFT) &
-	       MIDR_PRIMARY_PART_NUM_MASK;
+	system_tss.rsp0 = l->abt_stack_va_end;
+	system_tss.ist1 = l->abt_stack_va_end;
+
+	set_global_desc(TSS_SELECTOR, &system_tss, sizeof(system_tss),
+			1, 0, 0, SEG_TYPE_TSS, 0, 0);
+
+	x86_ltr(TSS_SELECTOR);
 }
 
 #ifdef ARM64
@@ -1200,21 +1252,10 @@ void thread_init_per_cpu(void)
 	size_t pos = get_core_pos();
 	struct thread_core_local *l = thread_get_core_local();
 
-	init_sec_mon_stack(pos);
+	set_tmp_stack(l, GET_STACK(stack_tmp[pos]) - STACK_TMP_OFFS);
+	set_abt_stack(l, GET_STACK(stack_abt[pos]));
 
-	set_tmp_stack(l, GET_STACK_BOTTOM(stack_tmp, pos) - STACK_TMP_OFFS);
-	set_abt_stack(l, GET_STACK_BOTTOM(stack_abt, pos));
-
-	thread_init_vbar(get_excp_vect());
-
-#ifdef CFG_FTRACE_SUPPORT
-	/*
-	 * Enable accesses to frequency register and physical counter
-	 * register in EL0/PL0 required for timestamping during
-	 * function tracing.
-	 */
-	write_cntkctl(read_cntkctl() | CNTKCTL_PL0PCTEN);
-#endif
+	init_tss(l);
 }
 
 struct thread_specific_data *thread_get_tsd(void)
@@ -1436,55 +1477,32 @@ static bool get_spsr(bool is_32bit, unsigned long entry_func, uint32_t *spsr)
 static void set_ctx_regs(struct thread_ctx_regs *regs, unsigned long a0,
 			 unsigned long a1, unsigned long a2, unsigned long a3,
 			 unsigned long user_sp, unsigned long entry_func,
-			 uint32_t spsr)
+			 uint32_t client)
 {
 	/*
 	 * First clear all registers to avoid leaking information from
 	 * other TAs or even the Core itself.
 	 */
 	*regs = (struct thread_ctx_regs){ };
-#ifdef ARM32
-	regs->r0 = a0;
-	regs->r1 = a1;
-	regs->r2 = a2;
-	regs->r3 = a3;
-	regs->usr_sp = user_sp;
-	regs->pc = entry_func;
-	regs->cpsr = spsr;
-#endif
-#ifdef ARM64
-	regs->x[0] = a0;
-	regs->x[1] = a1;
-	regs->x[2] = a2;
-	regs->x[3] = a3;
-	regs->sp = user_sp;
-	regs->pc = entry_func;
-	regs->cpsr = spsr;
-	regs->x[13] = user_sp;	/* Used when running TA in Aarch32 */
-	regs->sp = user_sp;	/* Used when running TA in Aarch64 */
-	/* Set frame pointer (user stack can't be unwound past this point) */
-	regs->x[29] = 0;
-#endif
+	regs->r10 = a0;
+	regs->r11 = a1;
+	regs->r12 = a2;
+	regs->r13 = a3;
+	regs->r14 = user_sp;
+	regs->r15 = client;
+	regs->rip = entry_func;
 }
 
 uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 		unsigned long a2, unsigned long a3, unsigned long user_sp,
-		unsigned long entry_func, bool is_32bit,
+		unsigned long entry_func, uint32_t client,
 		uint32_t *exit_status0, uint32_t *exit_status1)
 {
-	uint32_t spsr = 0;
 	uint32_t exceptions = 0;
 	uint32_t rc = 0;
 	struct thread_ctx_regs *regs = NULL;
 
 	tee_ta_update_session_utime_resume();
-
-	/* Derive SPSR from current CPSR/PSTATE readout. */
-	if (!get_spsr(is_32bit, entry_func, &spsr)) {
-		*exit_status0 = 1; /* panic */
-		*exit_status1 = 0xbadbadba;
-		return 0;
-	}
 
 	exceptions = thread_mask_exceptions(THREAD_EXCP_ALL);
 	/*
@@ -1494,7 +1512,7 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 	 * unmasked when user mode has been entered.
 	 */
 	regs = thread_get_ctx_regs();
-	set_ctx_regs(regs, a0, a1, a2, a3, user_sp, entry_func, spsr);
+	set_ctx_regs(regs, a0, a1, a2, a3, user_sp, entry_func, client);
 	rc = __thread_enter_user_mode(regs, exit_status0, exit_status1);
 	thread_unmask_exceptions(exceptions);
 	return rc;
