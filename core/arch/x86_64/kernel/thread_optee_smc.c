@@ -15,17 +15,20 @@
 #include <optee_msg.h>
 #include <optee_rpc_cmd.h>
 #include <sm/optee_smc.h>
-#include <sm/sm.h>
 #include <string.h>
 #include <tee/entry_std.h>
 #include <tee/entry_fast.h>
 #include <tee/tee_cryp_utl.h>
 #include <tee/tee_fs_rpc.h>
+#include <sm/vmcall.h>
+#include <drivers/apic.h>
+#include <console.h>
 
 #include "thread_private.h"
 
 static bool thread_prealloc_rpc_cache;
 static unsigned int thread_rpc_pnum;
+uint32_t is_optee_boot_complete = 0;
 
 void thread_handle_fast_smc(struct thread_smc_args *args)
 {
@@ -49,37 +52,27 @@ out:
 	assert(thread_get_exceptions() == THREAD_EXCP_ALL);
 }
 
-uint32_t thread_handle_std_smc(uint32_t a0, uint32_t a1, uint32_t a2,
-			       uint32_t a3, uint32_t a4, uint32_t a5,
-			       uint32_t a6 __unused, uint32_t a7 __maybe_unused)
+void thread_handle_std_smc(struct thread_smc_args *args)
 {
-	uint32_t rv = OPTEE_SMC_RETURN_OK;
-
 	thread_check_canaries();
 
 #ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(a7))
-		return OPTEE_SMC_RETURN_ENOTAVAIL;
+	if (!virt_set_guest(args->a7)) {
+		args->a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+		return;
+	}
 #endif
 
-	/*
-	 * thread_resume_from_rpc() and thread_alloc_and_run() only return
-	 * on error. Successful return is done via thread_exit() or
-	 * thread_rpc().
-	 */
-	if (a0 == OPTEE_SMC_CALL_RETURN_FROM_RPC) {
-		thread_resume_from_rpc(a3, a1, a2, a4, a5);
-		rv = OPTEE_SMC_RETURN_ERESUME;
-	} else {
-		thread_alloc_and_run(a0, a1, a2, a3);
-		rv = OPTEE_SMC_RETURN_ETHREAD_LIMIT;
-	}
+	if (args->a0 == OPTEE_SMC_CALL_RETURN_FROM_RPC)
+		thread_resume_from_rpc(args);
+	else
+		thread_alloc_and_run(args);
 
 #ifdef CFG_VIRTUALIZATION
 	virt_unset_guest();
 #endif
 
-	return rv;
+	thread_get_stdcall_ret(args);
 }
 
 /**
@@ -203,15 +196,14 @@ static uint32_t std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
  * Note: this function is weak just to make it possible to exclude it from
  * the unpaged area.
  */
-uint32_t __weak __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
-				       uint32_t a3)
+void __weak __thread_std_smc_entry(struct thread_smc_args *args)
 {
 	uint32_t rv = 0;
 
 #ifdef CFG_VIRTUALIZATION
 	virt_on_stdcall();
 #endif
-	rv = std_smc_entry(a0, a1, a2, a3);
+	rv = std_smc_entry(args->a0, args->a1, args->a2, args->a3);
 
 	if (rv == OPTEE_SMC_RETURN_OK) {
 		struct thread_ctx *thr = threads + thread_get_id();
@@ -225,7 +217,7 @@ uint32_t __weak __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
 		}
 	}
 
-	return rv;
+	args->a0 = rv;
 }
 
 bool thread_disable_prealloc_rpc_cache(uint64_t *cookie)
@@ -625,4 +617,44 @@ void thread_rpc_free_global_payload(struct mobj *mobj)
 {
 	thread_rpc_free(OPTEE_RPC_SHM_TYPE_GLOBAL, mobj_get_cookie(mobj),
 			mobj);
+}
+
+void return_flags sm_sched_nonsecure(void)
+{
+	uint32_t smc_nr;
+	struct thread_smc_args args = {0};
+
+	while (true) {
+		if (is_optee_boot_complete == 0) {
+			restore_pic();
+			x86_set_cr8(0);
+			is_optee_boot_complete = 1;
+			/*
+			 * Because current x86 QEMU environment doesn't suppor
+			 * hypervisor yet, here just return to halt instead of
+			 * issue vmcall to boot up REE OS
+			 */
+#ifdef PLATFORM_QEMU
+			IMSG("Boot complete in QEMU.Execution halted\n");
+			break;
+#endif
+			IMSG("return to nonsecure firstly, boot=%d, a0=0x%lx\n",
+					is_optee_boot_complete, args.a0);
+			console_init();
+		}
+
+		make_smc_vmcall(&args);
+		is_optee_boot_complete = 1;
+
+		smc_nr = args.a0;
+		if (OPTEE_SMC_IS_64(smc_nr)) {
+			args.a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+			continue;
+		}
+
+		if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
+			thread_handle_fast_smc(&args);
+		else
+			thread_handle_std_smc(&args);
+	}
 }
