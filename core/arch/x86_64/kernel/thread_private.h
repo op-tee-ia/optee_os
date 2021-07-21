@@ -27,17 +27,6 @@ struct thread_user_mode_rec {
 	uint64_t exit_status1_ptr;
 	uint64_t x[31 - 19]; /* x19..x30 */
 };
-#ifdef CFG_WITH_VFP
-struct thread_vfp_state {
-	bool ns_saved;
-	bool sec_saved;
-	bool sec_lazy_saved;
-	struct vfp_state ns;
-	struct vfp_state sec;
-	struct thread_user_vfp_state *uvfp;
-};
-
-#endif /*CFG_WITH_VFP*/
 
 struct thread_shm_cache_entry {
 	struct mobj *mobj;
@@ -66,15 +55,6 @@ struct thread_ctx {
 	struct thread_specific_data tsd;
 };
 #endif /*__ASSEMBLER__*/
-
-#ifdef ARM64
-#ifdef CFG_WITH_VFP
-#define THREAD_VFP_STATE_SIZE				\
-	(16 + (16 * 32 + 16) * 2 + 16)
-#else
-#define THREAD_VFP_STATE_SIZE				0
-#endif
-#endif /*ARM64*/
 
 /* Describes the flags field of struct thread_core_local */
 #define THREAD_CLF_SAVED_SHIFT			4
@@ -107,11 +87,6 @@ extern long thread_user_kcode_offset;
  * Initializes VBAR for current CPU (called by thread_init_per_cpu()
  */
 void thread_init_vbar(vaddr_t addr);
-
-void thread_excp_vect(void);
-void thread_excp_vect_workaround(void);
-void thread_excp_vect_workaround_a15(void);
-void thread_excp_vect_end(void);
 
 /*
  * Handles a stdcall, r10-r15 holds the parameters
@@ -179,23 +154,6 @@ void thread_state_free(void);
 /* Returns a pointer to the saved registers in current thread context. */
 struct thread_ctx_regs *thread_get_ctx_regs(void);
 
-#ifdef ARM32
-/* Sets sp for abort mode */
-void thread_set_abt_sp(vaddr_t sp);
-
-/* Sets sp for undefined mode */
-void thread_set_und_sp(vaddr_t sp);
-
-/* Sets sp for irq mode */
-void thread_set_irq_sp(vaddr_t sp);
-
-/* Sets sp for fiq mode */
-void thread_set_fiq_sp(vaddr_t sp);
-
-/* Read usr_sp banked CPU register */
-uint32_t thread_get_usr_sp(void);
-#endif /*ARM32*/
-
 /* Checks stack canaries */
 void thread_check_canaries(void);
 
@@ -212,28 +170,7 @@ void thread_unlock_global(void);
  * world.
  */
 #define THREAD_RPC_NUM_ARGS     4
-#ifdef CFG_CORE_FFA
-struct thread_rpc_arg {
-	union {
-		struct {
-			uint32_t w1;
-			uint32_t w4;
-			uint32_t w5;
-			uint32_t w6;
-		} call;
-		struct {
-			uint32_t w4;
-			uint32_t w5;
-			uint32_t w6;
-		} ret;
-		uint32_t pad[THREAD_RPC_NUM_ARGS];
-	};
-};
-
-void thread_rpc(struct thread_rpc_arg *rpc_arg);
-#else
 void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]);
-#endif
 
 /*
  * Handles a fast SMC by dispatching it to the registered fast SMC handler
