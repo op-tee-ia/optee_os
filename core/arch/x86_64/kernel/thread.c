@@ -63,9 +63,6 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 #endif
 
 #ifdef CFG_WITH_STACK_CANARIES
-#ifdef ARM32
-#define STACK_CANARY_SIZE	(4 * sizeof(uint32_t))
-#endif
 #define STACK_CANARY_SIZE	(8 * sizeof(uint32_t))
 #define START_CANARY_VALUE	0xdededede
 #define END_CANARY_VALUE	0xabababab
@@ -125,25 +122,6 @@ const uint32_t stack_tmp_stride __section(".identity_map.stack_tmp_stride") =
  */
 DECLARE_KEEP_PAGER(stack_tmp_export);
 DECLARE_KEEP_PAGER(stack_tmp_stride);
-
-#ifdef CFG_CORE_UNMAP_CORE_AT_EL0
-static vaddr_t thread_user_kcode_va __nex_bss;
-long thread_user_kcode_offset __nex_bss;
-static size_t thread_user_kcode_size __nex_bss;
-#endif
-
-#if defined(CFG_CORE_UNMAP_CORE_AT_EL0) && \
-	defined(CFG_CORE_WORKAROUND_SPECTRE_BP_SEC) && defined(ARM64)
-long thread_user_kdata_sp_offset __nex_bss;
-static uint8_t thread_user_kdata_page[
-	ROUNDUP(sizeof(thread_core_local), SMALL_PAGE_SIZE)]
-	__aligned(SMALL_PAGE_SIZE)
-#ifndef CFG_VIRTUALIZATION
-	__section(".nozi.kdata_page");
-#else
-	__section(".nex_nozi.kdata_page");
-#endif
-#endif
 
 static unsigned int thread_global_lock __nex_bss = SPINLOCK_UNLOCK;
 
@@ -228,56 +206,6 @@ void thread_unlock_global(void)
 {
 	cpu_spin_unlock(&thread_global_lock);
 }
-
-#ifdef ARM32
-uint32_t __nostackcheck thread_get_exceptions(void)
-{
-	uint32_t cpsr = read_cpsr();
-
-	return (cpsr >> CPSR_F_SHIFT) & THREAD_EXCP_ALL;
-}
-
-void __nostackcheck thread_set_exceptions(uint32_t exceptions)
-{
-	uint32_t cpsr = read_cpsr();
-
-	/* Foreign interrupts must not be unmasked while holding a spinlock */
-	if (!(exceptions & THREAD_EXCP_FOREIGN_INTR))
-		assert_have_no_spinlock();
-
-	cpsr &= ~(THREAD_EXCP_ALL << CPSR_F_SHIFT);
-	cpsr |= ((exceptions & THREAD_EXCP_ALL) << CPSR_F_SHIFT);
-
-	barrier();
-	write_cpsr(cpsr);
-	barrier();
-}
-#endif /*ARM32*/
-
-#ifdef ARM64
-uint32_t __nostackcheck thread_get_exceptions(void)
-{
-	uint32_t daif = read_daif();
-
-	return (daif >> DAIF_F_SHIFT) & THREAD_EXCP_ALL;
-}
-
-void __nostackcheck thread_set_exceptions(uint32_t exceptions)
-{
-	uint32_t daif = read_daif();
-
-	/* Foreign interrupts must not be unmasked while holding a spinlock */
-	if (!(exceptions & THREAD_EXCP_FOREIGN_INTR))
-		assert_have_no_spinlock();
-
-	daif &= ~(THREAD_EXCP_ALL << DAIF_F_SHIFT);
-	daif |= ((exceptions & THREAD_EXCP_ALL) << DAIF_F_SHIFT);
-
-	barrier();
-	write_daif(daif);
-	barrier();
-}
-#endif /*ARM64*/
 
 uint32_t thread_get_exceptions(void)
 {
@@ -421,103 +349,6 @@ static void print_stack_limits(void)
 }
 #endif
 
-static void thread_lazy_save_ns_vfp(void)
-{
-#ifdef CFG_WITH_VFP
-	struct thread_ctx *thr = threads + thread_get_id();
-
-	thr->vfp_state.ns_saved = false;
-	vfp_lazy_save_state_init(&thr->vfp_state.ns);
-#endif /*CFG_WITH_VFP*/
-}
-
-static void thread_lazy_restore_ns_vfp(void)
-{
-#ifdef CFG_WITH_VFP
-	struct thread_ctx *thr = threads + thread_get_id();
-	struct thread_user_vfp_state *tuv = thr->vfp_state.uvfp;
-
-	assert(!thr->vfp_state.sec_lazy_saved && !thr->vfp_state.sec_saved);
-
-	if (tuv && tuv->lazy_saved && !tuv->saved) {
-		vfp_lazy_save_state_final(&tuv->vfp, false /*!force_save*/);
-		tuv->saved = true;
-	}
-
-	vfp_lazy_restore_state(&thr->vfp_state.ns, thr->vfp_state.ns_saved);
-	thr->vfp_state.ns_saved = false;
-#endif /*CFG_WITH_VFP*/
-}
-
-#ifdef ARM32
-static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
-		      uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5,
-		      uint32_t a6, uint32_t a7, void *pc)
-{
-	thread->regs.pc = (uint32_t)pc;
-
-	/*
-	 * Stdcalls starts in SVC mode with masked foreign interrupts, masked
-	 * Asynchronous abort and unmasked native interrupts.
-	 */
-	thread->regs.cpsr = read_cpsr() & ARM32_CPSR_E;
-	thread->regs.cpsr |= CPSR_MODE_SVC | CPSR_A |
-			(THREAD_EXCP_FOREIGN_INTR << ARM32_CPSR_F_SHIFT);
-	/* Enable thumb mode if it's a thumb instruction */
-	if (thread->regs.pc & 1)
-		thread->regs.cpsr |= CPSR_T;
-	/* Reinitialize stack pointer */
-	thread->regs.svc_sp = thread->stack_va_end;
-
-	/*
-	 * Copy arguments into context. This will make the
-	 * arguments appear in r0-r7 when thread is started.
-	 */
-	thread->regs.r0 = a0;
-	thread->regs.r1 = a1;
-	thread->regs.r2 = a2;
-	thread->regs.r3 = a3;
-	thread->regs.r4 = a4;
-	thread->regs.r5 = a5;
-	thread->regs.r6 = a6;
-	thread->regs.r7 = a7;
-}
-#endif /*ARM32*/
-
-#ifdef ARM64
-static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
-		      uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5,
-		      uint32_t a6, uint32_t a7, void *pc)
-{
-	thread->regs.pc = (uint64_t)pc;
-
-	/*
-	 * Stdcalls starts in SVC mode with masked foreign interrupts, masked
-	 * Asynchronous abort and unmasked native interrupts.
-	 */
-	thread->regs.cpsr = SPSR_64(SPSR_64_MODE_EL1, SPSR_64_MODE_SP_EL0,
-				THREAD_EXCP_FOREIGN_INTR | DAIFBIT_ABT);
-	/* Reinitialize stack pointer */
-	thread->regs.sp = thread->stack_va_end;
-
-	/*
-	 * Copy arguments into context. This will make the
-	 * arguments appear in x0-x7 when thread is started.
-	 */
-	thread->regs.x[0] = a0;
-	thread->regs.x[1] = a1;
-	thread->regs.x[2] = a2;
-	thread->regs.x[3] = a3;
-	thread->regs.x[4] = a4;
-	thread->regs.x[5] = a5;
-	thread->regs.x[6] = a6;
-	thread->regs.x[7] = a7;
-
-	/* Set up frame pointer as per the Aarch64 AAPCS */
-	thread->regs.x[29] = 0;
-}
-#endif /*ARM64*/
-
 static void init_regs(struct thread_ctx *thread, struct thread_smc_args *args)
 {
 	struct thread_ctx_regs *regs;
@@ -589,8 +420,6 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 	threads[n].ta_idx = 0;
 	init_regs(threads + n, args);
 
-	thread_lazy_save_ns_vfp();
-
 	l->flags &= ~THREAD_CLF_TMP;
 	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]),
 			l->tmp_stack_va_end);
@@ -604,55 +433,6 @@ void thread_sp_alloc_and_run(struct thread_smc_args *args __maybe_unused)
 	__thread_alloc_and_run(args->a0, args->a1, args->a2, args->a3, args->a4,
 			       args->a5, args->a6, args->a7,
 			       spmc_sp_thread_entry);
-}
-#endif
-
-#ifdef ARM32
-static void copy_a0_to_a3(struct thread_ctx_regs *regs, uint32_t a0,
-			  uint32_t a1, uint32_t a2, uint32_t a3)
-{
-	/*
-	 * Update returned values from RPC, values will appear in
-	 * r0-r3 when thread is resumed.
-	 */
-	regs->r0 = a0;
-	regs->r1 = a1;
-	regs->r2 = a2;
-	regs->r3 = a3;
-}
-#endif /*ARM32*/
-
-#ifdef ARM64
-static void copy_a0_to_a3(struct thread_ctx_regs *regs, uint32_t a0,
-			  uint32_t a1, uint32_t a2, uint32_t a3)
-{
-	/*
-	 * Update returned values from RPC, values will appear in
-	 * x0-x3 when thread is resumed.
-	 */
-	regs->x[0] = a0;
-	regs->x[1] = a1;
-	regs->x[2] = a2;
-	regs->x[3] = a3;
-}
-#endif /*ARM64*/
-
-#ifdef ARM32
-static bool is_from_user(uint32_t cpsr)
-{
-	return (cpsr & ARM32_CPSR_MODE_MASK) == ARM32_CPSR_MODE_USR;
-}
-#endif
-
-#ifdef ARM64
-static bool is_from_user(uint32_t cpsr)
-{
-	if (cpsr & (SPSR_MODE_RW_32 << SPSR_MODE_RW_SHIFT))
-		return true;
-	if (((cpsr >> SPSR_64_MODE_EL_SHIFT) & SPSR_64_MODE_EL_MASK) ==
-	     SPSR_64_MODE_EL0)
-		return true;
-	return false;
 }
 #endif
 
@@ -747,17 +527,6 @@ void __nostackcheck *thread_get_tmp_sp(void)
 	return (void *)l->tmp_stack_va_end;
 }
 
-#ifdef ARM64
-vaddr_t thread_get_saved_thread_sp(void)
-{
-	struct thread_core_local *l = thread_get_core_local();
-	int ct = l->curr_thread;
-
-	assert(ct != THREAD_ID_INVALID);
-	return threads[ct].kern_sp;
-}
-#endif /*ARM64*/
-
 vaddr_t thread_stack_start(void)
 {
 	struct thread_ctx *thr;
@@ -819,32 +588,6 @@ bool thread_is_from_abort_mode(void)
 	return (l->flags >> THREAD_CLF_SAVED_SHIFT) & THREAD_CLF_ABORT;
 }
 
-#ifdef ARM32
-bool thread_is_in_normal_mode(void)
-{
-	return (read_cpsr() & ARM32_CPSR_MODE_MASK) == ARM32_CPSR_MODE_SVC;
-}
-#endif
-
-#ifdef ARM64
-bool thread_is_in_normal_mode(void)
-{
-	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
-	struct thread_core_local *l = thread_get_core_local();
-	bool ret;
-
-	/*
-	 * If any bit in l->flags is set aside from THREAD_CLF_TMP we're
-	 * handling some exception.
-	 */
-	ret = (l->curr_thread != THREAD_ID_INVALID) &&
-	      !(l->flags & ~THREAD_CLF_TMP);
-	thread_unmask_exceptions(exceptions);
-
-	return ret;
-}
-#endif
-
 void thread_state_free(void)
 {
 	struct thread_core_local *l = thread_get_core_local();
@@ -852,7 +595,6 @@ void thread_state_free(void)
 
 	assert(ct != THREAD_ID_INVALID);
 
-	thread_lazy_restore_ns_vfp();
 	tee_pager_release_phys(
 		(void *)(threads[ct].stack_va_end - STACK_THREAD_SIZE),
 		STACK_THREAD_SIZE);
@@ -988,22 +730,6 @@ vaddr_t thread_state_restore(void)
 	return threads[ct].stack_va_curr[0];
 }
 
-#ifdef ARM32
-static void set_tmp_stack(struct thread_core_local *l, vaddr_t sp)
-{
-	l->tmp_stack_va_end = sp;
-	thread_set_irq_sp(sp);
-	thread_set_fiq_sp(sp);
-}
-
-static void set_abt_stack(struct thread_core_local *l, vaddr_t sp)
-{
-	l->abt_stack_va_end = sp;
-	thread_set_abt_sp((vaddr_t)l);
-	thread_set_und_sp((vaddr_t)l);
-}
-#endif /*ARM32*/
-
 static void set_tmp_stack(struct thread_core_local *l, vaddr_t sp)
 {
 	/*
@@ -1101,31 +827,6 @@ static void init_thread_stacks(void)
 }
 #endif /*CFG_WITH_PAGER*/
 
-static void init_user_kcode(void)
-{
-#ifdef CFG_CORE_UNMAP_CORE_AT_EL0
-	vaddr_t v = (vaddr_t)thread_excp_vect;
-	vaddr_t ve = (vaddr_t)thread_excp_vect_end;
-
-	thread_user_kcode_va = ROUNDDOWN(v, CORE_MMU_USER_CODE_SIZE);
-	ve = ROUNDUP(ve, CORE_MMU_USER_CODE_SIZE);
-	thread_user_kcode_size = ve - thread_user_kcode_va;
-
-	core_mmu_get_user_va_range(&v, NULL);
-	thread_user_kcode_offset = thread_user_kcode_va - v;
-
-#if defined(CFG_CORE_WORKAROUND_SPECTRE_BP_SEC) && defined(ARM64)
-	/*
-	 * When transitioning to EL0 subtract SP with this much to point to
-	 * this special kdata page instead. SP is restored by add this much
-	 * while transitioning back to EL1.
-	 */
-	v += thread_user_kcode_size;
-	thread_user_kdata_sp_offset = (vaddr_t)thread_core_local - v;
-#endif
-#endif /*CFG_CORE_UNMAP_CORE_AT_EL0*/
-}
-
 void thread_init_threads(void)
 {
 	size_t n = 0;
@@ -1159,8 +860,6 @@ void thread_init_primary(void)
 {
 	/* Initialize canaries around the stacks */
 	init_canaries();
-
-	init_user_kcode();
 }
 
 /* main tss */
@@ -1177,74 +876,6 @@ static void init_tss(struct thread_core_local *l)
 			1, 0, 0, SEG_TYPE_TSS, 0, 0);
 
 	x86_ltr(TSS_SELECTOR);
-}
-
-#ifdef ARM64
-static bool probe_workaround_available(void)
-{
-	int32_t r;
-
-	r = thread_smc(SMCCC_VERSION, 0, 0, 0);
-	if (r < 0)
-		return false;
-	if (r < 0x10001)	/* compare with version 1.1 */
-		return false;
-
-	/* Version >= 1.1, so SMCCC_ARCH_FEATURES is available */
-	r = thread_smc(SMCCC_ARCH_FEATURES, SMCCC_ARCH_WORKAROUND_1, 0, 0);
-	return r >= 0;
-}
-
-static vaddr_t __maybe_unused select_vector(vaddr_t a)
-{
-	if (probe_workaround_available()) {
-		DMSG("SMCCC_ARCH_WORKAROUND_1 (%#08" PRIx32 ") available",
-		     SMCCC_ARCH_WORKAROUND_1);
-		DMSG("SMC Workaround for CVE-2017-5715 used");
-		return a;
-	}
-
-	DMSG("SMCCC_ARCH_WORKAROUND_1 (%#08" PRIx32 ") unavailable",
-	     SMCCC_ARCH_WORKAROUND_1);
-	DMSG("SMC Workaround for CVE-2017-5715 not needed (if ARM-TF is up to date)");
-	return (vaddr_t)thread_excp_vect;
-}
-#else
-static vaddr_t __maybe_unused select_vector(vaddr_t a)
-{
-	return a;
-}
-#endif
-
-static vaddr_t get_excp_vect(void)
-{
-#ifdef CFG_CORE_WORKAROUND_SPECTRE_BP_SEC
-	uint32_t midr = read_midr();
-
-	if (get_midr_implementer(midr) != MIDR_IMPLEMENTER_ARM)
-		return (vaddr_t)thread_excp_vect;
-
-	switch (get_midr_primary_part(midr)) {
-#ifdef ARM32
-	case CORTEX_A8_PART_NUM:
-	case CORTEX_A9_PART_NUM:
-	case CORTEX_A17_PART_NUM:
-#endif
-	case CORTEX_A57_PART_NUM:
-	case CORTEX_A72_PART_NUM:
-	case CORTEX_A73_PART_NUM:
-	case CORTEX_A75_PART_NUM:
-		return select_vector((vaddr_t)thread_excp_vect_workaround);
-#ifdef ARM32
-	case CORTEX_A15_PART_NUM:
-		return select_vector((vaddr_t)thread_excp_vect_workaround_a15);
-#endif
-	default:
-		return (vaddr_t)thread_excp_vect;
-	}
-#endif /*CFG_CORE_WORKAROUND_SPECTRE_BP_SEC*/
-
-	return (vaddr_t)thread_excp_vect;
 }
 
 void thread_init_per_cpu(void)
@@ -1309,171 +940,6 @@ void thread_restore_foreign_intr(void)
 		thread_set_exceptions(exceptions & ~THREAD_EXCP_FOREIGN_INTR);
 }
 
-#ifdef CFG_WITH_VFP
-uint32_t thread_kernel_enable_vfp(void)
-{
-	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
-	struct thread_ctx *thr = threads + thread_get_id();
-	struct thread_user_vfp_state *tuv = thr->vfp_state.uvfp;
-
-	assert(!vfp_is_enabled());
-
-	if (!thr->vfp_state.ns_saved) {
-		vfp_lazy_save_state_final(&thr->vfp_state.ns,
-					  true /*force_save*/);
-		thr->vfp_state.ns_saved = true;
-	} else if (thr->vfp_state.sec_lazy_saved &&
-		   !thr->vfp_state.sec_saved) {
-		/*
-		 * This happens when we're handling an abort while the
-		 * thread was using the VFP state.
-		 */
-		vfp_lazy_save_state_final(&thr->vfp_state.sec,
-					  false /*!force_save*/);
-		thr->vfp_state.sec_saved = true;
-	} else if (tuv && tuv->lazy_saved && !tuv->saved) {
-		/*
-		 * This can happen either during syscall or abort
-		 * processing (while processing a syscall).
-		 */
-		vfp_lazy_save_state_final(&tuv->vfp, false /*!force_save*/);
-		tuv->saved = true;
-	}
-
-	vfp_enable();
-	return exceptions;
-}
-
-void thread_kernel_disable_vfp(uint32_t state)
-{
-	uint32_t exceptions;
-
-	assert(vfp_is_enabled());
-
-	vfp_disable();
-	exceptions = thread_get_exceptions();
-	assert(exceptions & THREAD_EXCP_FOREIGN_INTR);
-	exceptions &= ~THREAD_EXCP_FOREIGN_INTR;
-	exceptions |= state & THREAD_EXCP_FOREIGN_INTR;
-	thread_set_exceptions(exceptions);
-}
-
-void thread_kernel_save_vfp(void)
-{
-	struct thread_ctx *thr = threads + thread_get_id();
-
-	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
-	if (vfp_is_enabled()) {
-		vfp_lazy_save_state_init(&thr->vfp_state.sec);
-		thr->vfp_state.sec_lazy_saved = true;
-	}
-}
-
-void thread_kernel_restore_vfp(void)
-{
-	struct thread_ctx *thr = threads + thread_get_id();
-
-	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
-	assert(!vfp_is_enabled());
-	if (thr->vfp_state.sec_lazy_saved) {
-		vfp_lazy_restore_state(&thr->vfp_state.sec,
-				       thr->vfp_state.sec_saved);
-		thr->vfp_state.sec_saved = false;
-		thr->vfp_state.sec_lazy_saved = false;
-	}
-}
-
-void thread_user_enable_vfp(struct thread_user_vfp_state *uvfp)
-{
-	struct thread_ctx *thr = threads + thread_get_id();
-	struct thread_user_vfp_state *tuv = thr->vfp_state.uvfp;
-
-	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
-	assert(!vfp_is_enabled());
-
-	if (!thr->vfp_state.ns_saved) {
-		vfp_lazy_save_state_final(&thr->vfp_state.ns,
-					  true /*force_save*/);
-		thr->vfp_state.ns_saved = true;
-	} else if (tuv && uvfp != tuv) {
-		if (tuv->lazy_saved && !tuv->saved) {
-			vfp_lazy_save_state_final(&tuv->vfp,
-						  false /*!force_save*/);
-			tuv->saved = true;
-		}
-	}
-
-	if (uvfp->lazy_saved)
-		vfp_lazy_restore_state(&uvfp->vfp, uvfp->saved);
-	uvfp->lazy_saved = false;
-	uvfp->saved = false;
-
-	thr->vfp_state.uvfp = uvfp;
-	vfp_enable();
-}
-
-void thread_user_save_vfp(void)
-{
-	struct thread_ctx *thr = threads + thread_get_id();
-	struct thread_user_vfp_state *tuv = thr->vfp_state.uvfp;
-
-	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
-	if (!vfp_is_enabled())
-		return;
-
-	assert(tuv && !tuv->lazy_saved && !tuv->saved);
-	vfp_lazy_save_state_init(&tuv->vfp);
-	tuv->lazy_saved = true;
-}
-
-void thread_user_clear_vfp(struct user_mode_ctx *uctx)
-{
-	struct thread_user_vfp_state *uvfp = &uctx->vfp;
-	struct thread_ctx *thr = threads + thread_get_id();
-
-	if (uvfp == thr->vfp_state.uvfp)
-		thr->vfp_state.uvfp = NULL;
-	uvfp->lazy_saved = false;
-	uvfp->saved = false;
-}
-#endif /*CFG_WITH_VFP*/
-
-#ifdef ARM32
-static bool get_spsr(bool is_32bit, unsigned long entry_func, uint32_t *spsr)
-{
-	uint32_t s;
-
-	if (!is_32bit)
-		return false;
-
-	s = read_cpsr();
-	s &= ~(CPSR_MODE_MASK | CPSR_T | CPSR_IT_MASK1 | CPSR_IT_MASK2);
-	s |= CPSR_MODE_USR;
-	if (entry_func & 1)
-		s |= CPSR_T;
-	*spsr = s;
-	return true;
-}
-#endif
-
-#ifdef ARM64
-static bool get_spsr(bool is_32bit, unsigned long entry_func, uint32_t *spsr)
-{
-	uint32_t s;
-
-	if (is_32bit) {
-		s = read_daif() & (SPSR_32_AIF_MASK << SPSR_32_AIF_SHIFT);
-		s |= SPSR_MODE_RW_32 << SPSR_MODE_RW_SHIFT;
-		s |= (entry_func & SPSR_32_T_MASK) << SPSR_32_T_SHIFT;
-	} else {
-		s = read_daif() & (SPSR_64_DAIF_MASK << SPSR_64_DAIF_SHIFT);
-	}
-
-	*spsr = s;
-	return true;
-}
-#endif
-
 static void set_ctx_regs(struct thread_ctx_regs *regs, unsigned long a0,
 			 unsigned long a1, unsigned long a2, unsigned long a3,
 			 unsigned long user_sp, unsigned long entry_func,
@@ -1518,53 +984,6 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 	return rc;
 }
 
-#ifdef CFG_CORE_UNMAP_CORE_AT_EL0
-void thread_get_user_kcode(struct mobj **mobj, size_t *offset,
-			   vaddr_t *va, size_t *sz)
-{
-	core_mmu_get_user_va_range(va, NULL);
-	*mobj = mobj_tee_ram;
-	*offset = thread_user_kcode_va - VCORE_START_VA;
-	*sz = thread_user_kcode_size;
-}
-#endif
-
-#if defined(CFG_CORE_UNMAP_CORE_AT_EL0) && \
-	defined(CFG_CORE_WORKAROUND_SPECTRE_BP_SEC) && defined(ARM64)
-void thread_get_user_kdata(struct mobj **mobj, size_t *offset,
-			   vaddr_t *va, size_t *sz)
-{
-	vaddr_t v;
-
-	core_mmu_get_user_va_range(&v, NULL);
-	*va = v + thread_user_kcode_size;
-	*mobj = mobj_tee_ram;
-	*offset = (vaddr_t)thread_user_kdata_page - VCORE_START_VA;
-	*sz = sizeof(thread_user_kdata_page);
-}
-#endif
-
-static void setup_unwind_user_mode(struct thread_svc_regs *regs)
-{
-#ifdef ARM32
-	regs->lr = (uintptr_t)thread_unwind_user_mode;
-	regs->spsr = read_cpsr();
-#endif
-#ifdef ARM64
-	regs->elr = (uintptr_t)thread_unwind_user_mode;
-	regs->spsr = SPSR_64(SPSR_64_MODE_EL1, SPSR_64_MODE_SP_EL0, 0);
-	regs->spsr |= read_daif();
-	/*
-	 * Regs is the value of stack pointer before calling the SVC
-	 * handler.  By the addition matches for the reserved space at the
-	 * beginning of el0_sync_svc(). This prepares the stack when
-	 * returning to thread_unwind_user_mode instead of a normal
-	 * exception return.
-	 */
-	regs->sp_el0 = (uint64_t)(regs + 1);
-#endif
-}
-
 static void gprof_set_status(struct ts_session *s __maybe_unused,
 			     enum ts_gprof_status status __maybe_unused)
 {
@@ -1572,41 +991,6 @@ static void gprof_set_status(struct ts_session *s __maybe_unused,
 	if (s->ctx->ops->gprof_set_status)
 		s->ctx->ops->gprof_set_status(status);
 #endif
-}
-
-/*
- * Note: this function is weak just to make it possible to exclude it from
- * the unpaged area.
- */
-void __weak thread_svc_handler(struct thread_svc_regs *regs)
-{
-	struct ts_session *sess = NULL;
-	uint32_t state = 0;
-
-	/* Enable native interrupts */
-	state = thread_get_exceptions();
-	thread_unmask_exceptions(state & ~THREAD_EXCP_NATIVE_INTR);
-
-	thread_user_save_vfp();
-
-	sess = ts_get_current_session();
-	/*
-	 * User mode service has just entered kernel mode, suspend gprof
-	 * collection until we're about to switch back again.
-	 */
-	gprof_set_status(sess, TS_GPROF_SUSPEND);
-
-	/* Restore foreign interrupts which are disabled on exception entry */
-	thread_restore_foreign_intr();
-
-	assert(sess && sess->handle_svc);
-	if (sess->handle_svc(regs)) {
-		/* We're about to switch back to user mode */
-		gprof_set_status(sess, TS_GPROF_RESUME);
-	} else {
-		/* We're returning from __thread_enter_user_mode() */
-		setup_unwind_user_mode(regs);
-	}
 }
 
 static struct mobj *alloc_shm(enum thread_shm_type shm_type, size_t size)
@@ -1730,44 +1114,3 @@ void thread_rpc_shm_cache_clear(struct thread_shm_cache *cache)
 		free(ce);
 	}
 }
-
-#ifdef CFG_WITH_ARM_TRUSTED_FW
-/*
- * These five functions are __weak to allow platforms to override them if
- * needed.
- */
-unsigned long __weak thread_cpu_off_handler(unsigned long a0 __unused,
-					    unsigned long a1 __unused)
-{
-	return 0;
-}
-DECLARE_KEEP_PAGER(thread_cpu_off_handler);
-
-unsigned long __weak thread_cpu_suspend_handler(unsigned long a0 __unused,
-						unsigned long a1 __unused)
-{
-	return 0;
-}
-DECLARE_KEEP_PAGER(thread_cpu_suspend_handler);
-
-unsigned long __weak thread_cpu_resume_handler(unsigned long a0 __unused,
-					       unsigned long a1 __unused)
-{
-	return 0;
-}
-DECLARE_KEEP_PAGER(thread_cpu_resume_handler);
-
-unsigned long __weak thread_system_off_handler(unsigned long a0 __unused,
-					       unsigned long a1 __unused)
-{
-	return 0;
-}
-DECLARE_KEEP_PAGER(thread_system_off_handler);
-
-unsigned long __weak thread_system_reset_handler(unsigned long a0 __unused,
-						 unsigned long a1 __unused)
-{
-	return 0;
-}
-DECLARE_KEEP_PAGER(thread_system_reset_handler);
-#endif /*CFG_WITH_ARM_TRUSTED_FW*/
