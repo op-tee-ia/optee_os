@@ -26,38 +26,7 @@ static void tee_entry_get_shm_config(struct thread_smc_args *args)
 
 static void tee_entry_fastcall_l2cc_mutex(struct thread_smc_args *args)
 {
-	TEE_Result ret;
-#ifdef ARM32
-	paddr_t pa = 0;
-
-	switch (args->a1) {
-	case OPTEE_SMC_L2CC_MUTEX_GET_ADDR:
-		ret = tee_get_l2cc_mutex(&pa);
-		reg_pair_from_64(pa, &args->a2, &args->a3);
-		break;
-	case OPTEE_SMC_L2CC_MUTEX_SET_ADDR:
-		pa = reg_pair_to_64(args->a2, args->a3);
-		ret = tee_set_l2cc_mutex(&pa);
-		break;
-	case OPTEE_SMC_L2CC_MUTEX_ENABLE:
-		ret = tee_enable_l2cc_mutex();
-		break;
-	case OPTEE_SMC_L2CC_MUTEX_DISABLE:
-		ret = tee_disable_l2cc_mutex();
-		break;
-	default:
-		args->a0 = OPTEE_SMC_RETURN_EBADCMD;
-		return;
-	}
-#else
-	ret = TEE_ERROR_NOT_SUPPORTED;
-#endif
-	if (ret == TEE_ERROR_NOT_SUPPORTED)
-		args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
-	else if (ret)
-		args->a0 = OPTEE_SMC_RETURN_EBADADDR;
-	else
-		args->a0 = OPTEE_SMC_RETURN_OK;
+	args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
 }
 
 static void tee_entry_exchange_capabilities(struct thread_smc_args *args)
