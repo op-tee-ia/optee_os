@@ -36,7 +36,7 @@ END_FUNC __syscall_panic
 
 #define SYSCALL_ENTRY_SIZE    0x08
 
-FUNC x86_syscall , :
+FUNC tee_syscall , :
     sti
     pushq %rbx /* Ring 3 return address */
     pushq %rbp /* Ring 3 rsp */
@@ -65,7 +65,7 @@ FUNC x86_syscall , :
     /* Result is stored in rax. Before multiplication rax contains syscall No */
 
     mul %r15
-    movq $syscall_table, %r14
+    movq $tee_syscall_table, %r14
     add %r14, %rax
     movq %r13,%rdx
     call *(%rax)
@@ -89,4 +89,59 @@ FUNC x86_syscall , :
     popq %rdx /* pop rip */
     rex.W sysexit
 
-END_FUNC x86_syscall
+END_FUNC tee_syscall
+
+FUNC ldelf_syscall , :
+    sti
+    pushq %rbx /* Ring 3 return address */
+    pushq %rbp /* Ring 3 rsp */
+
+    pushq %r15
+    pushq %r14
+    pushq %r11
+    pushq %r10
+    pushq %r9
+    pushq %r8
+    pushq %rcx
+    pushq %rdx
+    pushq %rbx
+    pushq %rbp
+    pushq %rsi
+    pushq %rdi
+    pushq %r13
+    pushq %r12
+
+    movq %rdx,%r13
+    /*
+     * Arranging params to pass to sysenter handling
+     * syscall table is long. Multiplication to find offset.
+     */
+    movq $SYSCALL_ENTRY_SIZE, %r15
+    /* Result is stored in rax. Before multiplication rax contains syscall No */
+
+    mul %r15
+    movq $ldelf_syscall_table, %r14
+    add %r14, %rax
+    movq %r13,%rdx
+    call *(%rax)
+
+    popq %r12
+    popq %r13
+    popq %rdi
+    popq %rsi
+    popq %rbp
+    popq %rbx
+    popq %rdx
+    popq %rcx
+    popq %r8
+    popq %r9
+    popq %r10
+    popq %r11
+    popq %r14
+    popq %r15
+
+    popq %rcx /* pop rsp */
+    popq %rdx /* pop rip */
+    rex.W sysexit
+
+END_FUNC ldelf_syscall

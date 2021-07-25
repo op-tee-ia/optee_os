@@ -127,9 +127,8 @@ static unsigned int thread_global_lock __nex_bss = SPINLOCK_UNLOCK;
 
 static void syscall_init(vaddr_t sp)
 {
-	write_msr(SYSENTER_CS_MSR, CODE_64_SELECTOR); /* cs_addr */
-	write_msr(SYSENTER_ESP_MSR, sp); /* esp_addr */
-	write_msr(SYSENTER_EIP_MSR, (uint64_t)(x86_syscall)); /* eip_addr */
+	write_msr(SYSENTER_CS_MSR, CODE_64_SELECTOR); /* cs_addr  */
+	write_msr(SYSENTER_ESP_MSR, sp); 	      /* esp_addr */
 }
 
 static void init_canaries(void)
