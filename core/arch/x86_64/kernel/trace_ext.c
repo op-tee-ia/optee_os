@@ -4,11 +4,14 @@
  */
 #include <stdbool.h>
 #include <trace.h>
+#include <kernel/trace_ext.h>
 #include <console.h>
 #include <kernel/spinlock.h>
 #include <kernel/thread.h>
 #include <mm/core_mmu.h>
 
+#define TRACE_DISABLE -1
+int org_trace_level;
 const char trace_ext_prefix[] = "TC";
 int trace_level __nex_data = TRACE_LEVEL;
 static unsigned int puts_lock __nex_bss = SPINLOCK_UNLOCK;
@@ -50,4 +53,18 @@ void trace_ext_puts(const char *str)
 int trace_ext_get_thread_id(void)
 {
 	return thread_get_id_may_fail();
+}
+
+void trace_disable(void)
+{
+	if (trace_level != TRACE_DISABLE) {
+		org_trace_level = trace_level;
+		trace_level = TRACE_DISABLE;
+	}
+}
+
+void trace_enable(void)
+{
+	if (trace_level == TRACE_DISABLE)
+		trace_level = org_trace_level;
 }
