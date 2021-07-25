@@ -24,8 +24,7 @@
 #include <tee/tee_svc.h>
 #include <tee/tee_svc_storage.h>
 
-const unsigned long tee_syscall_table[];
-unsigned long syscall_table = (unsigned long)tee_syscall_table;
+#include "arch_svc_private.h"
 
 void syscall_sys_return(unsigned long ret)
 {
@@ -138,3 +137,13 @@ const unsigned long ldelf_syscall_table[] = {
 	(unsigned long)ldelf_syscall_remap,
 	(unsigned long)ldelf_syscall_gen_rnd_num,
 };
+
+void user_ta_handle_svc(void)
+{
+	write_msr(SYSENTER_EIP_MSR, (uint64_t)tee_syscall);
+}
+
+void ldelf_handle_svc(void)
+{
+	write_msr(SYSENTER_EIP_MSR, (uint64_t)ldelf_syscall);
+}

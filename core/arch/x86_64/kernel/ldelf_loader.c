@@ -19,11 +19,7 @@ extern const unsigned int ldelf_data_size;
 extern const unsigned int ldelf_entry;
 
 /* ldelf has the same architecture/register width as the kernel */
-#ifdef ARM32
-static const bool is_arm32 = true;
-#else
-static const bool is_arm32;
-#endif
+static const bool is_32bit = false;
 
 static TEE_Result alloc_and_map_ldelf_fobj(struct user_mode_ctx *uctx,
 					   size_t sz, uint32_t prot,
@@ -56,7 +52,7 @@ TEE_Result ldelf_load_ldelf(struct user_mode_ctx *uctx)
 	vaddr_t code_addr = 0;
 	vaddr_t rw_addr = 0;
 
-	uctx->is_32bit = is_arm32;
+	uctx->is_32bit = is_32bit;
 
 	res = alloc_and_map_ldelf_fobj(uctx, LDELF_STACK_SIZE,
 				       TEE_MATTR_URW | TEE_MATTR_PRW,
@@ -107,18 +103,16 @@ TEE_Result ldelf_init_with_ldelf(struct ts_session *sess,
 	arg = (struct ldelf_arg *)usr_stack;
 	memset(arg, 0, sizeof(*arg));
 	arg->uuid = uctx->ts_ctx->uuid;
-	sess->handle_svc = ldelf_handle_svc;
+	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)arg, 0, 0, 0,
 				     usr_stack, uctx->entry_func,
-				     is_arm32, &panicked, &panic_code);
+				     is_32bit, &panicked, &panic_code);
 
-	sess->handle_svc = sess->ctx->ops->handle_svc;
-	thread_user_clear_vfp(uctx);
+	sess->ctx->ops->handle_svc();
 	ldelf_sess_cleanup(sess);
 
 	if (panicked) {
-		abort_print_current_ts();
 		EMSG("ldelf panicked");
 		return TEE_ERROR_GENERIC;
 	}
@@ -216,64 +210,20 @@ TEE_Result ldelf_dump_state(struct user_mode_ctx *uctx)
 	}
 
 	arg->is_arm32 = uctx->is_32bit;
-#ifdef ARM32
-	arg->arm32.regs[0] = tsd->abort_regs.r0;
-	arg->arm32.regs[1] = tsd->abort_regs.r1;
-	arg->arm32.regs[2] = tsd->abort_regs.r2;
-	arg->arm32.regs[3] = tsd->abort_regs.r3;
-	arg->arm32.regs[4] = tsd->abort_regs.r4;
-	arg->arm32.regs[5] = tsd->abort_regs.r5;
-	arg->arm32.regs[6] = tsd->abort_regs.r6;
-	arg->arm32.regs[7] = tsd->abort_regs.r7;
-	arg->arm32.regs[8] = tsd->abort_regs.r8;
-	arg->arm32.regs[9] = tsd->abort_regs.r9;
-	arg->arm32.regs[10] = tsd->abort_regs.r10;
-	arg->arm32.regs[11] = tsd->abort_regs.r11;
-	arg->arm32.regs[12] = tsd->abort_regs.ip;
-	arg->arm32.regs[13] = tsd->abort_regs.usr_sp; /*SP*/
-	arg->arm32.regs[14] = tsd->abort_regs.usr_lr; /*LR*/
-	arg->arm32.regs[15] = tsd->abort_regs.elr; /*PC*/
-#endif /*ARM32*/
-#ifdef ARM64
-	if (uctx->is_32bit) {
-		arg->arm32.regs[0] = tsd->abort_regs.x0;
-		arg->arm32.regs[1] = tsd->abort_regs.x1;
-		arg->arm32.regs[2] = tsd->abort_regs.x2;
-		arg->arm32.regs[3] = tsd->abort_regs.x3;
-		arg->arm32.regs[4] = tsd->abort_regs.x4;
-		arg->arm32.regs[5] = tsd->abort_regs.x5;
-		arg->arm32.regs[6] = tsd->abort_regs.x6;
-		arg->arm32.regs[7] = tsd->abort_regs.x7;
-		arg->arm32.regs[8] = tsd->abort_regs.x8;
-		arg->arm32.regs[9] = tsd->abort_regs.x9;
-		arg->arm32.regs[10] = tsd->abort_regs.x10;
-		arg->arm32.regs[11] = tsd->abort_regs.x11;
-		arg->arm32.regs[12] = tsd->abort_regs.x12;
-		arg->arm32.regs[13] = tsd->abort_regs.x13; /*SP*/
-		arg->arm32.regs[14] = tsd->abort_regs.x14; /*LR*/
-		arg->arm32.regs[15] = tsd->abort_regs.elr; /*PC*/
-	} else {
-		arg->arm64.fp = tsd->abort_regs.x29;
-		arg->arm64.pc = tsd->abort_regs.elr;
-		arg->arm64.sp = tsd->abort_regs.sp_el0;
-	}
-#endif /*ARM64*/
 
 	sess = ts_get_current_session();
-	sess->handle_svc = ldelf_handle_svc;
+	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)arg, 0, 0, 0,
 				     usr_stack, uctx->dump_entry_func,
-				     is_arm32, &panicked, &panic_code);
+				     is_32bit, &panicked, &panic_code);
 
-	sess->handle_svc = sess->ctx->ops->handle_svc;
-	thread_user_clear_vfp(uctx);
+	sess->ctx->ops->handle_svc();
 	ldelf_sess_cleanup(sess);
 
 	if (panicked) {
 		uctx->dump_entry_func = 0;
 		EMSG("ldelf dump function panicked");
-		abort_print_current_ts();
 		res = TEE_ERROR_TARGET_DEAD;
 	}
 
@@ -309,20 +259,18 @@ TEE_Result ldelf_dump_ftrace(struct user_mode_ctx *uctx,
 	*arg = *blen;
 
 	sess = ts_get_current_session();
-	sess->handle_svc = ldelf_handle_svc;
+	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)buf, (vaddr_t)arg, 0, 0,
 				     usr_stack, uctx->ftrace_entry_func,
-				     is_arm32, &panicked, &panic_code);
+				     is_32bit, &panicked, &panic_code);
 
-	sess->handle_svc = sess->ctx->ops->handle_svc;
-	thread_user_clear_vfp(uctx);
+	sess->ctx->ops->handle_svc();
 	ldelf_sess_cleanup(sess);
 
 	if (panicked) {
 		uctx->ftrace_entry_func = 0;
 		EMSG("ldelf ftrace function panicked");
-		abort_print_current_ts();
 		res = TEE_ERROR_TARGET_DEAD;
 	}
 
@@ -367,18 +315,17 @@ TEE_Result ldelf_dlopen(struct user_mode_ctx *uctx, TEE_UUID *uuid,
 	arg->dlopen.flags = flags;
 
 	sess = ts_get_current_session();
-	sess->handle_svc = ldelf_handle_svc;
+	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)arg, 0, 0, 0,
 				     usr_stack, uctx->dl_entry_func,
-				     is_arm32, &panicked, &panic_code);
+				     is_32bit, &panicked, &panic_code);
 
-	sess->handle_svc = sess->ctx->ops->handle_svc;
+	sess->ctx->ops->handle_svc();
 	ldelf_sess_cleanup(sess);
 
 	if (panicked) {
 		EMSG("ldelf dl_entry function panicked");
-		abort_print_current_ts();
 		res = TEE_ERROR_TARGET_DEAD;
 	}
 	if (!res)
@@ -421,18 +368,17 @@ TEE_Result ldelf_dlsym(struct user_mode_ctx *uctx, TEE_UUID *uuid,
 	arg->dlsym.symbol[len] = '\0';
 
 	sess = ts_get_current_session();
-	sess->handle_svc = ldelf_handle_svc;
+	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)arg, 0, 0, 0,
 				     usr_stack, uctx->dl_entry_func,
-				     is_arm32, &panicked, &panic_code);
+				     is_32bit, &panicked, &panic_code);
 
-	sess->handle_svc = sess->ctx->ops->handle_svc;
+	sess->ctx->ops->handle_svc();
 	ldelf_sess_cleanup(sess);
 
 	if (panicked) {
 		EMSG("ldelf dl_entry function panicked");
-		abort_print_current_ts();
 		res = TEE_ERROR_TARGET_DEAD;
 	}
 	if (!res) {
