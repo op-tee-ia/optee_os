@@ -4,7 +4,7 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  */
 
-#include <arm.h>
+#include <x86.h>
 #include <assert.h>
 #include <initcall.h>
 #include <kernel/panic.h>

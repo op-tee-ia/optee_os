@@ -171,10 +171,8 @@ static TEE_Result user_ta_enter(struct ts_session *session,
 				     &utc->ta_ctx.panicked,
 				     &utc->ta_ctx.panic_code);
 
-	thread_user_clear_vfp(&utc->uctx);
 
 	if (utc->ta_ctx.panicked) {
-		abort_print_current_ts();
 		DMSG("tee_user_ta_enter: TA panicked with code 0x%x",
 		     utc->ta_ctx.panic_code);
 		res = TEE_ERROR_TARGET_DEAD;

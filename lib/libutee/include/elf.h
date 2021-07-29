@@ -33,7 +33,7 @@ typedef Elf32_Verneed Elf_Verneed;
 typedef Elf32_Vernaux Elf_Vernaux;
 typedef Elf32_Syminfo Elf_Syminfo;
 
-#elif defined(ARM64)
+#elif defined(ARM64) || defined(X86_64)
 
 #include <elf64.h>
 
