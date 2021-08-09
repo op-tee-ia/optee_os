@@ -7,7 +7,6 @@
 #ifndef MM_TEE_PAGER_H
 #define MM_TEE_PAGER_H
 
-#include <kernel/abort.h>
 #include <kernel/panic.h>
 #include <kernel/user_ta.h>
 #include <mm/core_mmu.h>
@@ -280,13 +279,7 @@ struct tee_pager_stats {
 
 #ifdef CFG_WITH_PAGER
 void tee_pager_get_stats(struct tee_pager_stats *stats);
-bool tee_pager_handle_fault(struct abort_info *ai);
 #else /*CFG_WITH_PAGER*/
-static inline bool tee_pager_handle_fault(struct abort_info *ai __unused)
-{
-	return false;
-}
-
 static inline void tee_pager_get_stats(struct tee_pager_stats *stats)
 {
 	memset(stats, 0, sizeof(struct tee_pager_stats));

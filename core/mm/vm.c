@@ -1063,9 +1063,6 @@ void vm_info_final(struct user_mode_ctx *uctx)
 	if (!uctx->vm_info.asid)
 		return;
 
-	/* clear MMU entries to avoid clash when asid is reused */
-	tlbi_asid(uctx->vm_info.asid);
-
 	asid_free(uctx->vm_info.asid);
 	while (!TAILQ_EMPTY(&uctx->vm_info.regions))
 		umap_remove_region(&uctx->vm_info,

@@ -4,12 +4,17 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  */
 
-#include <arm.h>
+//#include <kernel/trace_control_by_service.h>
+#ifndef TRACE_SERV_MMU
+#undef TRACE_LEVEL
+#define TRACE_LEVEL 0
+#endif
+#include <kernel/boot.h>
+
 #include <assert.h>
 #include <bitstring.h>
 #include <config.h>
 #include <kernel/boot.h>
-#include <kernel/cache_helpers.h>
 #include <kernel/linker.h>
 #include <kernel/panic.h>
 #include <kernel/spinlock.h>
@@ -18,19 +23,23 @@
 #include <kernel/tee_ta_manager.h>
 #include <kernel/thread.h>
 #include <kernel/tlb_helpers.h>
-#include <kernel/tz_ssvce_pl310.h>
 #include <kernel/user_mode_ctx.h>
 #include <kernel/virtualization.h>
+
 #include <mm/core_memprot.h>
 #include <mm/core_mmu.h>
 #include <mm/mobj.h>
 #include <mm/pgt_cache.h>
 #include <mm/tee_pager.h>
 #include <mm/vm.h>
+
 #include <platform_config.h>
 #include <stdlib.h>
 #include <trace.h>
 #include <util.h>
+#include <x86.h>
+#include <console.h>
+#include <kernel/user_ta.h>
 
 #include "core_mmu_private.h"
 
@@ -40,11 +49,51 @@
 
 #define SHM_VASPACE_SIZE	(1024 * 1024 * 32)
 
+#define	TEE_MATTR_CACHE		BIT(12)
+
+#define IS_ALIGNED(p, align_to) (!(((uintptr_t)(p)) & (((uintptr_t)(align_to))-1)))
+
+/* Indicates kernel runtime MMU map status */
+int optee_mem_structs_ready;
+
 /*
  * These variables are initialized before .bss is cleared. To avoid
  * resetting them when .bss is cleared we're storing them in .data instead,
  * even if they initially are zero.
  */
+
+/* Address width including virtual/physical address*/
+uint8_t g_vaddr_width;
+uint8_t g_paddr_width;
+
+/* Initial memory mappings */
+struct mmu_initial_mapping mmu_initial_mappings[] = {
+    /* 4GB */
+	{	.phys = 0x0,
+		.virt = 0x0,
+		.size = 4 * GB,
+		.flags = 0
+	},
+	{ 0 }
+};
+
+/* 2MB MMU tables for initial usage */
+uint64_t g_pml4_init[1] __aligned(PAGE_SIZE);
+uint64_t g_pdp_init[32] __aligned(PAGE_SIZE);
+uint64_t g_pte_init[2048] __aligned(PAGE_SIZE);
+
+/* MMU tables for runtime usage for kernel */
+uint64_t g_pml4[NO_OF_PML4_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_pdp[NO_OF_PDP_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_pd[NO_OF_PD_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_pte[NO_OF_PT_TABLES][NO_OF_PT_ENTRIES] __aligned(PAGE_SIZE);
+
+/* MMU tables for runtime usage for user mode */
+uint64_t g_user_ta_pd[NO_OF_USER_PD_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_user_ta_pte[NO_OF_USER_PT_TABLES][NO_OF_PT_ENTRIES]
+			__aligned(PAGE_SIZE);
+uint32_t pd_user_counter;
+uint32_t pt_user_index;
 
 #ifdef CFG_CORE_RESERVED_SHM
 /* Default NSec shared memory allocated from NSec world */
@@ -57,6 +106,9 @@ static struct tee_mmap_region static_memory_map[CFG_MMAP_REGIONS
 						+ 1
 #endif
 						+ 1] __nex_bss;
+
+#define PRINT_MATTR_BIT(value, bit) \
+	{FMSG(#bit " %s\n", ((value & bit) ? "SET" : "CLEAR")); }
 
 /* Define the platform's memory layout. */
 struct memaccess_area {
@@ -132,6 +184,9 @@ register_phys_mem(MEM_AREA_TA_RAM, TA_RAM_START, TA_RAM_SIZE);
 register_phys_mem(MEM_AREA_NSEC_SHM, TEE_SHMEM_START, TEE_SHMEM_SIZE);
 #endif
 
+static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm,
+				uint64_t base_va __unused, unsigned int level);
+
 /*
  * Two ASIDs per context, one for kernel mode and one for user mode. ASID 0
  * and 1 are reserved and not used. This means a maximum of 126 loaded user
@@ -154,6 +209,21 @@ static uint32_t mmu_lock(void)
 static void mmu_unlock(uint32_t exceptions)
 {
 	cpu_spin_unlock_xrestore(&mmu_spinlock, exceptions);
+}
+
+static void clear_user_map(void)
+{
+	int row = ARRAY_SIZE(g_user_ta_pte);
+	int i;
+
+	memset((void *)&g_user_ta_pd[0], 0, sizeof(g_user_ta_pd));
+
+	for (i = 0 ; i < row ; i++)
+		memset((void *)&g_user_ta_pte[i][0], 0,
+				sizeof(g_user_ta_pte[0]));
+
+	pd_user_counter = 0;
+	pt_user_index = 0;
 }
 
 static struct tee_mmap_region *get_memory_map(void)
@@ -356,73 +426,13 @@ static int cmp_pmem_by_addr(const void *a, const void *b)
 	return CMP_TRILEAN(pmem_a->addr, pmem_b->addr);
 }
 
-void core_mmu_set_discovered_nsec_ddr(struct core_mmu_phys_mem *start,
-				      size_t nelems)
-{
-	struct core_mmu_phys_mem *m = start;
-	size_t num_elems = nelems;
-	struct tee_mmap_region *map = static_memory_map;
-	const struct core_mmu_phys_mem __maybe_unused *pmem;
-
-	assert(!discovered_nsec_ddr_start);
-	assert(m && num_elems);
-
-	qsort(m, num_elems, sizeof(*m), cmp_pmem_by_addr);
-
-	/*
-	 * Non-secure shared memory and also secure data
-	 * path memory are supposed to reside inside
-	 * non-secure memory. Since NSEC_SHM and SDP_MEM
-	 * are used for a specific purpose make holes for
-	 * those memory in the normal non-secure memory.
-	 *
-	 * This has to be done since for instance QEMU
-	 * isn't aware of which memory range in the
-	 * non-secure memory is used for NSEC_SHM.
-	 */
-
-#ifdef CFG_SECURE_DATA_PATH
-	for (pmem = phys_sdp_mem_begin; pmem < phys_sdp_mem_end; pmem++)
-		carve_out_phys_mem(&m, &num_elems, pmem->addr, pmem->size);
-#endif
-
-	carve_out_phys_mem(&m, &num_elems, TEE_RAM_START, TEE_RAM_PH_SIZE);
-	carve_out_phys_mem(&m, &num_elems, TA_RAM_START, TA_RAM_SIZE);
-
-	for (map = static_memory_map; !core_mmap_is_end_of_table(map); map++) {
-		switch (map->type) {
-		case MEM_AREA_NSEC_SHM:
-			carve_out_phys_mem(&m, &num_elems, map->pa, map->size);
-			break;
-		case MEM_AREA_EXT_DT:
-		case MEM_AREA_RES_VASPACE:
-		case MEM_AREA_SHM_VASPACE:
-		case MEM_AREA_TA_VASPACE:
-		case MEM_AREA_PAGER_VASPACE:
-			break;
-		default:
-			check_phys_mem_is_outside(m, num_elems, map);
-		}
-	}
-
-	discovered_nsec_ddr_start = m;
-	discovered_nsec_ddr_nelems = num_elems;
-
-	if (!core_mmu_check_end_pa(m[num_elems - 1].addr,
-				   m[num_elems - 1].size))
-		panic();
-}
-
 static bool get_discovered_nsec_ddr(const struct core_mmu_phys_mem **start,
 				    const struct core_mmu_phys_mem **end)
 {
-	if (!discovered_nsec_ddr_start)
-		return false;
+	(void)start;
+	(void)end;
 
-	*start = discovered_nsec_ddr_start;
-	*end = discovered_nsec_ddr_start + discovered_nsec_ddr_nelems;
-
-	return true;
+	return false;
 }
 
 static bool pbuf_is_nsec_ddr(paddr_t pbuf, size_t len)
@@ -622,6 +632,26 @@ static void add_va_space(struct tee_mmap_region *memory_map, size_t num_elems,
 	memory_map[n].size = size;
 }
 
+static bool core_mmu_place_tee_ram_at_top(paddr_t paddr)
+{
+	size_t l1size = 1ul << PML4_SHIFT;
+	paddr_t l1mask = l1size - 1;
+
+	return (paddr & l1mask) > (l1size / 2);
+}
+
+static void core_mmu_set_info_table(struct core_mmu_table_info *tbl_info,
+		unsigned int level, vaddr_t va_base, void *table)
+{
+	tbl_info->level = level;
+	tbl_info->table = table;
+	tbl_info->va_base = va_base;
+	tbl_info->shift = 0;
+	assert(level <= 3);
+
+	tbl_info->num_entries = 1;
+}
+
 uint32_t core_mmu_type_to_attr(enum teecore_memtypes t)
 {
 	const uint32_t attr = TEE_MATTR_VALID_BLOCK;
@@ -716,59 +746,6 @@ static void dump_mmap_table(struct tee_mmap_region *memory_map)
 		     map->region_size == SMALL_PAGE_SIZE ? "smallpg" : "pgdir");
 	}
 }
-
-#if DEBUG_XLAT_TABLE
-
-static void dump_xlat_table(vaddr_t va, int level)
-{
-	struct core_mmu_table_info tbl_info;
-	unsigned int idx = 0;
-	paddr_t pa;
-	uint32_t attr;
-
-	core_mmu_find_table(NULL, va, level, &tbl_info);
-	va = tbl_info.va_base;
-	for (idx = 0; idx < tbl_info.num_entries; idx++) {
-		core_mmu_get_entry(&tbl_info, idx, &pa, &attr);
-		if (attr || level > 1) {
-			if (attr & TEE_MATTR_TABLE) {
-#ifdef CFG_WITH_LPAE
-				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
-					" TBL:0x%010" PRIxPA "\n",
-					level * 2, "", level, va, pa);
-#else
-				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
-					" TBL:0x%010" PRIxPA " %s\n",
-					level * 2, "", level, va, pa,
-					attr & TEE_MATTR_SECURE ? " S" : "NS");
-#endif
-				dump_xlat_table(va, level + 1);
-			} else if (attr) {
-				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
-					" PA:0x%010" PRIxPA " %s-%s-%s-%s",
-					level * 2, "", level, va, pa,
-					attr & (TEE_MATTR_CACHE_CACHED <<
-					TEE_MATTR_CACHE_SHIFT) ? "MEM" : "DEV",
-					attr & TEE_MATTR_PW ? "RW" : "RO",
-					attr & TEE_MATTR_PX ? "X " : "XN",
-					attr & TEE_MATTR_SECURE ? " S" : "NS");
-			} else {
-				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
-					    " INVALID\n",
-					    level * 2, "", level, va);
-			}
-		}
-		va += 1 << tbl_info.shift;
-	}
-}
-
-#else
-
-static void dump_xlat_table(vaddr_t va __unused, int level __unused)
-{
-}
-
-#endif
 
 /*
  * Reserves virtual memory space for pager usage.
@@ -888,12 +865,7 @@ static void assign_mem_granularity(struct tee_mmap_region *memory_map)
 
 static unsigned int get_va_width(void)
 {
-	if (IS_ENABLED(ARM64)) {
-		COMPILE_TIME_ASSERT(CFG_LPAE_ADDR_SPACE_BITS >= 32);
-		COMPILE_TIME_ASSERT(CFG_LPAE_ADDR_SPACE_BITS < 48);
-		return CFG_LPAE_ADDR_SPACE_BITS;
-	}
-	return 32;
+	return 64;
 }
 
 static bool assign_mem_va(vaddr_t tee_ram_va,
@@ -922,7 +894,7 @@ static bool assign_mem_va(vaddr_t tee_ram_va,
 			map->va = va;
 			if (ADD_OVERFLOW(va, map->size, &va))
 				return false;
-			if (IS_ENABLED(ARM64) && va >= BIT64(get_va_width()))
+			if (va >= BIT64(get_va_width()))
 				return false;
 		}
 	}
@@ -995,7 +967,7 @@ static bool assign_mem_va(vaddr_t tee_ram_va,
 			map->va = va;
 			if (ADD_OVERFLOW(va, map->size, &va))
 				return false;
-			if (IS_ENABLED(ARM64) && va >= BIT64(get_va_width()))
+			if (va >= BIT64(get_va_width()))
 				return false;
 		}
 	}
@@ -1202,6 +1174,8 @@ void __weak core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg)
 	struct tee_mmap_region *tmp_mmap = get_tmp_mmap();
 	unsigned long offs = 0;
 
+	(void)cfg;
+
 	check_sec_nsec_mem_config();
 
 	/*
@@ -1222,10 +1196,884 @@ void __weak core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg)
 
 	check_mem_map(tmp_mmap);
 	core_init_mmu(tmp_mmap);
-	dump_xlat_table(0x0, 1);
-	core_init_mmu_regs(cfg);
-	cfg->load_offset = offs;
 	memcpy(static_memory_map, tmp_mmap, sizeof(static_memory_map));
+
+	DMSG("Enable runtime MMU\n");
+
+	x86_set_cr3((uint64_t)&g_pml4[0]);
+	optee_mem_structs_ready = 1;
+	console_init();
+}
+
+void core_init_mmu(struct tee_mmap_region *mm)
+{
+	paddr_t max_pa = 0;
+	uint64_t max_va = 0;
+	size_t n;
+
+	for (n = 0; !core_mmap_is_end_of_table(mm + n); n++) {
+		paddr_t pa_end;
+		vaddr_t va_end;
+
+		DMSG_RAW(" %010" PRIxVA " %010" PRIxPA " %10zx %x",
+				mm[n].va, mm[n].pa, mm[n].size, mm[n].attr);
+
+		if (!IS_PAGE_ALIGNED(mm[n].pa) || !IS_PAGE_ALIGNED(mm[n].size))
+			panic("unaligned region");
+
+		pa_end = mm[n].pa + mm[n].size - 1;
+		va_end = mm[n].va + mm[n].size - 1;
+
+		if (pa_end > max_pa)
+			max_pa = pa_end;
+		if (va_end > max_va)
+			max_va = va_end;
+	}
+
+    /* Clear table before use */
+	init_xlation_table(mm, 0, 1);
+
+	COMPILE_TIME_ASSERT(CFG_LPAE_ADDR_SPACE_SIZE > 0);
+	assert(max_va < CFG_LPAE_ADDR_SPACE_SIZE);
+}
+
+static void print_memory_attr(uint32_t optee_mmu_flags __unused)
+{
+#if (TRACE_LEVEL == TRACE_FLOW)
+	arch_flags_t x86_mmu_flags __unused = get_x86_arch_flags(optee_mmu_flags);
+#endif
+
+	FMSG("OP-TEE MMU flags: 0x%x\n", optee_mmu_flags);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_VALID_BLOCK);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_TABLE);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_PR);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_PW);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_PX);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_UR);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_UW);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_UX);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_GLOBAL);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_SECURE);
+	PRINT_MATTR_BIT(optee_mmu_flags, TEE_MATTR_CACHE);
+
+	FMSG("x86 MMU flags: 0x%lx\n", x86_mmu_flags);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_P);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_RW);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_U);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_PWT);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_PCD);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_PS);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_PTE_PAT);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_G);
+	PRINT_MATTR_BIT(x86_mmu_flags, X86_MMU_PG_NX);
+}
+
+static void *paddr_to_kvaddr(paddr_t pa)
+{
+	/* slow path to do reverse lookup */
+	struct mmu_initial_mapping *map = mmu_initial_mappings;
+
+	while (map->size > 0) {
+		if (!(map->flags & MMU_INITIAL_MAPPING_TEMPORARY) &&
+				pa >= map->phys &&
+				pa <= map->phys + map->size - 1) {
+			return (void *)(map->virt + (pa - map->phys));
+		}
+		map++;
+	}
+	return NULL;
+}
+
+/**
+ * @brief Returning the x86 arch flags from OP-TEE MMU flags
+ */
+static arch_flags_t get_x86_arch_flags(arch_flags_t flags)
+{
+	arch_flags_t arch_flags = 0;
+
+	if (flags & TEE_MATTR_VALID_BLOCK)
+		arch_flags |= X86_MMU_PG_P;
+
+	if (flags & TEE_MATTR_GLOBAL)
+		arch_flags |= X86_MMU_PG_G;
+
+	if ((flags & TEE_MATTR_PW) || (flags & TEE_MATTR_UW))
+		arch_flags |= X86_MMU_PG_RW; // Enable write access.
+
+	if (flags & TEE_MATTR_URWX)
+		arch_flags |= X86_MMU_PG_U; // Enable user-mode access
+
+	if (!(flags & TEE_MATTR_CACHE))
+		// Disable cache
+		arch_flags |= (X86_MMU_PG_PCD | X86_MMU_PG_PWT);
+
+	if (!((flags & TEE_MATTR_PX) || (flags & TEE_MATTR_UX)))
+		arch_flags |= X86_MMU_PG_NX; // Disable execution
+
+	return arch_flags;
+}
+
+/**
+ * @brief Returning the generic mmu flags from x86 arch flags
+ */
+static unsigned int get_arch_mmu_flags(arch_flags_t flags)
+{
+	arch_flags_t mmu_flags = 0;
+
+	if (!(flags & X86_MMU_PG_RW))
+		mmu_flags |= ARCH_MMU_FLAG_PERM_RO;
+
+	if (flags & X86_MMU_PG_U)
+		mmu_flags |= ARCH_MMU_FLAG_PERM_USER;
+
+    /* Default memory type is CASHED/WB */
+	if ((flags & X86_MMU_PG_PCD) && (flags & X86_MMU_PG_PWT)
+		&& !(flags & X86_MMU_PG_PTE_PAT))
+		mmu_flags |= ARCH_MMU_FLAG_UNCACHED;
+	else
+		mmu_flags |= ARCH_MMU_FLAG_CACHED;
+
+	if (flags & X86_MMU_PG_NX)
+		mmu_flags |= ARCH_MMU_FLAG_PERM_NO_EXECUTE;
+
+	return (unsigned int) mmu_flags;
+}
+
+static uint64_t get_pml4_entry_from_pml4_table(vaddr_t vaddr,
+					uintptr_t pml4_addr)
+{
+	uint32_t pml4_index;
+	uint64_t *pml4_table = (uint64_t *) (pml4_addr & X86_PG_VA_FRAME);
+
+	pml4_index = (((uint64_t)vaddr >> PML4_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+
+	return pml4_table[pml4_index];
+}
+
+static inline uint64_t get_pdp_entry_from_pdp_table(vaddr_t vaddr,
+						uint64_t pml4e)
+{
+	uint32_t pdp_index;
+	uint64_t *pdpe;
+
+	pdp_index = (((uint64_t)vaddr >> PDP_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+
+	pdpe = (uint64_t *) (pml4e & X86_PG_VA_FRAME);
+
+	/*
+	 *	FMSG("Page-Directory-Pointer table @ 0x%lx =
+	 *	pdpe value 0x%lx\n",
+	 *	(uint64_t)&pdpe[pdp_index], pdpe[pdp_index]);
+	 */
+
+	return pdpe[pdp_index];
+}
+
+static inline uint64_t get_pd_entry_from_pd_table(vaddr_t vaddr, uint64_t pdpe)
+{
+	uint32_t pd_index;
+	uint64_t *pde;
+
+	pd_index = (((uint64_t) vaddr >> PD_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+
+	pde = (uint64_t *) (pdpe & X86_PG_VA_FRAME);
+
+	/*
+	 * FMSG("Page-Directory entry @ 0x%lx (pd_index %d) = pde 0x%lx\n",
+	 * (uint64_t)&pde[pd_index], pd_index, pde[pd_index]);
+	 */
+	return pde[pd_index];
+}
+
+static inline uint64_t get_pt_entry_from_pt_table(vaddr_t vaddr, uint64_t pde)
+{
+	uint32_t pt_index;
+	uint64_t *pte;
+
+	pt_index = (((uint64_t) vaddr >> PT_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+
+	pte = (uint64_t *) (pde & X86_PG_VA_FRAME);
+
+	return pte[pt_index];
+}
+
+static inline uint64_t get_pfn_from_pde(uint64_t pde)
+{
+	uint64_t pfn;
+
+	pfn = (pde & X86_2MB_PAGE_FRAME);
+
+	return pfn;
+}
+
+static void update_pt_entry(vaddr_t vaddr, paddr_t paddr, uint64_t pde,
+							arch_flags_t flags)
+{
+	uint32_t pt_index;
+
+	uint64_t *pt_table = (uint64_t *)(pde & X86_PG_PA_FRAME);
+
+	pt_index = ((uint64_t)vaddr >> PT_SHIFT) & ADDR_MASK;
+
+	pt_table[pt_index] = (uint64_t)paddr | flags;
+}
+
+static void update_pd_entry(vaddr_t vaddr, uint64_t pdpe, map_addr_t m,
+							arch_flags_t flags)
+{
+	uint32_t pd_index;
+	uint64_t *pd_table = (uint64_t *)(pdpe & X86_PG_PA_FRAME);
+
+	pd_index = (((uint64_t)vaddr >> PD_SHIFT) & ((1ul << ADDR_OFFSET) - 1));
+	pd_table[pd_index] = m | flags;
+}
+
+static void update_pdp_entry(vaddr_t vaddr, uint64_t pml4e, map_addr_t m,
+							arch_flags_t flags)
+{
+	uint32_t pdp_index;
+	uint64_t *pdp_table = (uint64_t *)(pml4e & X86_PG_PA_FRAME);
+
+	pdp_index = (((uint64_t)vaddr >> PDP_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+	pdp_table[pdp_index] = m | flags;
+}
+
+static void update_pml4_entry(vaddr_t vaddr, uintptr_t pml4_addr, map_addr_t m,
+							arch_flags_t flags)
+{
+	uint32_t pml4_index;
+	uint64_t *pml4_table = (uint64_t *)(pml4_addr);
+
+	pml4_index = (((uint64_t)vaddr >> PML4_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+
+	pml4_table[pml4_index] = m | flags;
+
+	DMSG("pml4_table %p pml4_index 0x%x m 0x%lx flags 0x%lx\n",
+			(void *)pml4_table, pml4_index, m, flags);
+
+	DMSG("m | flags 0x%lx\n", (m | flags));
+}
+
+static bool check_directory_update_need(arch_flags_t current_entry,
+					arch_flags_t new_entry,
+					arch_flags_t *updated_mmu_flags)
+{
+	bool ret = false;
+
+	*updated_mmu_flags = current_entry;
+
+	if (!(current_entry & X86_MMU_PG_RW) && (new_entry & X86_MMU_PG_RW)) {
+		*updated_mmu_flags |= X86_MMU_PG_RW;
+		ret = true;
+	}
+
+	if (!(current_entry & X86_MMU_PG_U) && (new_entry & X86_MMU_PG_U)) {
+		*updated_mmu_flags |= X86_MMU_PG_U;
+		ret = true;
+	}
+
+	if ((current_entry & X86_MMU_PG_NX) && !(new_entry & X86_MMU_PG_NX)) {
+		*updated_mmu_flags &= ~X86_MMU_PG_NX;
+		ret = true;
+	}
+
+	/* If current entry has cached disabled and
+	 * new entry wants enable caches
+	 * let's enable them for page directory entries
+	 */
+	if ((current_entry & (X86_MMU_PG_PCD | X86_MMU_PG_PWT)) &&
+		!(new_entry & (X86_MMU_PG_PCD | X86_MMU_PG_PWT))) {
+		*updated_mmu_flags &= ~(X86_MMU_PG_PCD | X86_MMU_PG_PWT);
+		ret = true;
+	}
+
+	return ret;
+}
+
+/**
+ * @brief  check if the physical address is valid and aligned
+ *
+ */
+static bool x86_mmu_check_paddr(paddr_t paddr)
+{
+	uint64_t addr = (uint64_t)paddr;
+	uint64_t max_paddr;
+
+	/* Check to see if the address is PAGE aligned */
+	if (!IS_ALIGNED(addr, PAGE_SIZE))
+		return false;
+
+	max_paddr = ((uint64_t)1ull << g_paddr_width) - 1;
+
+	return addr <= max_paddr;
+}
+
+/**
+ * @brief  check if the virtual address is aligned and canonical
+ *
+ */
+static bool x86_mmu_check_vaddr(vaddr_t vaddr)
+{
+	uint64_t addr = (uint64_t)vaddr;
+	uint64_t max_vaddr_lohalf, min_vaddr_hihalf;
+
+	/* Check to see if the address is PAGE aligned */
+	if (!IS_ALIGNED(addr, PAGE_SIZE))
+		return false;
+
+	/* get max address in lower-half canonical addr space */
+	/* e.g. if width is 48, then 0x00007FFF_FFFFFFFF */
+	max_vaddr_lohalf = ((uint64_t)1ull << (g_vaddr_width - 1)) - 1;
+
+	/* get min address in higher-half canonical addr space */
+	/* e.g. if width is 48, then 0xFFFF8000_00000000*/
+	min_vaddr_hihalf = ~max_vaddr_lohalf;
+
+	/* Check to see if the address in a canonical address */
+	if ((addr > max_vaddr_lohalf) && (addr < min_vaddr_hihalf))
+		return false;
+
+	return true;
+}
+
+/**
+ * @brief  Walk the page table structures
+ *
+ * In this scenario,
+ * we are considering the paging scheme to be a PAE mode with
+ * 4KB pages.
+ */
+static int x86_mmu_get_mapping(map_addr_t pml4, vaddr_t vaddr, uint32_t *ret_level,
+		arch_flags_t *mmu_flags, map_addr_t *last_valid_entry)
+{
+	uint64_t pml4e, pdpe, pde, pte;
+
+	assert(pml4);
+	if ((!ret_level) || (!last_valid_entry) || (!mmu_flags))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	*ret_level = PML4_L;
+	*last_valid_entry = pml4;
+	*mmu_flags = 0;
+
+	pml4e = get_pml4_entry_from_pml4_table(vaddr, pml4);
+	if ((pml4e & X86_MMU_PG_P) == 0)
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	//  FMSG("pml4 @ 0x%lx = pml4e value 0x%lx\n", pml4, pml4e);
+
+	pdpe = get_pdp_entry_from_pdp_table(vaddr, (uint64_t)paddr_to_kvaddr(
+						pml4e & X86_PG_PA_FRAME));
+	if ((pdpe & X86_MMU_PG_P) == 0) {
+		*ret_level = PDP_L;
+		*last_valid_entry = pml4e;
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	}
+
+	pde = get_pd_entry_from_pd_table(vaddr, (uint64_t)paddr_to_kvaddr(pdpe &
+	X86_PG_PA_FRAME));
+	if ((pde & X86_MMU_PG_P) == 0) {
+		*ret_level = PD_L;
+		*last_valid_entry = pdpe;
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	}
+
+	/* 2 MB pages */
+	if (pde & X86_MMU_PG_PS) {
+		/* Getting the Page frame & adding the 4KB page offset from the
+		 * vaddr
+		 */
+		*last_valid_entry = get_pfn_from_pde(pde)
+			+ ((uint64_t)vaddr & PAGE_OFFSET_MASK_2MB);
+
+		*mmu_flags = get_arch_mmu_flags(pde & X86_FLAGS_MASK);
+
+		goto last;
+	}
+
+	/* 4 KB pages */
+	pte = get_pt_entry_from_pt_table(vaddr, (uint64_t)paddr_to_kvaddr(pde &
+						X86_PG_PA_FRAME));
+
+	if ((pte & X86_MMU_PG_P) == 0) {
+		*ret_level = PT_L;
+		*last_valid_entry = pde;
+
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	}
+
+	/* Getting the Page frame & adding the 4KB page offset from the vaddr */
+	*last_valid_entry = (pte & X86_PG_PA_FRAME)
+		+ ((uint64_t)vaddr & PAGE_OFFSET_MASK_4KB);
+
+	*mmu_flags = get_arch_mmu_flags(pte & X86_FLAGS_MASK);
+
+last:
+	*ret_level = PF_L;
+	return TEE_SUCCESS;
+}
+
+/**
+ * @brief  Add a new mapping for the given virtual address & physical address
+ *
+ * This is a API which handles the mapping b/w a virtual address
+ * & physical address
+ *
+ * either by checking if the mapping already exists and is valid
+ * OR by adding a new mapping with the required flags
+ *
+ * In this scenario, we are considering the paging scheme to be
+ * a PAE mode with 4KB pages.
+ *
+ */
+static int x86_mmu_add_mapping(map_addr_t pml4, map_addr_t paddr,
+				vaddr_t vaddr, arch_flags_t mmu_flags)
+{
+	uint32_t pd_new = 0, pdp_new = 0;
+	uint64_t pml4e, pdpe, pde;
+	arch_flags_t updated_mmu_flags;
+	map_addr_t *m = NULL;
+	static uint32_t pdp_counter, pd_counter;
+	static uint32_t pt_index;
+
+	assert(pml4);
+
+	if ((!x86_mmu_check_vaddr(vaddr)) || (!x86_mmu_check_paddr(paddr)))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	pml4e = get_pml4_entry_from_pml4_table(vaddr, pml4);
+
+	if ((pml4e & X86_MMU_PG_P) == 0) {
+		if ((pdp_counter + 1) > NO_OF_PDP_ENTRIES) {
+			EMSG("pdp_counter %d\n", pdp_counter);
+			panic("TEE_ERROR_OUT_OF_MEMORY");
+		}
+
+		/* Creating a new pdp table */
+		m = &g_pdp[pdp_counter];
+		pdp_counter++;
+
+		FMSG("pdp_counter %d\n", pdp_counter);
+		update_pml4_entry(vaddr, pml4, virt_to_phys(m), mmu_flags);
+		pml4e = (uint64_t)m;
+		pdp_new = 1;
+	} else if (check_directory_update_need(pml4e, mmu_flags,
+							&updated_mmu_flags)) {
+		update_pml4_entry(vaddr, pml4,
+				virt_to_phys((void *)(pml4e & X86_PG_PA_FRAME)),
+				updated_mmu_flags);
+
+		FMSG("Just update PML4 entry %d\n", pdp_counter);
+	}
+
+	if (!pdp_new)
+		pdpe = get_pdp_entry_from_pdp_table(vaddr, pml4e);
+
+	if (pdp_new || (pdpe & X86_MMU_PG_P) == 0) {
+		if ((vaddr & 0xFF000000) == (vaddr_t)TA_USER_BASE_VA) {
+			m = &g_user_ta_pd[pd_user_counter];
+		} else {
+			if ((pd_counter + 1) > NO_OF_PD_ENTRIES) {
+				EMSG("pd_counter %d\n", pd_counter);
+				panic("TEE_ERROR_OUT_OF_MEMORY");
+			}
+
+			/* Creating a new pd table  */
+			m = &g_pd[pd_counter];
+			pd_counter++;
+		}
+		update_pdp_entry(vaddr, pml4e, virt_to_phys(m), mmu_flags);
+		pdpe = (uint64_t)m;
+		pd_new = 1;
+	} else if (check_directory_update_need(pdpe, mmu_flags,
+				&updated_mmu_flags)) {
+		update_pdp_entry(vaddr, pml4e,
+				virt_to_phys((void *)(pdpe & X86_PG_PA_FRAME)),
+				updated_mmu_flags);
+	}
+
+
+	if (!pd_new)
+		pde = get_pd_entry_from_pd_table(vaddr, pdpe);
+
+	if (pd_new || ((pde & X86_MMU_PG_P) == 0)) {
+		if ((vaddr & 0xFF000000) == (vaddr_t)TA_USER_BASE_VA) {
+			if ((pt_user_index + 1) > NO_OF_USER_PT_TABLES) {
+				EMSG("gt_user_index %d\n", pt_user_index);
+				panic("TEE_ERROR_OUT_OF_MEMORY");
+			}
+			m = &g_user_ta_pte[pt_user_index][0];
+			pt_user_index++;
+		} else {
+			if ((pt_index + 1) > NO_OF_PT_TABLES) {
+				EMSG("pt_index %d\n", pt_index);
+				panic("TEE_ERROR_OUT_OF_MEMORY");
+			}
+			/* Creating a new pt */
+			m = &g_pte[pt_index][0];
+			pt_index++;
+		}
+		update_pd_entry(vaddr, pdpe, virt_to_phys(m), mmu_flags);
+		pde = (uint64_t)m;
+	} else if (check_directory_update_need(pde, mmu_flags,
+				&updated_mmu_flags)) {
+		update_pd_entry(vaddr, pdpe,
+				virt_to_phys((void *)(pde & X86_PG_PA_FRAME)),
+				updated_mmu_flags);
+	}
+
+	/* Updating the page table entry with the paddr
+	 * and access flags required for the Mapping
+	 */
+	update_pt_entry(vaddr, paddr, pde, mmu_flags);
+	return TEE_SUCCESS;
+}
+
+/**
+ * @brief	x86-64 MMU unmap an entry in the page tables
+ *			recursively and clear out tables
+ *
+ */
+static void x86_mmu_unmap_entry(vaddr_t vaddr, int level, vaddr_t table_entry)
+{
+	uint32_t offset = 0, next_level_offset = 0;
+	vaddr_t *table, *next_table_addr;
+
+	FMSG("vaddr 0x%lx level %d table_entry 0x%lx\n",
+			vaddr, level, table_entry);
+
+	next_table_addr = NULL;
+	table = (vaddr_t *)(table_entry & X86_PG_PA_FRAME);
+	FMSG("table %p\n", (void *)table);
+
+	switch (level) {
+	case PML4_L:
+		offset = (((uint64_t)vaddr >> PML4_SHIFT)
+				& ((1ul << ADDR_OFFSET) - 1));
+		FMSG("offset %u\n", offset);
+		next_table_addr =
+			(vaddr_t *)virt_to_phys((void *)table[offset]);
+		FMSG("next_table_addr %p\n", (void *)next_table_addr);
+
+		if ((virt_to_phys((void *)table[offset])
+					& X86_MMU_PG_P) == 0)
+			return;
+		break;
+	case PDP_L:
+		offset = (((uint64_t)vaddr >> PDP_SHIFT)
+						& ((1ul << ADDR_OFFSET) - 1));
+
+		FMSG("offset %u\n", offset);
+
+		next_table_addr =
+				(vaddr_t *)virt_to_phys((void *)table[offset]);
+
+		FMSG("next_table_addr %p\n", (void *)next_table_addr);
+
+		if ((virt_to_phys((void *)table[offset])
+					& X86_MMU_PG_P) == 0)
+			return;
+
+		break;
+	case PD_L:
+		offset = (((uint64_t)vaddr >> PD_SHIFT)
+				& ((1ul << ADDR_OFFSET) - 1));
+
+		FMSG("offset %u\n", offset);
+
+		next_table_addr =
+			(vaddr_t *)virt_to_phys((void *)table[offset]);
+
+		FMSG("next_table_addr %p\n", (void *)next_table_addr);
+
+		if ((virt_to_phys((void *)table[offset])
+					& X86_MMU_PG_P) == 0)
+			return;
+
+		break;
+	case PT_L:
+		offset = (((uint64_t)vaddr >> PT_SHIFT)
+					& ((1ul << ADDR_OFFSET) - 1));
+		FMSG("offset %u\n", offset);
+		next_table_addr =
+				(vaddr_t *)virt_to_phys((void *)table[offset]);
+		FMSG("next_table_addr %p\n", (void *)next_table_addr);
+		if ((virt_to_phys((void *)table[offset])
+					& X86_MMU_PG_P) == 0)
+			return;
+		break;
+	case PF_L:
+				/* Reached page frame, Let's go back */
+	default:
+			return;
+	}
+
+	FMSG("recursing\n");
+
+	level -= 1;
+	x86_mmu_unmap_entry(vaddr, level, (vaddr_t)next_table_addr);
+	level += 1;
+
+	FMSG("next_table_addr %p\n", (void *)next_table_addr);
+
+	next_table_addr = (vaddr_t *)((vaddr_t)(next_table_addr) &
+						X86_PG_PA_FRAME);
+
+	if (level > PT_L) {
+		/* Check all entries of next level table for present bit */
+		for (next_level_offset = 0; next_level_offset < (PAGE_SIZE/8);
+				next_level_offset++) {
+			if ((next_table_addr[next_level_offset] &
+						X86_MMU_PG_P) != 0)
+				return;
+		}
+	}
+	/* All present bits for all entries in next level table
+	 * for this address are 0
+	 */
+	if ((virt_to_phys((void *)table[offset]) & X86_MMU_PG_P) != 0) {
+		x86_cli();
+		table[offset] = 0;
+		x86_sti();
+	}
+}
+
+static int x86_mmu_unmap(map_addr_t pml4, vaddr_t vaddr, unsigned int count)
+{
+	vaddr_t next_aligned_v_addr;
+
+	assert(pml4);
+
+	if (!(x86_mmu_check_vaddr(vaddr)))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (count == 0)
+		return TEE_SUCCESS;
+
+	next_aligned_v_addr = vaddr;
+
+	while (count > 0) {
+		x86_mmu_unmap_entry(next_aligned_v_addr, X86_PAGING_LEVELS,
+							pml4);
+		next_aligned_v_addr += PAGE_SIZE;
+		count--;
+	}
+	return TEE_SUCCESS;
+}
+
+/**
+ * @brief  Mapping a section/range with specific permissions
+ *
+ */
+static int x86_mmu_map_range(map_addr_t pml4, struct map_range *range,
+						arch_flags_t flags)
+{
+	vaddr_t next_aligned_v_addr;
+	paddr_t next_aligned_p_addr;
+	int map_status;
+	uint32_t no_of_pages, index;
+
+	assert(pml4);
+	if (!range)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	/* Calculating the number of 4k pages */
+	if (IS_ALIGNED(range->size, PAGE_SIZE))
+		no_of_pages = (range->size) >> PAGE_DIV_SHIFT;
+	else
+		no_of_pages = ((range->size) >> PAGE_DIV_SHIFT) + 1;
+
+	next_aligned_v_addr = range->start_vaddr;
+	next_aligned_p_addr = range->start_paddr;
+
+	FMSG("no_of_pages %d\n", no_of_pages);
+
+	for (index = 0; index < no_of_pages; index++) {
+		map_status = x86_mmu_add_mapping(pml4, next_aligned_p_addr,
+						next_aligned_v_addr, flags);
+		if (map_status) {
+			EMSG("Add mapping failed with err=%d\n", map_status);
+			/* Unmap the partial mapping - if any */
+			x86_mmu_unmap(pml4, range->start_vaddr, index);
+			return map_status;
+		}
+		next_aligned_v_addr += PAGE_SIZE;
+		next_aligned_p_addr += PAGE_SIZE;
+	}
+
+	mfence();
+	return TEE_SUCCESS;
+}
+
+static int arch_mmu_query(vaddr_t vaddr, paddr_t *paddr, unsigned int *flags)
+{
+	uintptr_t current_cr3_val;
+	uint32_t ret_level;
+	map_addr_t last_valid_entry;
+	arch_flags_t ret_flags;
+	int stat;
+
+	if (!paddr)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	assert(x86_get_cr3());
+	current_cr3_val = (uintptr_t) x86_get_cr3();
+
+	stat = x86_mmu_get_mapping((map_addr_t)paddr_to_kvaddr(current_cr3_val &
+	X86_PG_PA_FRAME), vaddr, &ret_level, &ret_flags, &last_valid_entry);
+	if (stat)
+		return stat;
+
+	*paddr = (paddr_t) (last_valid_entry);
+
+	/* converting x86 arch specific flags to arch mmu flags */
+	if (flags)
+		*flags = ret_flags;
+
+	return TEE_SUCCESS;
+}
+
+static int arch_mmu_map(vaddr_t vaddr, paddr_t paddr,
+				unsigned int count, arch_flags_t flags)
+{
+	struct map_range range;
+
+	FMSG(">vaddr 0x%lx paddr 0x%lx count 0x%x flags 0x%lx\n",
+			vaddr, paddr, count, flags);
+
+	if ((!x86_mmu_check_paddr(paddr)))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (!x86_mmu_check_vaddr(vaddr))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (count == 0)
+		return TEE_SUCCESS;
+
+	range.start_vaddr = vaddr;
+	range.start_paddr = paddr;
+	range.size = count;
+
+	return x86_mmu_map_range(virt_to_phys((void *)&g_pml4[0]),
+								&range, flags);
+}
+
+static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm,
+				uint64_t base_va __unused, unsigned int level)
+{
+	int ret;
+
+	assert(level <= 3);
+
+	FMSG("base_va 0x%lx level %u\n", base_va, level);
+	FMSG("%s pa 0x%lx va 0x%lx size 0x%zx region_size 0x%x attr %d",
+			teecore_memtype_name(mm->type), mm->pa, mm->va,
+			mm->size, mm->region_size, mm->attr);
+
+	for ( ; !core_mmap_is_end_of_table(mm) ; mm++) {
+		if (core_mmu_is_dynamic_vaspace(mm)) {
+			DMSG("SKIP %s", teecore_memtype_name(mm->type));
+			continue;
+		}
+
+		DMSG("%s (%d) va 0x%lx pa 0x%lx size 0x%zx region_size 0x%x attr 0x%x",
+			teecore_memtype_name(mm->type),
+			mm->type, mm->va, mm->pa,
+			mm->size, mm->region_size, mm->attr);
+
+		print_memory_attr(mm->attr);
+
+		ret = arch_mmu_map(mm->va, mm->pa, mm->size,
+						get_x86_arch_flags(mm->attr));
+
+		if (ret) {
+			DMSG("%d\n", ret);
+			panic("arch_mmu_map FAIL");
+		}
+	}
+
+	return mm;
+}
+
+void core_mmu_get_user_map(struct core_mmu_user_map *map)
+{
+	map->user_map = (uint64_t)&g_user_ta_pd[0];
+	map->asid = 0;
+}
+
+bool core_mmu_user_mapping_is_active(void)
+{
+	bool ret = false;
+	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_ALL);
+
+	if (pt_user_index)
+		ret = true;
+
+	thread_unmask_exceptions(exceptions);
+
+	return ret;
+}
+
+//TODO: this macro should be defined in each platform head file
+#define TA_USER_BASE_VA 0xF0000000
+/* Function returns user space virtual start address and size of area. */
+void core_mmu_get_user_va_range(vaddr_t *base, size_t *size)
+{
+	if (base)
+		*base = TA_USER_BASE_VA;
+	if (size)
+		*size = TA_RAM_SIZE;
+}
+
+void core_mmu_get_user_pgdir(struct core_mmu_table_info *pgd_info)
+{
+	vaddr_t va_range_base;
+	void *tbl = &g_pml4[0];
+
+	core_mmu_get_user_va_range(&va_range_base, NULL);
+	core_mmu_set_info_table(pgd_info, 2, va_range_base, tbl);
+}
+
+void core_mmu_create_user_map(struct user_mode_ctx *uctx,
+				struct core_mmu_user_map *map)
+{
+	struct core_mmu_table_info dir_info;
+	//struct user_ta_ctx *utc_ta = to_user_ta_ctx(&utc->ctx);
+	struct vm_region *r;
+	//size_t n;
+	int ret;
+
+	core_mmu_get_user_pgdir(&dir_info);
+    // Clear previous user MMU tables
+	clear_user_map();
+
+	TAILQ_FOREACH(r, &((uctx->vm_info).regions), link) {
+		paddr_t pa = 0;
+
+		if (r->mobj && r->va != 0) {
+
+			mobj_get_pa(r->mobj, r->offset, 0, &pa);
+
+			ret = arch_mmu_map(r->va, pa, r->size,
+					(X86_MMU_PG_G | get_x86_arch_flags(r->attr)));
+
+			if (ret) {
+				EMSG("%d\n", ret);
+				panic("arch_mmu_map FAIL");
+			}
+		}
+	}
+
+    /* Flush TLB */
+	x86_set_cr3(x86_get_cr3());
+
+	map->user_map = virt_to_phys(&g_user_ta_pd[0]);
+	map->asid = uctx->vm_info.asid;
 }
 
 bool core_mmu_mattr_is_ok(uint32_t mattr)
@@ -1304,28 +2152,6 @@ bool core_vbuf_is(uint32_t attr, const void *vbuf, size_t len)
 	return core_pbuf_is(attr, p, len);
 }
 
-/* core_va2pa - teecore exported service */
-static int __maybe_unused core_va2pa_helper(void *va, paddr_t *pa)
-{
-	struct tee_mmap_region *map;
-
-	map = find_map_by_va(va);
-	if (!va_is_in_map(map, (vaddr_t)va))
-		return -1;
-
-	/*
-	 * We can calculate PA for static map. Virtual address ranges
-	 * reserved to core dynamic mapping return a 'match' (return 0;)
-	 * together with an invalid null physical address.
-	 */
-	if (map->pa)
-		*pa = map->pa + (vaddr_t)va  - map->va;
-	else
-		*pa = 0;
-
-	return 0;
-}
-
 static void *map_pa2va(struct tee_mmap_region *map, paddr_t pa)
 {
 	if (!pa_is_in_map(map, pa))
@@ -1359,19 +2185,65 @@ enum teecore_memtypes core_mmu_get_type_by_pa(paddr_t pa)
 	return map->type;
 }
 
+struct mmu_partition {
+	unsigned int test;
+};
+
+bool core_mmu_find_table(struct mmu_partition *prtn, vaddr_t va, unsigned int max_level,
+		struct core_mmu_table_info *tbl_info)
+{
+	//TODO: maybe need to disable interrupt here.
+	uint64_t *tbl = &g_pml4[0];
+	uintptr_t ntbl;
+	unsigned int level = 1;
+	vaddr_t va_base = 0;
+	unsigned int num_entries = NO_OF_PML4_ENTRIES;
+
+	(void*) prtn;
+	while (true) {
+		unsigned int level_size_shift = (level - 1);
+		unsigned int n = (va - va_base) >> level_size_shift;
+
+		if (n >= num_entries)
+			return false;
+
+		if (level == max_level || level == 3) {
+			/*
+			 * We've either reached max_level, level 3, a block
+			 * mapping entry or an "invalid" mapping entry.
+			 */
+			tbl_info->table = tbl;
+			tbl_info->va_base = va_base;
+			tbl_info->level = level;
+			tbl_info->shift = level_size_shift;
+			tbl_info->num_entries = num_entries;
+
+			return true;
+		}
+
+		/* Copy bits 39:12 from tbl[n] to ntbl */
+		ntbl = (tbl[n] & ((1ULL << 40) - 1)) & ~((1 << 12) - 1);
+
+		tbl = phys_to_virt(ntbl, MEM_AREA_TEE_RAM_RW_DATA);
+		if (!tbl)
+			return false;
+
+		va_base += (vaddr_t)n << level_size_shift;
+		level++;
+		num_entries = NO_OF_PT_ENTRIES;
+	}
+}
+
 void tlbi_mva_range(vaddr_t va, size_t len, size_t granule)
 {
 	assert(granule == CORE_MMU_PGDIR_SIZE || granule == SMALL_PAGE_SIZE);
 	assert(!(va & (granule - 1)) && !(len & (granule - 1)));
 
-	dsb_ishst();
 	while (len) {
 		tlbi_mva_allasid_nosync(va);
 		len -= granule;
 		va += granule;
 	}
-	dsb_ish();
-	isb();
 }
 
 void tlbi_mva_range_asid(vaddr_t va, size_t len, size_t granule, uint32_t asid)
@@ -1379,87 +2251,74 @@ void tlbi_mva_range_asid(vaddr_t va, size_t len, size_t granule, uint32_t asid)
 	assert(granule == CORE_MMU_PGDIR_SIZE || granule == SMALL_PAGE_SIZE);
 	assert(!(va & (granule - 1)) && !(len & (granule - 1)));
 
-	dsb_ishst();
 	while (len) {
 		tlbi_mva_asid_nosync(va, asid);
 		len -= granule;
 		va += granule;
 	}
-	dsb_ish();
-	isb();
+}
+
+static int cache_tlb_inv(void *va, size_t length)
+{
+	vaddr_t next_aligned_v_addr;
+	paddr_t pa;
+
+	pa = virt_to_phys(va);
+	if (!pa)
+		return TEE_ERROR_ACCESS_DENIED;
+
+	if (length == 0)
+		return TEE_SUCCESS;
+
+	next_aligned_v_addr = (vaddr_t)va;
+	while (length > 0) {
+		__asm__ volatile(
+				"invlpg (%0)"
+				:: "r" (next_aligned_v_addr)
+				: "memory");
+		next_aligned_v_addr += PAGE_SIZE;
+		length--;
+	}
+
+	return TEE_SUCCESS;
 }
 
 TEE_Result cache_op_inner(enum cache_op op, void *va, size_t len)
 {
-	switch (op) {
-	case DCACHE_CLEAN:
-		dcache_op_all(DCACHE_OP_CLEAN);
-		break;
-	case DCACHE_AREA_CLEAN:
-		dcache_clean_range(va, len);
-		break;
-	case DCACHE_INVALIDATE:
-		dcache_op_all(DCACHE_OP_INV);
-		break;
-	case DCACHE_AREA_INVALIDATE:
-		dcache_inv_range(va, len);
-		break;
-	case ICACHE_INVALIDATE:
-		icache_inv_all();
-		break;
-	case ICACHE_AREA_INVALIDATE:
-		icache_inv_range(va, len);
-		break;
-	case DCACHE_CLEAN_INV:
-		dcache_op_all(DCACHE_OP_CLEAN_INV);
-		break;
-	case DCACHE_AREA_CLEAN_INV:
-		dcache_cleaninv_range(va, len);
-		break;
-	default:
-		return TEE_ERROR_NOT_IMPLEMENTED;
-	}
-	return TEE_SUCCESS;
-}
-
-#ifdef CFG_PL310
-TEE_Result cache_op_outer(enum cache_op op, paddr_t pa, size_t len)
-{
 	TEE_Result ret = TEE_SUCCESS;
-	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
 
-	tee_l2cc_mutex_lock();
 	switch (op) {
+	case ICACHE_INVALIDATE:
 	case DCACHE_INVALIDATE:
-		arm_cl2_invbyway(pl310_base());
-		break;
+	case ICACHE_AREA_INVALIDATE:
 	case DCACHE_AREA_INVALIDATE:
-		if (len)
-			arm_cl2_invbypa(pl310_base(), pa, pa + len - 1);
+		invd();
 		break;
 	case DCACHE_CLEAN:
-		arm_cl2_cleanbyway(pl310_base());
-		break;
-	case DCACHE_AREA_CLEAN:
-		if (len)
-			arm_cl2_cleanbypa(pl310_base(), pa, pa + len - 1);
-		break;
 	case DCACHE_CLEAN_INV:
-		arm_cl2_cleaninvbyway(pl310_base());
-		break;
+	case DCACHE_AREA_CLEAN:
 	case DCACHE_AREA_CLEAN_INV:
-		if (len)
-			arm_cl2_cleaninvbypa(pl310_base(), pa, pa + len - 1);
+		wbinvd();
+		break;
+	case DCACHE_TLB_INVALIDATE:
+		ret = cache_tlb_inv(va, len);
 		break;
 	default:
 		ret = TEE_ERROR_NOT_IMPLEMENTED;
 	}
 
-	tee_l2cc_mutex_unlock();
-	thread_set_exceptions(exceptions);
+	mfence();
 	return ret;
 }
-#endif /*CFG_PL310*/
+
+void core_mmu_set_entry_primitive(void *table, size_t level __unused,
+				size_t idx, paddr_t pa, uint32_t attr)
+{
+	uint64_t *tbl = table;
+	uint64_t desc = get_x86_arch_flags(attr);
+
+	tbl[idx] = desc | pa;
+}
 
 void core_mmu_set_entry(struct core_mmu_table_info *tbl_info, unsigned idx,
 			paddr_t pa, uint32_t attr)
@@ -1469,32 +2328,25 @@ void core_mmu_set_entry(struct core_mmu_table_info *tbl_info, unsigned idx,
 				     idx, pa, attr);
 }
 
+void core_mmu_get_entry_primitive(const void *table,
+			size_t level __unused, size_t idx,
+			paddr_t *pa, uint32_t *attr)
+{
+	const uint64_t *tbl = table;
+
+	if (pa)
+		*pa = (tbl[idx] & X86_PG_PA_FRAME) >> X86_PD_PA_POS;
+
+	if (attr)
+		*attr = get_arch_mmu_flags(tbl[idx]);
+}
+
 void core_mmu_get_entry(struct core_mmu_table_info *tbl_info, unsigned idx,
 			paddr_t *pa, uint32_t *attr)
 {
 	assert(idx < tbl_info->num_entries);
 	core_mmu_get_entry_primitive(tbl_info->table, tbl_info->level,
 				     idx, pa, attr);
-}
-
-static void clear_region(struct core_mmu_table_info *tbl_info,
-			 struct tee_mmap_region *region)
-{
-	unsigned int end = 0;
-	unsigned int idx = 0;
-
-	/* va, len and pa should be block aligned */
-	assert(!core_mmu_get_block_offset(tbl_info, region->va));
-	assert(!core_mmu_get_block_offset(tbl_info, region->size));
-	assert(!core_mmu_get_block_offset(tbl_info, region->pa));
-
-	idx = core_mmu_va2idx(tbl_info, region->va);
-	end = core_mmu_va2idx(tbl_info, region->va + region->size);
-
-	while (idx < end) {
-		core_mmu_set_entry(tbl_info, idx, 0, 0);
-		idx++;
-	}
 }
 
 static void set_region(struct core_mmu_table_info *tbl_info,
@@ -1517,155 +2369,6 @@ static void set_region(struct core_mmu_table_info *tbl_info,
 		core_mmu_set_entry(tbl_info, idx, pa, region->attr);
 		idx++;
 		pa += 1 << tbl_info->shift;
-	}
-}
-
-static void set_pg_region(struct core_mmu_table_info *dir_info,
-			struct vm_region *region, struct pgt **pgt,
-			struct core_mmu_table_info *pg_info)
-{
-	struct tee_mmap_region r = {
-		.va = region->va,
-		.size = region->size,
-		.attr = region->attr,
-	};
-	vaddr_t end = r.va + r.size;
-	uint32_t pgt_attr = (r.attr & TEE_MATTR_SECURE) | TEE_MATTR_TABLE;
-
-	while (r.va < end) {
-		if (!pg_info->table ||
-		     r.va >= (pg_info->va_base + CORE_MMU_PGDIR_SIZE)) {
-			/*
-			 * We're assigning a new translation table.
-			 */
-			unsigned int idx;
-
-			/* Virtual addresses must grow */
-			assert(r.va > pg_info->va_base);
-
-			idx = core_mmu_va2idx(dir_info, r.va);
-			pg_info->va_base = core_mmu_idx2va(dir_info, idx);
-
-#ifdef CFG_PAGED_USER_TA
-			/*
-			 * Advance pgt to va_base, note that we may need to
-			 * skip multiple page tables if there are large
-			 * holes in the vm map.
-			 */
-			while ((*pgt)->vabase < pg_info->va_base) {
-				*pgt = SLIST_NEXT(*pgt, link);
-				/* We should have alloced enough */
-				assert(*pgt);
-			}
-			assert((*pgt)->vabase == pg_info->va_base);
-			pg_info->table = (*pgt)->tbl;
-#else
-			assert(*pgt); /* We should have alloced enough */
-			pg_info->table = (*pgt)->tbl;
-			*pgt = SLIST_NEXT(*pgt, link);
-#endif
-
-			core_mmu_set_entry(dir_info, idx,
-					   virt_to_phys(pg_info->table),
-					   pgt_attr);
-		}
-
-		r.size = MIN(CORE_MMU_PGDIR_SIZE - (r.va - pg_info->va_base),
-			     end - r.va);
-
-		if (!mobj_is_paged(region->mobj)) {
-			size_t granule = BIT(pg_info->shift);
-			size_t offset = r.va - region->va + region->offset;
-
-			r.size = MIN(r.size,
-				     mobj_get_phys_granule(region->mobj));
-			r.size = ROUNDUP(r.size, SMALL_PAGE_SIZE);
-
-			if (mobj_get_pa(region->mobj, offset, granule,
-					&r.pa) != TEE_SUCCESS)
-				panic("Failed to get PA of unpaged mobj");
-			set_region(pg_info, &r);
-		}
-		r.va += r.size;
-	}
-}
-
-static bool can_map_at_level(paddr_t paddr, vaddr_t vaddr,
-			     size_t size_left, paddr_t block_size,
-			     struct tee_mmap_region *mm __maybe_unused)
-{
-
-	/* VA and PA are aligned to block size at current level */
-	if ((vaddr | paddr) & (block_size - 1))
-		return false;
-
-	/* Remainder fits into block at current level */
-	if (size_left < block_size)
-		return false;
-
-#ifdef CFG_WITH_PAGER
-	/*
-	 * If pager is enabled, we need to map tee ram
-	 * regions with small pages only
-	 */
-	if (map_is_tee_ram(mm) && block_size != SMALL_PAGE_SIZE)
-		return false;
-#endif
-
-	return true;
-}
-
-void core_mmu_map_region(struct mmu_partition *prtn, struct tee_mmap_region *mm)
-{
-	struct core_mmu_table_info tbl_info;
-	unsigned int idx;
-	vaddr_t vaddr = mm->va;
-	paddr_t paddr = mm->pa;
-	ssize_t size_left = mm->size;
-	int level;
-	bool table_found;
-	uint32_t old_attr;
-
-	assert(!((vaddr | paddr) & SMALL_PAGE_MASK));
-
-	while (size_left > 0) {
-		level = 1;
-
-		while (true) {
-			assert(level <= CORE_MMU_PGDIR_LEVEL);
-
-			table_found = core_mmu_find_table(prtn, vaddr, level,
-							  &tbl_info);
-			if (!table_found)
-				panic("can't find table for mapping");
-
-			idx = core_mmu_va2idx(&tbl_info, vaddr);
-
-			if (!can_map_at_level(paddr, vaddr, size_left,
-					      1 << tbl_info.shift, mm)) {
-				/*
-				 * This part of the region can't be mapped at
-				 * this level. Need to go deeper.
-				 */
-				if (!core_mmu_entry_to_finer_grained(&tbl_info,
-					      idx, mm->attr & TEE_MATTR_SECURE))
-					panic("Can't divide MMU entry");
-				level++;
-				continue;
-			}
-
-			/* We can map part of the region at current level */
-			core_mmu_get_entry(&tbl_info, idx, NULL, &old_attr);
-			if (old_attr)
-				panic("Page is already mapped");
-
-			core_mmu_set_entry(&tbl_info, idx, paddr, mm->attr);
-			paddr += 1 << tbl_info.shift;
-			vaddr += 1 << tbl_info.shift;
-			size_left -= 1 << tbl_info.shift;
-
-			break;
-		}
 	}
 }
 
@@ -1712,11 +2415,6 @@ TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 			idx = core_mmu_va2idx(&tbl_info, vaddr);
 			if (tbl_info.shift == SMALL_PAGE_SHIFT)
 				break;
-
-			/* This is supertable. Need to divide it. */
-			if (!core_mmu_entry_to_finer_grained(&tbl_info, idx,
-							     secure))
-				panic("Failed to spread pgdir on small tables");
 		}
 
 		core_mmu_get_entry(&tbl_info, idx, NULL, &old_attr);
@@ -1733,7 +2431,6 @@ TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 	 * before returning. TLB doesn't need to be invalidated as we are
 	 * guaranteed that there's no valid mapping in this range.
 	 */
-	dsb_ishst();
 	mmu_unlock(exceptions);
 
 	return TEE_SUCCESS;
@@ -1744,73 +2441,6 @@ err:
 		core_mmu_unmap_pages(vstart, i);
 
 	return ret;
-}
-
-TEE_Result core_mmu_map_contiguous_pages(vaddr_t vstart, paddr_t pstart,
-					 size_t num_pages,
-					 enum teecore_memtypes memtype)
-{
-	struct core_mmu_table_info tbl_info = { };
-	struct tee_mmap_region *mm = NULL;
-	unsigned int idx = 0;
-	uint32_t old_attr = 0;
-	uint32_t exceptions = 0;
-	vaddr_t vaddr = vstart;
-	paddr_t paddr = pstart;
-	size_t i = 0;
-	bool secure = false;
-
-	assert(!(core_mmu_type_to_attr(memtype) & TEE_MATTR_PX));
-
-	secure = core_mmu_type_to_attr(memtype) & TEE_MATTR_SECURE;
-
-	if ((vaddr | paddr) & SMALL_PAGE_MASK)
-		return TEE_ERROR_BAD_PARAMETERS;
-
-	exceptions = mmu_lock();
-
-	mm = find_map_by_va((void *)vaddr);
-	if (!mm || !va_is_in_map(mm, vaddr + num_pages * SMALL_PAGE_SIZE - 1))
-		panic("VA does not belong to any known mm region");
-
-	if (!core_mmu_is_dynamic_vaspace(mm))
-		panic("Trying to map into static region");
-
-	for (i = 0; i < num_pages; i++) {
-		while (true) {
-			if (!core_mmu_find_table(NULL, vaddr, UINT_MAX,
-						 &tbl_info))
-				panic("Can't find pagetable for vaddr ");
-
-			idx = core_mmu_va2idx(&tbl_info, vaddr);
-			if (tbl_info.shift == SMALL_PAGE_SHIFT)
-				break;
-
-			/* This is supertable. Need to divide it. */
-			if (!core_mmu_entry_to_finer_grained(&tbl_info, idx,
-							     secure))
-				panic("Failed to spread pgdir on small tables");
-		}
-
-		core_mmu_get_entry(&tbl_info, idx, NULL, &old_attr);
-		if (old_attr)
-			panic("Page is already mapped");
-
-		core_mmu_set_entry(&tbl_info, idx, paddr,
-				   core_mmu_type_to_attr(memtype));
-		paddr += SMALL_PAGE_SIZE;
-		vaddr += SMALL_PAGE_SIZE;
-	}
-
-	/*
-	 * Make sure all the changes to translation tables are visible
-	 * before returning. TLB doesn't need to be invalidated as we are
-	 * guaranteed that there's no valid mapping in this range.
-	 */
-	dsb_ishst();
-	mmu_unlock(exceptions);
-
-	return TEE_SUCCESS;
 }
 
 void core_mmu_unmap_pages(vaddr_t vstart, size_t num_pages)
@@ -1845,86 +2475,10 @@ void core_mmu_unmap_pages(vaddr_t vstart, size_t num_pages)
 	mmu_unlock(exceptions);
 }
 
-void core_mmu_populate_user_map(struct core_mmu_table_info *dir_info,
-				struct user_mode_ctx *uctx)
+void core_mmu_set_user_map(struct core_mmu_user_map *map)
 {
-	struct core_mmu_table_info pg_info = { };
-	struct pgt_cache *pgt_cache = &thread_get_tsd()->pgt_cache;
-	struct pgt *pgt = NULL;
-	struct vm_region *r = NULL;
-	struct vm_region *r_last = NULL;
-
-	/* Find the first and last valid entry */
-	r = TAILQ_FIRST(&uctx->vm_info.regions);
-	if (!r)
-		return; /* Nothing to map */
-	r_last = TAILQ_LAST(&uctx->vm_info.regions, vm_region_head);
-
-	/*
-	 * Allocate all page tables in advance.
-	 */
-	pgt_alloc(pgt_cache, uctx->ts_ctx, r->va,
-		  r_last->va + r_last->size - 1);
-	pgt = SLIST_FIRST(pgt_cache);
-
-	core_mmu_set_info_table(&pg_info, dir_info->level + 1, 0, NULL);
-
-	TAILQ_FOREACH(r, &uctx->vm_info.regions, link)
-		set_pg_region(dir_info, r, &pgt, &pg_info);
-}
-
-TEE_Result core_mmu_remove_mapping(enum teecore_memtypes type, void *addr,
-				   size_t len)
-{
-	struct core_mmu_table_info tbl_info = { };
-	struct tee_mmap_region *res_map = NULL;
-	struct tee_mmap_region *map = NULL;
-	paddr_t pa = virt_to_phys(addr);
-	size_t granule = 0;
-	ptrdiff_t i = 0;
-	paddr_t p = 0;
-	size_t l = 0;
-
-	map = find_map_by_type_and_pa(type, pa);
-	if (!map)
-		return TEE_ERROR_GENERIC;
-
-	res_map = find_map_by_type(MEM_AREA_RES_VASPACE);
-	if (!res_map)
-		return TEE_ERROR_GENERIC;
-	if (!core_mmu_find_table(NULL, res_map->va, UINT_MAX, &tbl_info))
-		return TEE_ERROR_GENERIC;
-	granule = BIT(tbl_info.shift);
-
-	if (map < static_memory_map ||
-	    map >= static_memory_map + ARRAY_SIZE(static_memory_map))
-		return TEE_ERROR_GENERIC;
-	i = map - static_memory_map;
-
-	/* Check that we have a full match */
-	p = ROUNDDOWN(pa, granule);
-	l = ROUNDUP(len + pa - p, granule);
-	if (map->pa != p || map->size != l)
-		return TEE_ERROR_GENERIC;
-
-	clear_region(&tbl_info, map);
-	tlbi_all();
-
-	/* If possible remove the va range from res_map */
-	if (res_map->va - map->size == map->va) {
-		res_map->va -= map->size;
-		res_map->size += map->size;
-	}
-
-	/* Remove the entry. */
-	memmove(map, map + 1,
-		(ARRAY_SIZE(static_memory_map) - i - 1) * sizeof(*map));
-
-	/* Clear the last new entry in case it was used */
-	memset(static_memory_map + ARRAY_SIZE(static_memory_map) - 1,
-	       0, sizeof(*map));
-
-	return TEE_SUCCESS;
+	if (map == NULL)
+		clear_user_map();
 }
 
 bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
@@ -1938,9 +2492,6 @@ bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 
 	if (!len)
 		return true;
-
-	if (!core_mmu_check_end_pa(addr, len))
-		return false;
 
 	/* Check if the memory is already mapped */
 	map = find_map_by_type_and_pa(type, addr);
@@ -1998,9 +2549,6 @@ bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 
 	set_region(&tbl_info, map);
 
-	/* Make sure the new entry is visible before continuing. */
-	dsb_ishst();
-
 	return true;
 }
 
@@ -2039,42 +2587,6 @@ void asid_free(unsigned int asid)
 	cpu_spin_unlock_xrestore(&g_asid_spinlock, exceptions);
 }
 
-static bool arm_va2pa_helper(void *va, paddr_t *pa)
-{
-	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_ALL);
-	paddr_t par = 0;
-	paddr_t par_pa_mask = 0;
-	bool ret = false;
-
-#ifdef ARM32
-	write_ats1cpr((vaddr_t)va);
-	isb();
-#ifdef CFG_WITH_LPAE
-	par = read_par64();
-	par_pa_mask = PAR64_PA_MASK;
-#else
-	par = read_par32();
-	par_pa_mask = PAR32_PA_MASK;
-#endif
-#endif /*ARM32*/
-
-#ifdef ARM64
-	write_at_s1e1r((vaddr_t)va);
-	isb();
-	par = read_par_el1();
-	par_pa_mask = PAR_PA_MASK;
-#endif
-	if (par & PAR_F)
-		goto out;
-	*pa = (par & (par_pa_mask << PAR_PA_SHIFT)) |
-		((vaddr_t)va & ((1 << PAR_PA_SHIFT) - 1));
-
-	ret = true;
-out:
-	thread_unmask_exceptions(exceptions);
-	return ret;
-}
-
 #ifdef CFG_WITH_PAGER
 static vaddr_t get_linear_map_end(void)
 {
@@ -2083,97 +2595,15 @@ static vaddr_t get_linear_map_end(void)
 }
 #endif
 
-#if defined(CFG_TEE_CORE_DEBUG)
-static void check_pa_matches_va(void *va, paddr_t pa)
-{
-	TEE_Result res = TEE_ERROR_GENERIC;
-	vaddr_t v = (vaddr_t)va;
-	paddr_t p = 0;
-	struct core_mmu_table_info ti __maybe_unused = { };
-
-	if (core_mmu_user_va_range_is_defined()) {
-		vaddr_t user_va_base = 0;
-		size_t user_va_size = 0;
-
-		core_mmu_get_user_va_range(&user_va_base, &user_va_size);
-		if (v >= user_va_base &&
-		    v <= (user_va_base - 1 + user_va_size)) {
-			if (!core_mmu_user_mapping_is_active()) {
-				if (pa)
-					panic("issue in linear address space");
-				return;
-			}
-
-			res = vm_va2pa(to_user_mode_ctx(thread_get_tsd()->ctx),
-				       va, &p);
-			if (res == TEE_ERROR_NOT_SUPPORTED)
-				return;
-			if (res == TEE_SUCCESS && pa != p)
-				panic("bad pa");
-			if (res != TEE_SUCCESS && pa)
-				panic("false pa");
-			return;
-		}
-	}
-#ifdef CFG_WITH_PAGER
-	if (is_unpaged(va)) {
-		if (v - boot_mmu_config.load_offset != pa)
-			panic("issue in linear address space");
-		return;
-	}
-
-	if (tee_pager_get_table_info(v, &ti)) {
-		uint32_t a;
-
-		/*
-		 * Lookups in the page table managed by the pager is
-		 * dangerous for addresses in the paged area as those pages
-		 * changes all the time. But some ranges are safe,
-		 * rw-locked areas when the page is populated for instance.
-		 */
-		core_mmu_get_entry(&ti, core_mmu_va2idx(&ti, v), &p, &a);
-		if (a & TEE_MATTR_VALID_BLOCK) {
-			paddr_t mask = ((1 << ti.shift) - 1);
-
-			p |= v & mask;
-			if (pa != p)
-				panic();
-		} else
-			if (pa)
-				panic();
-		return;
-	}
-#endif
-
-#ifndef CFG_VIRTUALIZATION
-	if (!core_va2pa_helper(va, &p)) {
-		/* Verfiy only the static mapping (case non null phys addr) */
-		if (p && pa != p) {
-			DMSG("va %p maps 0x%" PRIxPA ", expect 0x%" PRIxPA,
-					va, p, pa);
-			panic();
-		}
-	} else {
-		if (pa) {
-			DMSG("va %p unmapped, expect 0x%" PRIxPA, va, pa);
-			panic();
-		}
-	}
-#endif
-}
-#else
-static void check_pa_matches_va(void *va __unused, paddr_t pa __unused)
-{
-}
-#endif
-
 paddr_t virt_to_phys(void *va)
 {
-	paddr_t pa = 0;
+	paddr_t pa;
+	int rc;
 
-	if (!arm_va2pa_helper(va, &pa))
-		pa = 0;
-	check_pa_matches_va(va, pa);
+	rc = arch_mmu_query((vaddr_t)va, &pa, NULL);
+	if (rc)
+		return (paddr_t)NULL;
+
 	return pa;
 }
 
@@ -2275,15 +2705,10 @@ void *phys_to_virt_io(paddr_t pa)
 
 bool cpu_mmu_enabled(void)
 {
-	uint32_t sctlr;
+	if ((X86_CR0_PG & x86_get_cr0()) && optee_mem_structs_ready)
+		return true;
 
-#ifdef ARM32
-	sctlr =  read_sctlr();
-#else
-	sctlr =  read_sctlr_el1();
-#endif
-
-	return sctlr & SCTLR_M ? true : false;
+	return false;
 }
 
 vaddr_t core_mmu_get_va(paddr_t pa, enum teecore_memtypes type)
@@ -2416,4 +2841,42 @@ void core_mmu_init_ta_ram(void)
 	tee_mm_final(&tee_mm_sec_ddr);
 	tee_mm_init(&tee_mm_sec_ddr, ps, pe, CORE_MMU_USER_CODE_SHIFT,
 		    TEE_MM_POOL_NO_FLAGS);
+}
+
+/*
+ * core_mmu_init - early init tee core mmu function
+ *
+ * this routine makes default setting for tee core mmu.
+ */
+void core_mmu_init(void)
+{
+	uint64_t efer_msr, cr4;
+	uint32_t addr_width = 0;
+
+    /* enable caches */
+	clear_in_cr0(X86_CR0_NW | X86_CR0_CD);
+
+    /* Set WP bit in CR0*/
+	set_in_cr0(X86_CR0_WP);
+
+    /* Setting the SMEP & SMAP bit in CR4 */
+	cr4 = x86_get_cr4();
+	if (check_smep_avail())
+		cr4 |= X86_CR4_SMEP;
+	/* TODO: will figure out how to enable SMAP */
+	/*if (check_smap_avail())
+		cr4 |= X86_CR4_SMAP;*/
+	x86_set_cr4(cr4);
+
+    /* Set NXE bit in MSR_EFER*/
+	efer_msr = read_msr(x86_MSR_EFER);
+	efer_msr |= x86_EFER_NXE;
+	write_msr(x86_MSR_EFER, efer_msr);
+
+    /* getting the address width from CPUID instr */
+    /* Bits 07-00: Physical Address width info */
+    /* Bits 15-08: Linear Address width info */
+	addr_width = x86_get_address_width();
+	g_paddr_width = (uint8_t)(addr_width & 0xFF);
+	g_vaddr_width = (uint8_t)((addr_width >> 8) & 0xFF);
 }

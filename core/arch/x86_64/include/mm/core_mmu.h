@@ -13,14 +13,127 @@
 #include <mm/tee_mmu_types.h>
 #include <types_ext.h>
 #include <util.h>
+
+typedef uint64_t map_addr_t;
+typedef uint64_t arch_flags_t;
+
 #endif
 
 #include <platform_config.h>
+
+/* top level defines for the x86 mmu */
+/* NOTE: the top part can be included from assembly */
+#define KB                (1024UL)
+#define MB                (1024UL*1024UL)
+#define GB                (1024UL*1024UL*1024UL)
+
+#define X86_PD_PA_POS      12
+
+/* P   Present */
+#define X86_MMU_PG_P       0x001
+/* R/W Read/Write, 1=enable writes */
+#define X86_MMU_PG_RW      0x002
+/* U/S User/Supervisor, 1=enable user mode */
+#define X86_MMU_PG_U       0x004
+/* PWT Page-level write-through */
+#define X86_MMU_PG_PWT     0x008
+/* PCD Page Cache Disable */
+#define X86_MMU_PG_PCD     0x010
+/* PS  Page size */
+#define X86_MMU_PG_PS      0x080
+/* PAT PAT index */
+#define X86_MMU_PG_PTE_PAT 0x080
+/* G   Global */
+#define X86_MMU_PG_G       0x100
+/* XD  Execute-disable, 1=disable execution */
+#define X86_MMU_PG_NX      (1ul << 63)
+
+#define X86_MMU_CLEAR       0x0
+#define X86_DIRTY_ACCESS_MASK   0xf9f
+
+/* default flags for inner page directory entries */
+#define X86_KERNEL_PD_FLAGS (X86_MMU_PG_G | X86_MMU_PG_RW | X86_MMU_PG_P)
+
+/* default flags for 2MB/4MB/1GB page directory entries */
+#define X86_KERNEL_PD_LP_FLAGS (X86_MMU_PG_G | X86_MMU_PG_PS | X86_MMU_PG_RW | \
+				X86_MMU_PG_P)
+
+#define X86_USER_PD_FLAGS (X86_MMU_PG_G | X86_MMU_PG_U | X86_MMU_PG_RW |\
+				X86_MMU_PG_P)
+
+#define PAGE_SIZE       4096
+#define PAGE_DIV_SHIFT      12
+
+/* PAE mode */
+#define X86_PDPT_ADDR_MASK  (0x00000000ffffffe0ul)
+#define X86_PG_VA_FRAME     (0x0000fffffffff000ul)
+#define X86_PG_PA_FRAME     (0x0000fffffffff000ul)
+#define X86_PHY_ADDR_MASK   (0x000ffffffffffffful)
+#define X86_FLAGS_MASK      (~X86_PG_PA_FRAME)
+#define X86_PTE_NOT_PRESENT (0xFFFFFFFFFFFFFFFEul)
+#define X86_2MB_PAGE_FRAME  (0x000fffffffe00000ul)
+#define PAGE_OFFSET_MASK_4KB    (0x0000000000000ffful)
+#define PAGE_OFFSET_MASK_2MB    (0x00000000001ffffful)
+
+#define X86_PAGING_LEVELS   4
+#define PML4_SHIFT      39
+
+#define PDP_SHIFT       30
+#define PD_SHIFT        21
+#define PT_SHIFT        12
+#define ADDR_OFFSET     9
+#define ADDR_MASK       ((1ul << ADDR_OFFSET) - 1)
+#define PDPT_ADDR_OFFSET    2
+
+/* Memory area which one Page Table maps with 512 Page Table Entries. */
+#define AREA_MAPPED_W_ONE_PT  (2 * MB)
+
+#define NO_OF_PML4_ENTRIES    1
+#define NO_OF_PDP_ENTRIES     512
+#define NO_OF_PD_ENTRIES      512
+#define NO_OF_PT_ENTRIES      512
+#define NO_OF_PT_TABLES       40
+
+// User mode definitions
+#define NO_OF_USER_PD_ENTRIES 512
+#define NO_OF_USER_PT_TABLES  (TA_RAM_SIZE / AREA_MAPPED_W_ONE_PT)
+
+#define ARCH_MMU_FLAG_CACHED            (0<<0)
+#define ARCH_MMU_FLAG_UNCACHED          (1<<0)
+/* only exists on some arches, otherwise UNCACHED */
+#define ARCH_MMU_FLAG_UNCACHED_DEVICE   (2<<0)
+#define ARCH_MMU_FLAG_CACHE_MASK        (3<<0)
+
+#define ARCH_MMU_FLAG_PERM_USER         (1<<2)
+#define ARCH_MMU_FLAG_PERM_RO           (1<<3)
+#define ARCH_MMU_FLAG_PERM_NO_EXECUTE   (1<<4)
+#define ARCH_MMU_FLAG_NS                (1<<5) /* NON-SECURE */
+/* indicates that flags are not specified */
+#define ARCH_MMU_FLAG_INVALID           (1<<7)
+
+#ifndef __ASSEMBLER__
+/* Different page table levels in the page table mgmt hirerachy */
+enum page_table_levels {
+	PF_L,
+	PT_L,
+	PD_L,
+	PDP_L,
+	PML4_L
+};
+#endif
 
 /* A small page is the smallest unit of memory that can be mapped */
 #define SMALL_PAGE_SHIFT	12
 #define SMALL_PAGE_SIZE		BIT(SMALL_PAGE_SHIFT)
 #define SMALL_PAGE_MASK		((paddr_t)SMALL_PAGE_SIZE - 1)
+#define IS_PAGE_ALIGNED(addr)   (((addr) & SMALL_PAGE_MASK) == 0)
+
+/* flags for initial mapping struct */
+#define MMU_INITIAL_MAPPING_TEMPORARY     (0x1)
+#define MMU_INITIAL_MAPPING_FLAG_UNCACHED (0x2)
+#define MMU_INITIAL_MAPPING_FLAG_DEVICE   (0x4)
+/* entry has to be patched up by platform_reset */
+#define MMU_INITIAL_MAPPING_FLAG_DYNAMIC  (0x8)
 
 /*
  * PGDIR is the translation table above the translation table that holds
@@ -82,6 +195,12 @@
 #endif
 
 #ifndef __ASSEMBLER__
+struct map_range {
+	vaddr_t start_vaddr;
+	uint64_t start_paddr;
+	size_t size;
+};
+
 /*
  * Memory area type:
  * MEM_AREA_END:      Reserved, marks the end of a table of mapping areas.
@@ -193,6 +312,14 @@ struct core_mmu_phys_mem {
 #endif
 		paddr_size_t size;
 	};
+};
+
+struct mmu_initial_mapping {
+	paddr_t phys;
+	vaddr_t virt;
+	size_t size;
+	unsigned int flags;
+	const char *name;
 };
 
 #define __register_memory(_name, _type, _addr, _size, _section) \
@@ -316,8 +443,6 @@ struct core_mmu_config {
 
 void core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg);
 void core_init_mmu_regs(struct core_mmu_config *cfg);
-
-bool core_mmu_place_tee_ram_at_top(paddr_t paddr);
 
 #ifdef CFG_WITH_LPAE
 /*
@@ -569,22 +694,6 @@ TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 			      enum teecore_memtypes memtype);
 
 /*
- * core_mmu_map_contiguous_pages() - map range of pages at given virtual address
- * @vstart:	Virtual address where mapping begins
- * @pstart:	Physical address of the first page
- * @num_pages:	Number of pages
- * @memtype:	Type of memmory to be mapped
- *
- * Note: This function asserts that pages are not mapped executeable for
- * kernel (privileged) mode.
- *
- * @returns:	TEE_SUCCESS on success, TEE_ERROR_XXX on error
- */
-TEE_Result core_mmu_map_contiguous_pages(vaddr_t vstart, paddr_t pstart,
-					 size_t num_pages,
-					 enum teecore_memtypes memtype);
-
-/*
  * core_mmu_unmap_pages() - remove mapping at given virtual address
  * @vstart:	Virtual address where mapping begins
  * @num_pages:	Number of pages to unmap
@@ -616,8 +725,6 @@ static inline bool core_mmu_is_shm_cached(void)
 		(TEE_MATTR_CACHE_CACHED << TEE_MATTR_CACHE_SHIFT);
 }
 
-TEE_Result core_mmu_remove_mapping(enum teecore_memtypes type, void *addr,
-				   size_t len);
 bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len);
 
 /*
@@ -652,21 +759,11 @@ enum cache_op {
 	ICACHE_AREA_INVALIDATE,
 	DCACHE_CLEAN_INV,
 	DCACHE_AREA_CLEAN_INV,
+	DCACHE_TLB_INVALIDATE,
 };
 
 /* L1/L2 cache maintenance */
 TEE_Result cache_op_inner(enum cache_op op, void *va, size_t len);
-#ifdef CFG_PL310
-TEE_Result cache_op_outer(enum cache_op op, paddr_t pa, size_t len);
-#else
-static inline TEE_Result cache_op_outer(enum cache_op op __unused,
-						paddr_t pa __unused,
-						size_t len __unused)
-{
-	/* Nothing to do about L2 Cache Maintenance when no PL310 */
-	return TEE_SUCCESS;
-}
-#endif
 
 /* Check cpu mmu enabled or not */
 bool cpu_mmu_enabled(void);

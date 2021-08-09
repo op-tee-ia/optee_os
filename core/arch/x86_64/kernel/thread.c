@@ -495,7 +495,7 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 			struct user_ta_ctx *utc = to_user_ta_ctx(tsd->ctx);
 
 			tee_ta_update_session_utime_resume();
-			core_mmu_create_user_map(utc, &threads[n].user_map);
+			core_mmu_create_user_map(&(utc->uctx), &threads[n].user_map);
 			core_mmu_set_user_map(&threads[n].user_map);
 		}
 
