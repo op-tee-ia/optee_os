@@ -58,6 +58,8 @@ def get_arch_id(elffile):
         return 0
     if e_machine == 'EM_AARCH64':
         return 1
+    if e_machine == 'EM_X86_64':
+        return 1
     eprint('Unknown e_machine "%s"' % e_machine)
     sys.exit(1)
 

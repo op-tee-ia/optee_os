@@ -9,7 +9,7 @@
 
 #include <types_ext.h>
 
-#if defined(CFG_UNWIND) && (TRACE_LEVEL > 0)
+#if defined(CFG_UNWIND) && (TRACE_LEVEL > 0) && !defined(X86_64)
 void print_kernel_stack(void);
 #else
 static inline void print_kernel_stack(void)
