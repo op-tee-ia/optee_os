@@ -564,9 +564,8 @@ CFG_CORE_BIGNUM_MAX_BITS ?= 4096
 
 # Not used since libmpa was removed. Force the values to catch build scripts
 # that would set = n.
-#todo: enable mbedtls
-#$(call force,CFG_TA_MBEDTLS_MPI,y)
-#$(call force,CFG_TA_MBEDTLS,y)
+$(call force,CFG_TA_MBEDTLS_MPI,y)
+$(call force,CFG_TA_MBEDTLS,y)
 
 # Compile the TA library mbedTLS with self test functions, the functions
 # need to be called to test anything

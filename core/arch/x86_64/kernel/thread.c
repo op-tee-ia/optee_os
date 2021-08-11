@@ -587,6 +587,19 @@ bool thread_is_from_abort_mode(void)
 	return (l->flags >> THREAD_CLF_SAVED_SHIFT) & THREAD_CLF_ABORT;
 }
 
+bool thread_is_in_normal_mode(void)
+{
+	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
+	struct thread_core_local *l = thread_get_core_local();
+	bool ret;
+
+	/* If any bit in l->flags is set we're handling some exception. */
+	ret = !l->flags;
+	thread_unmask_exceptions(exceptions);
+
+	return ret;
+}
+
 void thread_state_free(void)
 {
 	struct thread_core_local *l = thread_get_core_local();

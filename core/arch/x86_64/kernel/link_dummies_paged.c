@@ -28,7 +28,6 @@ boot_init_primary_late(unsigned long fdt __unused)
 void __section(".text.dummy.__thread_std_smc_entry")
 __thread_std_smc_entry(struct thread_smc_args *args __unused)
 {
-	return 0;
 }
 void __section(".text.dummy.__wq_rpc")
 __wq_rpc(uint32_t func __unused, int id __unused,

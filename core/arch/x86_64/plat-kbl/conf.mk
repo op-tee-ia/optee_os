@@ -15,11 +15,6 @@ CFG_NUM_THREADS ?= 1
 
 CFG_TA_DYNLINK ?= y
 
-# TODO: not support mbedtls yet for x86, will enable it in the future.
-CFG_TA_MBEDTLS_MPI ?= n
-CFG_TA_MBEDTLS ?= n
-CFG_TA_MBEDTLS_SELF_TEST ?= n
-
 # Tested on Kaby Lake NUC
 CFG_TZDRAM_START ?= 0x12f52000 #runtime_addr + 1 Page
 CFG_TZDRAM_SIZE  ?= 0x00dff000
