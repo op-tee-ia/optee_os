@@ -17,6 +17,9 @@ endif
 ifeq ($(CFG_ARM32_core),y)
 CFG_ARM32_$(sm) := y
 endif
+ifeq ($(CFG_X86_64_core),y)
+CFG_X86_64_$(sm) := y
+endif
 
 cppflags$(sm)	+= -include $(conf-file)
 cppflags$(sm)	+= -DTRACE_LEVEL=$(CFG_TEE_CORE_LOG_LEVEL)
