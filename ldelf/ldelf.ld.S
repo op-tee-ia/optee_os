@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright (c) 2016-2019, Linaro Limited
+ * Copyright (c) 2021 Intel Corporation
  */
 
 #ifdef ARM32
@@ -11,6 +12,11 @@ OUTPUT_ARCH(arm)
 #ifdef ARM64
 OUTPUT_FORMAT("elf64-littleaarch64")
 OUTPUT_ARCH(aarch64)
+#endif
+
+#ifdef X86_64
+OUTPUT_FORMAT("elf64-x86-64")
+OUTPUT_ARCH("i386:x86-64")
 #endif
 
 ENTRY(_ldelf_start)

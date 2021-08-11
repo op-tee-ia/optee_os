@@ -19,6 +19,8 @@ CFG_KERN_LINKER_ARCH ?= "i386:x86-64"
 
 platform-hard-float-enabled := y
 
+$(call force,CFG_X86_64_core,y)
+
 CFG_CORE_RWDATA_NOEXEC ?= y
 CFG_CORE_RODATA_NOEXEC ?= n
 ifeq ($(CFG_CORE_RODATA_NOEXEC),y)

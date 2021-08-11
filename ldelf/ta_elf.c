@@ -123,14 +123,19 @@ static TEE_Result e32_parse_ehdr(struct ta_elf *elf, Elf32_Ehdr *ehdr)
 	return TEE_SUCCESS;
 }
 
-#ifdef ARM64
+#if defined(ARM64) || defined(X86_64)
 static TEE_Result e64_parse_ehdr(struct ta_elf *elf, Elf64_Ehdr *ehdr)
 {
 	if (ehdr->e_ident[EI_VERSION] != EV_CURRENT ||
 	    ehdr->e_ident[EI_CLASS] != ELFCLASS64 ||
 	    ehdr->e_ident[EI_DATA] != ELFDATA2LSB ||
 	    ehdr->e_ident[EI_OSABI] != ELFOSABI_NONE ||
-	    ehdr->e_type != ET_DYN || ehdr->e_machine != EM_AARCH64 ||
+	    ehdr->e_type != ET_DYN ||
+#ifdef ARM64
+	    ehdr->e_machine != EM_AARCH64 ||
+#else
+	    ehdr->e_machine != R_X86_64_64 ||
+#endif
 	    ehdr->e_flags || ehdr->e_phentsize != sizeof(Elf64_Phdr) ||
 	    ehdr->e_shentsize != sizeof(Elf64_Shdr))
 		return TEE_ERROR_BAD_FORMAT;
@@ -147,13 +152,13 @@ static TEE_Result e64_parse_ehdr(struct ta_elf *elf, Elf64_Ehdr *ehdr)
 
 	return TEE_SUCCESS;
 }
-#else /*ARM64*/
+#else /*ARM64 || X86_64 */
 static TEE_Result e64_parse_ehdr(struct ta_elf *elf __unused,
 				 Elf64_Ehdr *ehdr __unused)
 {
 	return TEE_ERROR_NOT_SUPPORTED;
 }
-#endif /*ARM64*/
+#endif /*ARM64 || X86_64*/
 
 static void check_phdr_in_range(struct ta_elf *elf, unsigned int type,
 				vaddr_t addr, size_t memsz)
