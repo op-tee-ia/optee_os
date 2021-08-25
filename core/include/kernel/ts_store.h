@@ -50,7 +50,11 @@ struct ts_store_ops {
 	 * Close a TS handle. Do nothing if @h == NULL.
 	 */
 	void (*close)(struct ts_store_handle *h);
+#if defined(X86_64)
+}__aligned(32);
+#else
 };
+#endif
 
 /*
  * Registers a TA storage.
