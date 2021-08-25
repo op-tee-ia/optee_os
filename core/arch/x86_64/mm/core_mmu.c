@@ -4,7 +4,7 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  */
 
-//#include <kernel/trace_control_by_service.h>
+#include <kernel/trace_control_by_service.h>
 #ifndef TRACE_SERV_MMU
 #undef TRACE_LEVEL
 #define TRACE_LEVEL 0
@@ -68,7 +68,7 @@ uint8_t g_paddr_width;
 
 /* Initial memory mappings */
 struct mmu_initial_mapping mmu_initial_mappings[] = {
-    /* 4GB */
+	/* 4GB */
 	{	.phys = 0x0,
 		.virt = 0x0,
 		.size = 4 * GB,
@@ -865,7 +865,7 @@ static void assign_mem_granularity(struct tee_mmap_region *memory_map)
 
 static unsigned int get_va_width(void)
 {
-	return 64;
+	return g_vaddr_width;
 }
 
 static bool assign_mem_va(vaddr_t tee_ram_va,
@@ -1230,17 +1230,19 @@ void core_init_mmu(struct tee_mmap_region *mm)
 			max_va = va_end;
 	}
 
-    /* Clear table before use */
+	/* Clear table before use */
 	init_xlation_table(mm, 0, 1);
 
 	COMPILE_TIME_ASSERT(CFG_LPAE_ADDR_SPACE_SIZE > 0);
 	assert(max_va < CFG_LPAE_ADDR_SPACE_SIZE);
 }
 
+static arch_flags_t get_x86_arch_flags(arch_flags_t flags);
 static void print_memory_attr(uint32_t optee_mmu_flags __unused)
 {
 #if (TRACE_LEVEL == TRACE_FLOW)
-	arch_flags_t x86_mmu_flags __unused = get_x86_arch_flags(optee_mmu_flags);
+	arch_flags_t x86_mmu_flags __unused =
+		get_x86_arch_flags((arch_flags_t)optee_mmu_flags);
 #endif
 
 	FMSG("OP-TEE MMU flags: 0x%x\n", optee_mmu_flags);
@@ -1326,7 +1328,7 @@ static unsigned int get_arch_mmu_flags(arch_flags_t flags)
 	if (flags & X86_MMU_PG_U)
 		mmu_flags |= ARCH_MMU_FLAG_PERM_USER;
 
-    /* Default memory type is CASHED/WB */
+	/* Default memory type is CASHED/WB */
 	if ((flags & X86_MMU_PG_PCD) && (flags & X86_MMU_PG_PWT)
 		&& !(flags & X86_MMU_PG_PTE_PAT))
 		mmu_flags |= ARCH_MMU_FLAG_UNCACHED;
@@ -2049,7 +2051,7 @@ void core_mmu_create_user_map(struct user_mode_ctx *uctx,
 	int ret;
 
 	core_mmu_get_user_pgdir(&dir_info);
-    // Clear previous user MMU tables
+	// Clear previous user MMU tables
 	clear_user_map();
 
 	TAILQ_FOREACH(r, &((uctx->vm_info).regions), link) {
@@ -2069,7 +2071,7 @@ void core_mmu_create_user_map(struct user_mode_ctx *uctx,
 		}
 	}
 
-    /* Flush TLB */
+	/* Flush TLB */
 	x86_set_cr3(x86_get_cr3());
 
 	map->user_map = virt_to_phys(&g_user_ta_pd[0]);
@@ -2853,13 +2855,13 @@ void core_mmu_init(void)
 	uint64_t efer_msr, cr4;
 	uint32_t addr_width = 0;
 
-    /* enable caches */
+	/* enable caches */
 	clear_in_cr0(X86_CR0_NW | X86_CR0_CD);
 
-    /* Set WP bit in CR0*/
+	/* Set WP bit in CR0*/
 	set_in_cr0(X86_CR0_WP);
 
-    /* Setting the SMEP & SMAP bit in CR4 */
+	/* Setting the SMEP & SMAP bit in CR4 */
 	cr4 = x86_get_cr4();
 	if (check_smep_avail())
 		cr4 |= X86_CR4_SMEP;
@@ -2868,14 +2870,14 @@ void core_mmu_init(void)
 		cr4 |= X86_CR4_SMAP;*/
 	x86_set_cr4(cr4);
 
-    /* Set NXE bit in MSR_EFER*/
+	/* Set NXE bit in MSR_EFER*/
 	efer_msr = read_msr(x86_MSR_EFER);
 	efer_msr |= x86_EFER_NXE;
 	write_msr(x86_MSR_EFER, efer_msr);
 
-    /* getting the address width from CPUID instr */
-    /* Bits 07-00: Physical Address width info */
-    /* Bits 15-08: Linear Address width info */
+	/* getting the address width from CPUID instr */
+	/* Bits 07-00: Physical Address width info */
+	/* Bits 15-08: Linear Address width info */
 	addr_width = x86_get_address_width();
 	g_paddr_width = (uint8_t)(addr_width & 0xFF);
 	g_vaddr_width = (uint8_t)((addr_width >> 8) & 0xFF);
