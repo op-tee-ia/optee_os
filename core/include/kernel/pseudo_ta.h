@@ -38,7 +38,11 @@ struct pseudo_ta_head {
 	TEE_Result (*invoke_command_entry_point)(void *pSessionContext,
 			uint32_t nCommandID, uint32_t nParamTypes,
 			TEE_Param pParams[TEE_NUM_PARAMS]);
+#if defined(X86_64)
+} __aligned(0x80);
+#else
 };
+#endif
 
 #define pseudo_ta_register(...)	\
 	SCATTERED_ARRAY_DEFINE_PG_ITEM(pseudo_tas, struct pseudo_ta_head) = \

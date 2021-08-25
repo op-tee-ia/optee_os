@@ -82,6 +82,16 @@
  * @array_name:   Name of the scattered array
  * @element_type: The type of the elemenet
  */
+#if defined(X86_64)
+#define SCATTERED_ARRAY_BEGIN(array_name, element_type) (__extension__({ \
+		static const element_type __scattered_array_begin[0] __aligned(32) __unused \
+		__section(".scattered_array_" #array_name "_0" \
+			  __SECTION_FLAGS_RODATA); \
+		\
+		(const element_type *)scattered_array_relax_ptr( \
+			__scattered_array_begin); \
+	}))
+#else
 #define SCATTERED_ARRAY_BEGIN(array_name, element_type) (__extension__({ \
 		static const element_type __scattered_array_begin[0] __unused \
 		__section(".scattered_array_" #array_name "_0" \
@@ -90,6 +100,7 @@
 		(const element_type *)scattered_array_relax_ptr( \
 			__scattered_array_begin); \
 	}))
+#endif
 
 /*
  * Returns one entry past the last element in a scattered array
