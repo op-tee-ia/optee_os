@@ -90,7 +90,6 @@ __weak void main_secondary_init_gic(void)
 
 void init_sec_mon(unsigned long nsec_entry __maybe_unused)
 {
-	assert(nsec_entry == PADDR_INVALID);
 	/* Do nothing as we don't have a secure monitor */
 }
 

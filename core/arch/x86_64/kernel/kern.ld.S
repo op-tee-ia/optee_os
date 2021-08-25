@@ -75,12 +75,7 @@ ENTRY(_start)
 SECTIONS
 {
 	. = TEE_TEXT_VA_START;
-#ifdef ARM32
-	ASSERT(!(TEE_TEXT_VA_START & 31), "text start should align to 32bytes")
-#endif
-#ifdef ARM64
 	ASSERT(!(TEE_TEXT_VA_START & 127), "text start should align to 128bytes")
-#endif
 	__text_start = .;
 
 	/*
@@ -92,6 +87,7 @@ SECTIONS
 
 	.text : {
 		KEEP(*(.text._start))
+		KEEP(*(.text.boot))
 		__identity_map_init_start = .;
 		*(.identity_map .identity_map.* \
 			/*
@@ -155,19 +151,6 @@ SECTIONS
 		__dtor_list = .;
 		KEEP(*(.dtors .dtors.* .fini_array .fini_array.*))
 		__dtor_end = .;
-	}
-
-	/* .ARM.exidx is sorted, so has to go in its own output section.  */
-	.ARM.exidx : {
-		__exidx_start = .;
-		*(.ARM.exidx* .gnu.linkonce.armexidx.*)
-		__exidx_end = .;
-	}
-
-	.ARM.extab : {
-		__extab_start = .;
-		*(.ARM.extab*)
-		__extab_end = .;
 	}
 
 	/* Start page aligned read-write memory */
