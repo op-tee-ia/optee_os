@@ -169,7 +169,7 @@ void thread_unlock_global(void);
  * The purpose of this function is to request services from non-secure
  * world.
  */
-#define THREAD_RPC_NUM_ARGS     4
+#define THREAD_RPC_NUM_ARGS     6
 void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]);
 
 /*

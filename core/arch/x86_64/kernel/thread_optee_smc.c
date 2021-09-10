@@ -301,16 +301,16 @@ static struct mobj *thread_rpc_alloc_arg(size_t size)
 	paddr_t pa;
 	uint64_t co;
 	uint32_t rpc_args[THREAD_RPC_NUM_ARGS] = {
-		OPTEE_SMC_RETURN_RPC_ALLOC, size
+		OPTEE_SMC_RETURN_RPC_ALLOC, (uint32_t)(size & 0x00000000FFFFFFFF)
 	};
 	struct mobj *mobj = NULL;
 
 	thread_rpc(rpc_args);
 
 	/* Registers 1 and 2 passed from normal world */
-	pa = reg_pair_to_64(rpc_args[0], rpc_args[1]);
+	pa = reg_pair_to_64(rpc_args[1], rpc_args[2]);
 	/* Registers 4 and 5 passed from normal world */
-	co = reg_pair_to_64(rpc_args[2], rpc_args[3]);
+	co = reg_pair_to_64(rpc_args[4], rpc_args[5]);
 
 	if (!ALIGNMENT_IS_OK(pa, struct optee_msg_arg))
 		goto err;
