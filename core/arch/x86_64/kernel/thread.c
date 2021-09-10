@@ -422,8 +422,6 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 	l->flags &= ~THREAD_CLF_TMP;
 	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]),
 			l->tmp_stack_va_end);
-	/*NOTREACHED*/
-	panic();
 }
 
 #ifdef CFG_SECURE_PARTITION
