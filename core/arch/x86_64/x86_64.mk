@@ -105,10 +105,12 @@ ta-mk-file-export-vars-ta_x86_64 += CFG_X86_64_ta_x86_64
 ta-mk-file-export-vars-ta_x86_64 += ta_x86_64-platform-cppflags
 ta-mk-file-export-vars-ta_x86_64 += ta_x86_64-platform-cflags
 ta-mk-file-export-vars-ta_x86_64 += ta_x86_64-platform-aflags
-ta-mk-file-export-vars-ta_x86_64 += x86-64-platform-cxxflags
+ta-mk-file-export-vars-ta_x86_64 += ta_x86_64-platform-cxxflags
 
 ta-mk-file-export-add-ta_x86_64 += CROSS_COMPILE64 ?= $$(CROSS_COMPILE)_nl_
 ta-mk-file-export-add-ta_x86_64 += CROSS_COMPILE_ta_x86_64 ?= $$(CROSS_COMPILE64)_nl_
+ta-mk-file-export-add-ta_x86_64 += COMPILER ?= gcc_nl_
+ta-mk-file-export-add-ta_x86_64 += COMPILER_ta_x86_64 ?= $$(COMPILER)_nl_
 ta-mk-file-export-add-ta_x86_64 += PYTHON3 ?= python3_nl_
 endif
 
