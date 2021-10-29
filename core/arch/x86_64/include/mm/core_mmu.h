@@ -96,7 +96,7 @@ typedef uint64_t arch_flags_t;
 
 // User mode definitions
 #define NO_OF_USER_PD_ENTRIES 512
-#define NO_OF_USER_PT_TABLES  (TA_RAM_SIZE / AREA_MAPPED_W_ONE_PT)
+#define NO_OF_USER_PT_TABLES  (ROUNDUP(TA_RAM_SIZE, AREA_MAPPED_W_ONE_PT) / AREA_MAPPED_W_ONE_PT)
 
 #define ARCH_MMU_FLAG_CACHED            (0<<0)
 #define ARCH_MMU_FLAG_UNCACHED          (1<<0)
@@ -444,33 +444,16 @@ struct core_mmu_config {
 void core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg);
 void core_init_mmu_regs(struct core_mmu_config *cfg);
 
-#ifdef CFG_WITH_LPAE
 /*
  * struct core_mmu_user_map - current user mapping register state
- * @user_map:	physical address of user map translation table
- * @asid:	ASID for the user map
+ * @cr3:	physical address of user map translation table
  *
  * Note that this struct should be treated as an opaque struct since
  * the content depends on descriptor table format.
  */
 struct core_mmu_user_map {
-	uint64_t user_map;
-	uint32_t asid;
+	uint64_t cr3;
 };
-#else
-/*
- * struct core_mmu_user_map - current user mapping register state
- * @ttbr0:	content of ttbr0
- * @ctxid:	content of contextidr
- *
- * Note that this struct should be treated as an opaque struct since
- * the content depends on descriptor table format.
- */
-struct core_mmu_user_map {
-	uint32_t ttbr0;
-	uint32_t ctxid;
-};
-#endif
 
 #ifdef CFG_WITH_LPAE
 bool core_mmu_user_va_range_is_defined(void);

@@ -1294,6 +1294,7 @@ void vm_set_ctx(struct ts_ctx *ctx)
 		core_mmu_set_user_map(&map);
 		tee_pager_assign_um_tables(uctx);
 	}
+
 	tsd->ctx = ctx;
 }
 

@@ -420,6 +420,7 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 	init_regs(threads + n, args);
 
 	l->flags &= ~THREAD_CLF_TMP;
+
 	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]),
 			l->tmp_stack_va_end);
 }
@@ -490,15 +491,14 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
 		if (threads[n].have_user_map) {
 			struct thread_specific_data *tsd = thread_get_tsd();
-			struct user_ta_ctx *utc = to_user_ta_ctx(tsd->ctx);
 
 			tee_ta_update_session_utime_resume();
-			core_mmu_create_user_map(&(utc->uctx), &threads[n].user_map);
 			core_mmu_set_user_map(&threads[n].user_map);
 		}
 
 		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
 		assert(threads[n].ta_idx < MAX_TA_IDX);
+
 		thread_rpc_resume(threads[n].stack_va_curr[threads[n].ta_idx],
 				args, l->tmp_stack_va_end);
 	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
@@ -508,7 +508,6 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 		args->a0 = OPTEE_SMC_RETURN_ERESUME;
 		return;
 	}
-
 }
 
 void __nostackcheck *thread_get_tmp_sp(void)
@@ -770,6 +769,7 @@ short int thread_get_id_may_fail(void)
 	 */
 	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
 	struct thread_core_local *l = thread_get_core_local();
+
 	short int ct = l->curr_thread;
 
 	thread_unmask_exceptions(exceptions);
@@ -989,9 +989,40 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 	 */
 	regs = thread_get_ctx_regs();
 	set_ctx_regs(regs, a0, a1, a2, a3, user_sp, entry_func, client);
+
 	rc = __thread_enter_user_mode(regs, exit_status0, exit_status1);
 	thread_unmask_exceptions(exceptions);
 	return rc;
+}
+
+
+/*
+ * Provides addresses and size of kernel code that must be mapped while in
+ * user mode.
+ */
+void thread_get_user_kcode(struct mobj **mobj, size_t *offset,
+					 vaddr_t *va, size_t *sz)
+{
+	*mobj = mobj_tee_ram;
+	*offset = 0;
+	core_mmu_get_user_va_range(va, NULL);
+	// TODO: hard code size temporarily to align with ARM.
+	*sz = 0x8000;
+}
+
+/*
+ * Provides addresses and size of kernel (rw) data that must be mapped
+ * while in user mode.
+ */
+void thread_get_user_kdata(struct mobj **mobj, size_t *offset,
+					 vaddr_t *va, size_t *sz)
+{
+	*mobj = mobj_tee_ram;
+	*offset = 0;
+	core_mmu_get_user_va_range(va, NULL);
+	 // TODO: hard code size temporarily to align with ARM.
+	*sz = 0x8000;
+	*va = *va + *sz;
 }
 
 static void gprof_set_status(struct ts_session *s __maybe_unused,

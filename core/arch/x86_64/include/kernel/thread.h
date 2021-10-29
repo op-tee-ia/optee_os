@@ -244,28 +244,14 @@ vaddr_t thread_get_saved_thread_sp(void);
  * Provides addresses and size of kernel code that must be mapped while in
  * user mode.
  */
-static inline void thread_get_user_kcode(struct mobj **mobj, size_t *offset,
-					 vaddr_t *va, size_t *sz)
-{
-	*mobj = NULL;
-	*offset = 0;
-	*va = 0;
-	*sz = 0;
-}
-
+void thread_get_user_kcode(struct mobj **mobj, size_t *offset,
+			  vaddr_t *va, size_t *sz);
 /*
  * Provides addresses and size of kernel (rw) data that must be mapped
  * while in user mode.
  */
-static inline void thread_get_user_kdata(struct mobj **mobj, size_t *offset,
-					 vaddr_t *va, size_t *sz)
-{
-	*mobj = NULL;
-	*offset = 0;
-	*va = 0;
-	*sz = 0;
-}
-
+void thread_get_user_kdata(struct mobj **mobj, size_t *offset,
+				  vaddr_t *va, size_t *sz);
 /*
  * Returns the start address (bottom) of the stack for the current thread,
  * zero if there is no current thread.

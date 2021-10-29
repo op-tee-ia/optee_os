@@ -103,6 +103,7 @@ TEE_Result ldelf_init_with_ldelf(struct ts_session *sess,
 	arg = (struct ldelf_arg *)usr_stack;
 	memset(arg, 0, sizeof(*arg));
 	arg->uuid = uctx->ts_ctx->uuid;
+	sess->handle_svc = ldelf_handle_svc;
 	ldelf_handle_svc();
 
 	res = thread_enter_user_mode((vaddr_t)arg, 0, 0, 0,
