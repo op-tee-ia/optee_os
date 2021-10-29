@@ -56,11 +56,7 @@ FUNC thread_rpc_resume , :
 
     movq %rdi, %rsp
 
-    popq %rbp
-
     popq %rdi
-
-    popfq
 
     movq (%rsi), %rbx
     movl %ebx, (%rdi)
@@ -79,6 +75,22 @@ FUNC thread_rpc_resume , :
 
     movq 40(%rsi), %rbx
     movl %ebx, 20(%rdi)
+
+    popq %rax
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %rbp
+    popq %rbx
+    popq %r9
+    popq %r8
+    popq %rcx
+    popq %rdx
+    popq %rsi
+    popfq
 
     retq
 END_FUNC thread_rpc_resume
@@ -152,6 +164,23 @@ END_FUNC thread_get_stdcall_ret
 
 /* void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]) */
 FUNC thread_rpc , :
+    pushfq
+    pushq %rsi
+    pushq %rdx
+    pushq %rcx
+    pushq %r8
+    pushq %r9
+    pushq %rbx
+    pushq %rbp
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    pushq %rax
+    pushq %rdi
+
     xorq %rax, %rax
 
     movl (%rdi), %eax
@@ -162,12 +191,6 @@ FUNC thread_rpc , :
 
     movl 8(%rdi), %eax
     movq %rax, %r12
-
-    pushfq
-
-    pushq %rdi
-
-    pushq %rbp
 
     movq $THREAD_FLAGS_COPY_ARGS_ON_RETURN, %rdi
 
@@ -252,7 +275,7 @@ FUNC __thread_enter_user_mode , :
 
     movq %rsp, %rdi
 
-    movq 54(%r13), %rsi    // client
+    movq 56(%r13), %rsi    // client
 
     cli
     call thread_state_save

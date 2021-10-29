@@ -134,12 +134,11 @@ static TEE_Result e64_parse_ehdr(struct ta_elf *elf, Elf64_Ehdr *ehdr)
 #ifdef ARM64
 	    ehdr->e_machine != EM_AARCH64 ||
 #else
-	    ehdr->e_machine != R_X86_64_64 ||
+	    ehdr->e_machine != EM_X86_64 ||
 #endif
 	    ehdr->e_flags || ehdr->e_phentsize != sizeof(Elf64_Phdr) ||
 	    ehdr->e_shentsize != sizeof(Elf64_Shdr))
 		return TEE_ERROR_BAD_FORMAT;
-
 
 	elf->is_32bit = false;
 	elf->e_entry = ehdr->e_entry;

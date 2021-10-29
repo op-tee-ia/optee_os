@@ -50,7 +50,7 @@ FUNC _ldelf_start , :
 	movq	%r13, (%r11)
 
 	cmp	%rax, %rcx
-	jb	1b
+	jg	1b
 
 2:	call	ldelf
 	xorq	%rdi, %rdi
