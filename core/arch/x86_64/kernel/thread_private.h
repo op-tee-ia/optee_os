@@ -43,6 +43,7 @@ struct thread_ctx {
 	enum thread_state state;
 	vaddr_t stack_va_end;
 	vaddr_t stack_va_curr[MAX_TA_IDX];
+	vaddr_t abt_stack_va_end;	/* Moved from thread_core_local */
 	uint32_t ta_idx;
 	uint32_t hyp_clnt_id;
 	uint32_t flags;

@@ -34,7 +34,6 @@ struct thread_core_local {
 	vaddr_t tmp_stack_va_end;
 	short int curr_thread;
 	uint32_t flags;
-	vaddr_t abt_stack_va_end;
 #ifdef CFG_TEE_CORE_DEBUG
 	unsigned int locked_count; /* Number of spinlocks held */
 #endif
@@ -88,7 +87,7 @@ struct thread_core_local *thread_get_core_local(void);
  *
  * Returns true on success and false on errors.
  */
-bool thread_init_stack(uint32_t stack_id, vaddr_t sp);
+bool thread_init_stack(uint32_t stack_id, vaddr_t sp, vaddr_t abt_sp);
 
 /*
  * Initializes thread contexts. Called in thread_init_boot_thread() if

@@ -98,7 +98,8 @@ linkage uint32_t name[num_stacks] \
 
 DECLARE_STACK(stack_tmp, CFG_TEE_CORE_NB_CORE,
 	      STACK_TMP_SIZE + CFG_STACK_TMP_EXTRA, static);
-DECLARE_STACK(stack_abt, CFG_TEE_CORE_NB_CORE, STACK_ABT_SIZE, static);
+/* Change from per core to per thread on x86. */
+DECLARE_STACK(stack_abt, CFG_NUM_THREADS, STACK_ABT_SIZE, static);
 #ifndef CFG_WITH_PAGER
 DECLARE_STACK(stack_thread, CFG_NUM_THREADS,
 	      STACK_THREAD_SIZE + CFG_STACK_THREAD_EXTRA, static);
@@ -390,6 +391,24 @@ void __nostackcheck thread_clr_boot_thread(void)
 	l->curr_thread = THREAD_ID_INVALID;
 }
 
+/* main tss */
+static tss_t system_tss;
+
+static void switch_interrupt_stack(short int thread_id)
+{
+	system_tss.rsp0 = GET_STACK(stack_abt[thread_id]);
+	system_tss.ist1 = GET_STACK(stack_abt[thread_id]);
+}
+
+static void init_tss(void)
+{
+	memset(&system_tss, 0, sizeof(system_tss));
+	set_global_desc(TSS_SELECTOR, &system_tss, sizeof(system_tss),
+		1, 0, 0, SEG_TYPE_TSS, 0, 0);
+
+	x86_ltr(TSS_SELECTOR);
+}
+
 void thread_alloc_and_run(struct thread_smc_args *args)
 {
 	size_t n;
@@ -410,14 +429,18 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 
 	thread_unlock_global();
 
-	if (!found_thread)
+	if (!found_thread) {
+		args->a0 = OPTEE_SMC_RETURN_ETHREAD_LIMIT;
 		return;
+	}
 
 	l->curr_thread = n;
 
 	threads[n].flags = 0;
 	threads[n].ta_idx = 0;
 	init_regs(threads + n, args);
+
+	switch_interrupt_stack(n);
 
 	l->flags &= ~THREAD_CLF_TMP;
 
@@ -483,6 +506,8 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 	}
 
 	l->curr_thread = n;
+	switch_interrupt_stack(n);
+
 	if (threads[n].have_user_map)
 		ftrace_resume();
 
@@ -503,7 +528,7 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 				args, l->tmp_stack_va_end);
 	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
 		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
-		foreign_intr_resume(l->abt_stack_va_end, l->tmp_stack_va_end);
+		foreign_intr_resume(threads[n].abt_stack_va_end, l->tmp_stack_va_end);
 	} else {
 		args->a0 = OPTEE_SMC_RETURN_ERESUME;
 		return;
@@ -668,7 +693,7 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp)
 	threads[ct].flags |= flags;
 
 	if (flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
-		l->abt_stack_va_end = sp;
+		threads[ct].abt_stack_va_end = sp;
 	} else {
 		assert(threads[ct].ta_idx < MAX_TA_IDX);
 		threads[ct].stack_va_curr[threads[ct].ta_idx] = sp;
@@ -749,16 +774,17 @@ static void set_tmp_stack(struct thread_core_local *l, vaddr_t sp)
 	l->tmp_stack_va_end = sp;
 }
 
-static void set_abt_stack(struct thread_core_local *l, vaddr_t sp)
+static void set_abt_stack(struct thread_ctx *thread, vaddr_t sp)
 {
-	l->abt_stack_va_end = sp;
+	thread->abt_stack_va_end = sp;
 }
 
-bool thread_init_stack(uint32_t thread_id, vaddr_t sp)
+bool thread_init_stack(uint32_t thread_id, vaddr_t sp, vaddr_t abt_sp)
 {
 	if (thread_id >= CFG_NUM_THREADS)
 		return false;
 	threads[thread_id].stack_va_end = sp;
+	threads[thread_id].abt_stack_va_end = abt_sp;
 	return true;
 }
 
@@ -831,7 +857,7 @@ static void init_thread_stacks(void)
 
 	/* Assign the thread stacks */
 	for (n = 0; n < CFG_NUM_THREADS; n++) {
-		if (!thread_init_stack(n, GET_STACK_BOTTOM(stack_thread, n)))
+		if (!thread_init_stack(n, GET_STACK_BOTTOM(stack_thread, n), GET_STACK(stack_abt[n])))
 			panic("thread_init_stack failed");
 	}
 }
@@ -872,31 +898,14 @@ void thread_init_primary(void)
 	init_canaries();
 }
 
-/* main tss */
-static tss_t system_tss;
-
-static void init_tss(struct thread_core_local *l)
-{
-	memset(&system_tss, 0, sizeof(system_tss));
-
-	system_tss.rsp0 = l->abt_stack_va_end;
-	system_tss.ist1 = l->abt_stack_va_end;
-
-	set_global_desc(TSS_SELECTOR, &system_tss, sizeof(system_tss),
-			1, 0, 0, SEG_TYPE_TSS, 0, 0);
-
-	x86_ltr(TSS_SELECTOR);
-}
-
 void thread_init_per_cpu(void)
 {
 	size_t pos = get_core_pos();
 	struct thread_core_local *l = thread_get_core_local();
 
 	set_tmp_stack(l, GET_STACK(stack_tmp[pos]) - STACK_TMP_OFFS);
-	set_abt_stack(l, GET_STACK(stack_abt[pos]));
 
-	init_tss(l);
+	init_tss();
 }
 
 struct thread_specific_data *thread_get_tsd(void)
