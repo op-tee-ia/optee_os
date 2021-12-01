@@ -145,7 +145,7 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp);
 /*
  * Save the state of current thread
  */
-void thread_state_save(vaddr_t sp, uint32_t client);
+void thread_state_save(vaddr_t sp);
 
 /*
  * Marks the current thread as free.
