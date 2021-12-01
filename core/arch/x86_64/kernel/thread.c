@@ -717,7 +717,7 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp)
 	return ct;
 }
 
-void thread_state_save(vaddr_t sp, uint32_t client)
+void thread_state_save(vaddr_t sp)
 {
 	struct thread_core_local *l = thread_get_core_local();
 	int ct = l->curr_thread;
@@ -728,14 +728,9 @@ void thread_state_save(vaddr_t sp, uint32_t client)
 
 	assert(threads[ct].state == THREAD_STATE_ACTIVE);
 
-	if (client == TEE_LOGIN_TRUSTED_APP) {
-		threads[ct].ta_idx++;
-		assert(threads[ct].ta_idx < MAX_TA_IDX+1);
-		threads[ct].stack_va_curr[threads[ct].ta_idx-1] = sp;
-	} else {
-		threads[ct].ta_idx = 1;
-		threads[ct].stack_va_curr[0] = sp;
-	}
+	threads[ct].ta_idx++;
+	assert(threads[ct].ta_idx < MAX_TA_IDX+1);
+	threads[ct].stack_va_curr[threads[ct].ta_idx-1] = sp;
 
 	syscall_init(sp - 64);
 

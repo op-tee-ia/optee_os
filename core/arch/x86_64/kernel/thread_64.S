@@ -275,8 +275,6 @@ FUNC __thread_enter_user_mode , :
 
     movq %rsp, %rdi
 
-    movq 56(%r13), %rsi    // client
-
     cli
     call thread_state_save
 
