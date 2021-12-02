@@ -26,6 +26,11 @@ comp-cflags$(sm)	+= -Werror
 endif
 comp-cflags$(sm)  	+= -fdiagnostics-show-option
 
+# TODO: Enable stack protector when OPTEE x86_64 suppports.
+ifeq ($(CFG_X86_64_core),y)
+comp-cflags$(sm)	+= -fno-stack-protector
+endif
+
 comp-cflags-warns-high = \
 	-Wall -Wcast-align  \
 	-Werror-implicit-function-declaration -Wextra -Wfloat-equal \
