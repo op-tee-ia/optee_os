@@ -78,7 +78,7 @@ $(link-out-dir)/init_entries.txt: $(link-out-dir)/all_objs.o
 	$(q)$(NMcore) $< | \
 		$(AWK) '/ ____keep_init/ { printf "-u%s ", $$3 }' > $@
 
-init-ldargs := -T $(link-script-dummy) --no-check-sections --gc-sections
+init-ldargs := -T $(link-script-dummy) --no-check-sections
 init-ldadd := $(link-objs-init) $(link-out-dir)/version.o  $(link-ldadd) \
 	      $(libgcccore)
 cleanfiles += $(link-out-dir)/init.o
