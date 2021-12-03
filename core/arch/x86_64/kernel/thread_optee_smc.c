@@ -72,7 +72,15 @@ void thread_handle_std_smc(struct thread_smc_args *args)
 	virt_unset_guest();
 #endif
 
-	thread_get_stdcall_ret(args);
+	if (args->a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
+		IMSG("return due to thread limit\n");
+		return;
+	}
+
+	if (args->a0 == OPTEE_SMC_RETURN_ERESUME) {
+		IMSG("return due to resume error\n");
+		return;
+	}
 }
 
 /**
