@@ -444,7 +444,7 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 
 	l->flags &= ~THREAD_CLF_TMP;
 
-	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]),
+	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr[0]), args,
 			l->tmp_stack_va_end);
 }
 
@@ -528,7 +528,7 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 				args, l->tmp_stack_va_end);
 	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
 		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
-		foreign_intr_resume(threads[n].abt_stack_va_end, l->tmp_stack_va_end);
+		foreign_intr_resume(threads[n].abt_stack_va_end, args, l->tmp_stack_va_end);
 	} else {
 		args->a0 = OPTEE_SMC_RETURN_ERESUME;
 		return;

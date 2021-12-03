@@ -105,14 +105,15 @@ void thread_sp_alloc_and_run(struct thread_smc_args *args);
  * context of the current thread if THREAD_FLAGS_COPY_ARGS_ON_RETURN is set
  * in the flags field in the thread context.
  */
-void thread_resume(struct thread_ctx_regs *regs, vaddr_t tmp_stack);
+void thread_resume(struct thread_ctx_regs *regs, struct thread_smc_args *args,
+						vaddr_t tmp_stack);
 
 void thread_rpc_resume(vaddr_t sp, struct thread_smc_args *args,
 						vaddr_t tmp_stack);
 /*
  * Resume thread status from a foreign interrupt
  */
-void foreign_intr_resume(vaddr_t sp, vaddr_t abt_stack);
+void foreign_intr_resume(vaddr_t sp, struct thread_smc_args *args, vaddr_t abt_stack);
 
 /*
  * Get the return value from a standard secure monitor call

@@ -15,20 +15,29 @@
 
 .section .text.thread_asm
 
-/* void thread_resume(struct thread_ctx_regs *regs, vaddr_t tmp_stack) */
+/* void thread_resume(struct thread_ctx_regs *regs, struct thread_smc_args *args,
+ *                      vaddr_t tmp_stack)
+ */
+
 FUNC thread_resume , :
     pushfq
-    pushq %rdi
-    pushq %rsi
-    pushq %rdx
-    pushq %rcx
     pushq %rax
     pushq %rbx
+    pushq %rcx
+    pushq %rdx
     pushq %rbp
     pushq %r8
     pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    pushq %rdi
+    pushq %rsi
 
-    movq %rsp, (%rsi)
+    movq %rsp, (%rdx)
 
     movq %rdi, %rsp
 
@@ -42,15 +51,21 @@ END_FUNC thread_resume
  */
 FUNC thread_rpc_resume , :
     pushfq
-    pushq %rdi
-    pushq %rsi
-    pushq %rdx
-    pushq %rcx
     pushq %rax
     pushq %rbx
+    pushq %rcx
+    pushq %rdx
     pushq %rbp
     pushq %r8
     pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    pushq %rdi
+    pushq %rsi
 
     movq %rsp, (%rdx)
 
@@ -95,24 +110,44 @@ FUNC thread_rpc_resume , :
     retq
 END_FUNC thread_rpc_resume
 
+/*void foreign_intr_resume(vaddr_t sp, struct thread_smc_args *args, vaddr_t abt_stack);*/
 FUNC foreign_intr_resume , :
     pushfq
-    pushq %rdi
-    pushq %rsi
-    pushq %rdx
-    pushq %rcx
     pushq %rax
     pushq %rbx
+    pushq %rcx
+    pushq %rdx
     pushq %rbp
     pushq %r8
     pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    pushq %rdi
+    pushq %rsi
 
-    movq %rsp, (%rsi)
+    movq %rsp, (%rdx)
 
     movq %rdi, %rsp
 
+    popq %rdi
+    popq %rax
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
     popq %rbp
-
+    popq %rbx
+    popq %r9
+    popq %r8
+    popq %rcx
+    popq %rdx
+    popq %rsi
     popfq
 
     retq
@@ -137,30 +172,33 @@ FUNC thread_std_smc_entry , :
 
     movq (%rax), %rsp
 
+    popq %rsi
+
+    movq %r10, (%rsi)
+    movq %r11, 8(%rsi)
+    movq %r12, 16(%rsi)
+    movq %r13, 24(%rsi)
+    movq %r14, 32(%rsi)
+    movq %r15, 40(%rsi)
+
+    popq %rdi
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
     popq %r9
     popq %r8
     popq %rbp
+    popq %rdx
+    popq %rcx
     popq %rbx
     popq %rax
-    popq %rcx
-    popq %rdx
-    popq %rsi
-    popq %rdi
     popfq
 
     retq
 END_FUNC thread_std_smc_entry
-
-FUNC thread_get_stdcall_ret, :
-    movq %r10, (%rdi)
-    movq %r11, 8(%rdi)
-    movq %r12, 16(%rdi)
-    movq %r13, 24(%rdi)
-    movq %r14, 32(%rdi)
-    movq %r15, 40(%rdi)
-
-    retq
-END_FUNC thread_get_stdcall_ret
 
 /* void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]) */
 FUNC thread_rpc , :
@@ -205,30 +243,57 @@ FUNC thread_rpc , :
 
     movq (%rax), %rsp
 
+    popq %rsi
+
+    movq %r10, (%rsi)
+    movq %r11, 8(%rsi)
+    movq %r12, 16(%rsi)
+    movq %r13, 24(%rsi)
+    movq %r14, 32(%rsi)
+    movq %r15, 40(%rsi)
+
+    popq %rdi
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
     popq %r9
     popq %r8
     popq %rbp
+    popq %rdx
+    popq %rcx
     popq %rbx
     popq %rax
-    popq %rcx
-    popq %rdx
-    popq %rsi
-    popq %rdi
     popfq
 
     retq
 END_FUNC thread_rpc
 
 FUNC foreign_intr_handle , :
+    pushfq
+    pushq %rsi
+    pushq %rdx
+    pushq %rcx
+    pushq %r8
+    pushq %r9
+    pushq %rbx
+    pushq %rbp
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    pushq %rax
+    pushq %rdi
+
     movq $OPTEE_SMC_RETURN_RPC_FOREIGN_INTR, %r10
 
     movq %rdi, %r11
 
     movq $0x0, %r12
-
-    pushfq
-
-    pushq %rbp
 
     movq $THREAD_FLAGS_EXIT_ON_FOREIGN_INTR, %rdi
 
@@ -243,15 +308,29 @@ FUNC foreign_intr_handle , :
 
     movq (%rax), %rsp
 
+    popq %rsi
+
+    movq %r10, (%rsi)
+    movq %r11, 8(%rsi)
+    movq %r12, 16(%rsi)
+    movq %r13, 24(%rsi)
+    movq %r14, 32(%rsi)
+    movq %r15, 40(%rsi)
+
+    popq %rdi
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
     popq %r9
     popq %r8
     popq %rbp
+    popq %rdx
+    popq %rcx
     popq %rbx
     popq %rax
-    popq %rcx
-    popq %rdx
-    popq %rsi
-    popq %rdi
     popfq
 
     retq
