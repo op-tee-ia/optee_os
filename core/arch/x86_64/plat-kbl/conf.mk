@@ -16,6 +16,10 @@ CFG_NUM_THREADS ?= 1
 
 CFG_TA_DYNLINK ?= y
 
+# use mbedtls lib
+CFG_CRYPTOLIB_NAME ?= mbedtls
+CFG_CRYPTOLIB_DIR ?= lib/libmbedtls
+
 # Tested on Kaby Lake NUC
 CFG_TZDRAM_START ?= 0x12f52000 #runtime_addr + 1 Page
 CFG_TZDRAM_SIZE  ?= 0x00dff000
