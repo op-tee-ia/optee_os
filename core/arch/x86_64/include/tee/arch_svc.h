@@ -9,6 +9,8 @@
 
 void user_ta_handle_svc(void);
 void ldelf_handle_svc(void);
+void tee_syscall(void);
+void ldelf_syscall(void);
 void __syscall_sys_return(unsigned long ret, unsigned long sp);
 void __syscall_panic(unsigned long code, unsigned long sp);
 

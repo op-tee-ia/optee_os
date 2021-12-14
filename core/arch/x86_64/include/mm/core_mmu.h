@@ -88,7 +88,7 @@ typedef uint64_t arch_flags_t;
 /* Memory area which one Page Table maps with 512 Page Table Entries. */
 #define AREA_MAPPED_W_ONE_PT  (2 * MB)
 
-#define NO_OF_PML4_ENTRIES    1
+#define NO_OF_PML4_ENTRIES    512
 #define NO_OF_PDP_ENTRIES     512
 #define NO_OF_PD_ENTRIES      512
 #define NO_OF_PT_ENTRIES      512

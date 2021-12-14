@@ -12,10 +12,16 @@
 FUNC __syscall_sys_return , :
     movq %rdi, %rax
     movq %rsi, %rsp
-    popq %r8
-    movl $0, (%r8)  /* panic_code = 0 */
-    popq %rcx
-    movl $0, (%rcx) /* panic = false */
+    popq %rdx
+    movl $0, (%rdx)  /* panic_code = 0 */
+    popq %rsi
+    movl $0, (%rsi) /* panic = false */
+    popq %rdi
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %rbx
     popq %rbp
     popfq
     retq
@@ -24,11 +30,17 @@ END_FUNC __syscall_sys_return
 FUNC __syscall_panic , :
     movq %rdi, %rax
     movq %rsi, %rsp
-    popq %r8
-    movl %eax, (%r8)  /* panic_code */
-    popq %rcx
-    movl $1, (%rcx) /* panic = true */
+    popq %rdx
+    movl %eax, (%rdx)  /* panic_code */
+    popq %rsi
+    movl $1, (%rsi) /* panic = true */
     movq $TEE_ERROR_TARGET_DEAD, %rax /* return value */
+    popq %rdi
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %rbx
     popq %rbp
     popfq
     retq

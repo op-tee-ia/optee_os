@@ -13,7 +13,4 @@
  */
 typedef void (*syscall_t)(void);
 
-void tee_syscall(void);
-void ldelf_syscall(void);
-
 #endif /*ARCH_SVC_PRIVATE_H*/

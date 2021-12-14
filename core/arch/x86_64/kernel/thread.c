@@ -73,6 +73,8 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 #define STACK_CANARY_SIZE	0
 #endif
 
+#define SVC_OFFSET              64
+
 #ifdef CFG_CORE_DEBUG_CHECK_STACKS
 /*
  * Extra space added to each stack in order to reliably detect and dump stack
@@ -126,10 +128,36 @@ DECLARE_KEEP_PAGER(stack_tmp_stride);
 
 static unsigned int thread_global_lock __nex_bss = SPINLOCK_UNLOCK;
 
-static void syscall_init(vaddr_t sp)
+static void syscall_init(vaddr_t sp, uint64_t svc_handle)
 {
 	write_msr(SYSENTER_CS_MSR, CODE_64_SELECTOR); /* cs_addr  */
 	write_msr(SYSENTER_ESP_MSR, sp); 	      /* esp_addr */
+	if (svc_handle)
+		write_msr(SYSENTER_EIP_MSR, svc_handle);   /* eip_addr */
+}
+
+void user_ta_handle_svc(void)
+{
+	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
+	struct thread_core_local *l = thread_get_core_local();
+	int ct = l->curr_thread;
+
+	assert(ct != THREAD_ID_INVALID);
+	threads[ct].svc_handle = (uint64_t)tee_syscall;
+	write_msr(SYSENTER_EIP_MSR, (uint64_t)tee_syscall);
+	thread_unmask_exceptions(exceptions);
+}
+
+void ldelf_handle_svc(void)
+{
+	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
+	struct thread_core_local *l = thread_get_core_local();
+	int ct = l->curr_thread;
+
+	assert(ct != THREAD_ID_INVALID);
+	threads[ct].svc_handle = (uint64_t)ldelf_syscall;
+	write_msr(SYSENTER_EIP_MSR, (uint64_t)ldelf_syscall);
+	thread_unmask_exceptions(exceptions);
 }
 
 static void init_canaries(void)
@@ -244,7 +272,6 @@ void __nostackcheck thread_unmask_exceptions(uint32_t state)
 {
 	thread_set_exceptions(state & THREAD_EXCP_ALL);
 }
-
 
 static struct thread_core_local * __nostackcheck
 get_core_local(unsigned int pos)
@@ -523,11 +550,13 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 
 		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
 		assert(threads[n].ta_idx < MAX_TA_IDX);
-
+		syscall_init(threads[n].svc_sp, threads[n].svc_handle);
 		thread_rpc_resume(threads[n].stack_va_curr[threads[n].ta_idx],
 				args, l->tmp_stack_va_end);
 	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
 		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
+
+		syscall_init(threads[n].svc_sp, threads[n].svc_handle);
 		foreign_intr_resume(threads[n].abt_stack_va_end, args, l->tmp_stack_va_end);
 	} else {
 		args->a0 = OPTEE_SMC_RETURN_ERESUME;
@@ -728,11 +757,13 @@ void thread_state_save(vaddr_t sp)
 
 	assert(threads[ct].state == THREAD_STATE_ACTIVE);
 
-	threads[ct].ta_idx++;
-	assert(threads[ct].ta_idx < MAX_TA_IDX+1);
-	threads[ct].stack_va_curr[threads[ct].ta_idx-1] = sp;
+	assert(threads[ct].ta_idx < MAX_TA_IDX);
+	threads[ct].stack_va_curr[threads[ct].ta_idx] = sp;
 
-	syscall_init(sp - 64);
+	syscall_init(sp - SVC_OFFSET, threads[ct].svc_handle);
+
+	threads[ct].svc_sp = sp - SVC_OFFSET;
+	threads[ct].ta_idx++;
 
 	thread_unlock_global();
 }
@@ -750,12 +781,13 @@ vaddr_t thread_state_restore(void)
 
 	if (threads[ct].ta_idx > 1) {
 		threads[ct].ta_idx--;
-		syscall_init(threads[ct].stack_va_curr[threads[ct].ta_idx]
-				- 64);
+		syscall_init(threads[ct].stack_va_curr[threads[ct].ta_idx] - SVC_OFFSET, NULL);
+		threads[ct].svc_sp = threads[ct].stack_va_curr[threads[ct].ta_idx] - SVC_OFFSET;
 		return threads[ct].stack_va_curr[threads[ct].ta_idx];
 	}
 
 	threads[ct].ta_idx = 0;
+
 	return threads[ct].stack_va_curr[0];
 }
 
@@ -780,6 +812,7 @@ bool thread_init_stack(uint32_t thread_id, vaddr_t sp, vaddr_t abt_sp)
 		return false;
 	threads[thread_id].stack_va_end = sp;
 	threads[thread_id].abt_stack_va_end = abt_sp;
+
 	return true;
 }
 
