@@ -50,6 +50,8 @@ struct thread_ctx {
 	struct core_mmu_user_map user_map;
 	bool have_user_map;
 	vaddr_t kern_sp;	/* Saved kernel SP during user TA execution */
+	vaddr_t svc_sp;
+	vaddr_t svc_handle;
 	void *rpc_arg;
 	struct mobj *rpc_mobj;
 	struct thread_shm_cache shm_cache;

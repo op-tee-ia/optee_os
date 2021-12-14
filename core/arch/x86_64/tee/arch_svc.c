@@ -28,20 +28,20 @@
 
 void syscall_sys_return(unsigned long ret)
 {
-    vaddr_t sp = 0;
+	vaddr_t sp = 0;
 
-    x86_cli();
-    sp = thread_state_restore();
-    __syscall_sys_return(ret, sp);
+	x86_cli();
+	sp = thread_state_restore();
+	__syscall_sys_return(ret, sp);
 }
 
 void syscall_panic(unsigned long code)
 {
-    vaddr_t sp = 0;
+	vaddr_t sp = 0;
 
-    x86_cli();
-    sp = thread_state_restore();
-    __syscall_panic(code, sp);
+	x86_cli();
+	sp = thread_state_restore();
+	__syscall_panic(code, sp);
 }
 
 const unsigned long tee_syscall_table[] = {
@@ -137,13 +137,3 @@ const unsigned long ldelf_syscall_table[] = {
 	(unsigned long)ldelf_syscall_remap,
 	(unsigned long)ldelf_syscall_gen_rnd_num,
 };
-
-void user_ta_handle_svc(void)
-{
-	write_msr(SYSENTER_EIP_MSR, (uint64_t)tee_syscall);
-}
-
-void ldelf_handle_svc(void)
-{
-	write_msr(SYSENTER_EIP_MSR, (uint64_t)ldelf_syscall);
-}
