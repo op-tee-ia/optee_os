@@ -638,8 +638,12 @@ bool thread_is_in_normal_mode(void)
 	struct thread_core_local *l = thread_get_core_local();
 	bool ret;
 
-	/* If any bit in l->flags is set we're handling some exception. */
-	ret = !l->flags;
+	/*
+	 * If any bit in l->flags is set aside from THREAD_CLF_TMP we're
+	 * handling some exception.
+	 */
+	ret = (l->curr_thread != THREAD_ID_INVALID) &&
+	      !(l->flags & ~THREAD_CLF_TMP);
 	thread_unmask_exceptions(exceptions);
 
 	return ret;

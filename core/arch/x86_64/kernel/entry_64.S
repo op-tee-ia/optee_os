@@ -173,6 +173,9 @@ farjump64:
     /* Enable Console */
     call console_init
 
+    /* Init thread_core_local */
+    call thread_init_thread_core_local
+
     /* Create MMU tables from OP-TEE memory structures */
     call core_mmu_init
 
