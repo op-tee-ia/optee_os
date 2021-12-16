@@ -540,23 +540,17 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 
 	l->flags &= ~THREAD_CLF_TMP;
 
+	if (threads[n].have_user_map)
+		core_mmu_set_user_map(&threads[n].user_map);
+	syscall_init(threads[n].svc_sp, threads[n].svc_handle);
+
 	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
-		if (threads[n].have_user_map) {
-			struct thread_specific_data *tsd = thread_get_tsd();
-
-			tee_ta_update_session_utime_resume();
-			core_mmu_set_user_map(&threads[n].user_map);
-		}
-
 		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
 		assert(threads[n].ta_idx < MAX_TA_IDX);
-		syscall_init(threads[n].svc_sp, threads[n].svc_handle);
 		thread_rpc_resume(threads[n].stack_va_curr[threads[n].ta_idx],
 				args, l->tmp_stack_va_end);
 	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
 		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
-
-		syscall_init(threads[n].svc_sp, threads[n].svc_handle);
 		foreign_intr_resume(threads[n].abt_stack_va_end, args, l->tmp_stack_va_end);
 	} else {
 		args->a0 = OPTEE_SMC_RETURN_ERESUME;
@@ -726,15 +720,16 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp)
 	} else {
 		assert(threads[ct].ta_idx < MAX_TA_IDX);
 		threads[ct].stack_va_curr[threads[ct].ta_idx] = sp;
-
-		threads[ct].have_user_map = core_mmu_user_mapping_is_active();
-		if (threads[ct].have_user_map) {
-			core_mmu_get_user_map(&threads[ct].user_map);
-			core_mmu_set_user_map(NULL);
-		}
 	}
 
 	threads[ct].state = THREAD_STATE_SUSPENDED;
+
+	threads[ct].have_user_map = core_mmu_user_mapping_is_active();
+	if (threads[ct].have_user_map) {
+		core_mmu_get_user_map(&threads[ct].user_map);
+		core_mmu_set_user_map(NULL);
+	}
+
 	l->curr_thread = THREAD_ID_INVALID;
 
 #ifdef CFG_VIRTUALIZATION
