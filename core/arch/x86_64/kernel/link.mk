@@ -17,6 +17,8 @@ link-ldflags += -T $(link-script-pp) -Map=$(link-out-dir)/tee.map
 link-ldflags += --sort-section=alignment
 link-ldflags += --fatal-warnings
 link-ldflags += --gc-sections
+# From LD 2.31, x86 will separate PT_LOAD segment by default, arm does not. So we need to add this flag explicitly for x86.
+link-ldflags += -z noseparate-code
 
 link-ldadd  = $(LDADD)
 link-ldadd += $(ldflags-external)
