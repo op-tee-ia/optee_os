@@ -34,6 +34,8 @@ link-ldflags += -z max-page-size=4096 # OP-TEE always uses 4K alignment
 link-ldflags += --as-needed # Do not add dependency on unused shlib
 link-ldflags += $(link-ldflags$(sm))
 link-ldflags += -z common-page-size=4096
+# From LD 2.31, x86 will separate PT_LOAD segment by default, arm does not. So we need to add this flag explicitly for x86.
+link-ldflags += -z noseparate-code
 
 $(link-out-dir$(sm))/dyn_list:
 	@$(cmd-echo-silent) '  GEN     $@'
