@@ -54,7 +54,7 @@ void fpu_init(void)
 	/* No x87 emul, monitor co-processor */
 
 	x = x86_get_cr0();
-	x &= ~X86_CR0_EM;
+	x &= (uint64_t)(~X86_CR0_EM);
 	x |= X86_CR0_NE;
 	x |= X86_CR0_MP;
 	x86_set_cr0(x);
