@@ -254,8 +254,8 @@ void __nostackcheck thread_set_exceptions(uint32_t exceptions)
 	if (!(exceptions & THREAD_EXCP_FOREIGN_INTR))
 		assert_have_no_spinlock();
 
-	rflags &= ~THREAD_EXCP_ALL;
-	rflags |= (~exceptions & THREAD_EXCP_ALL);
+	rflags &= (uint64_t)(~THREAD_EXCP_ALL);
+	rflags |= (uint64_t)(~exceptions & THREAD_EXCP_ALL);
 
 	x86_restore_flags(rflags);
 }

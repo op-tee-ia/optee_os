@@ -1315,7 +1315,7 @@ static arch_flags_t get_x86_arch_flags(arch_flags_t flags)
  */
 static unsigned int get_arch_mmu_flags(arch_flags_t flags)
 {
-	arch_flags_t mmu_flags = 0;
+	uint32_t mmu_flags = 0;
 
 	if (!(flags & X86_MMU_PG_RW))
 		mmu_flags |= ARCH_MMU_FLAG_PERM_RO;
@@ -1476,7 +1476,7 @@ static bool check_directory_update_need(arch_flags_t current_entry,
 	}
 
 	if ((current_entry & X86_MMU_PG_NX) && !(new_entry & X86_MMU_PG_NX)) {
-		*updated_mmu_flags &= ~X86_MMU_PG_NX;
+		*updated_mmu_flags &= ~(uint64_t)X86_MMU_PG_NX;
 		ret = true;
 	}
 
@@ -1486,7 +1486,7 @@ static bool check_directory_update_need(arch_flags_t current_entry,
 	 */
 	if ((current_entry & (X86_MMU_PG_PCD | X86_MMU_PG_PWT)) &&
 		!(new_entry & (X86_MMU_PG_PCD | X86_MMU_PG_PWT))) {
-		*updated_mmu_flags &= ~(X86_MMU_PG_PCD | X86_MMU_PG_PWT);
+		*updated_mmu_flags &= ~((uint64_t)(X86_MMU_PG_PCD | X86_MMU_PG_PWT));
 		ret = true;
 	}
 
