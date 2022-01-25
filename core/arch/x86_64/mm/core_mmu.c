@@ -1302,7 +1302,7 @@ static arch_flags_t get_x86_arch_flags(arch_flags_t flags)
 
 	if (!(flags & TEE_MATTR_CACHE))
 		// Disable cache
-		arch_flags |= (X86_MMU_PG_PCD | X86_MMU_PG_PWT);
+		arch_flags |= (uint64_t)(X86_MMU_PG_PCD | X86_MMU_PG_PWT);
 
 	if (!((flags & TEE_MATTR_PX) || (flags & TEE_MATTR_UX)))
 		arch_flags |= X86_MMU_PG_NX; // Disable execution

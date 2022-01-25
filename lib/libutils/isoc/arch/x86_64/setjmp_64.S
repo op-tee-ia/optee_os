@@ -13,6 +13,23 @@
 #	%r15
 #	<return address>
 #
+	.text
+	.align 4
+	.globl longjmp
+	.type  longjmp, @function
+longjmp:
+	movq %rdi, %rax
+	movq (%rax), %rbx
+	movq 8(%rax), %rsp
+	movq 16(%rax), %rbp
+	movq 24(%rax), %r12
+	movq 32(%rax), %r13
+	movq 40(%rax), %r14
+	movq 48(%rax), %r15
+	movq %rsi, %rax
+	jmp *56(%rdi)
+
+	.size longjmp, .-longjmp
 
 	.text
 	.align 4
@@ -33,20 +50,3 @@ setjmp:
 	retq
 
 	.size setjmp, .-setjmp
-
-	.text
-	.align 4
-	.globl longjmp
-	.type  longjmp, @function
-longjmp:
-	movq %rsi, %rax			# Return value (int)
-	movq (%rdi), %rbx
-	movq 8(%rdi), %rsp
-	movq 16(%rdi), %rbp
-	movq 24(%rdi), %r12
-	movq 32(%rdi), %r13
-	movq 40(%rdi), %r14
-	movq 48(%rdi), %r15
-	jmp *56(%rdi)
-
-	.size longjmp, .-longjmp
