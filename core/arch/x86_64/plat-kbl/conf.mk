@@ -11,8 +11,7 @@ CFG_WITH_STATS ?= y
 CFG_TEE_CORE_EMBED_INTERNAL_TESTS ?= y
 
 CFG_TEE_CORE_NB_CORE = 1
-# TODO: will fix multi threads issue for x86
-CFG_NUM_THREADS ?= 1
+CFG_NUM_THREADS ?= 2
 
 CFG_TA_DYNLINK ?= y
 
