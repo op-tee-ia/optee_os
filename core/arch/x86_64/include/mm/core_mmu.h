@@ -588,8 +588,6 @@ bool core_mmu_entry_to_finer_grained(struct core_mmu_table_info *tbl_info,
 void core_mmu_set_entry_primitive(void *table, size_t level, size_t idx,
 				  paddr_t pa, uint32_t attr);
 
-void core_mmu_get_user_pgdir(struct core_mmu_table_info *pgd_info);
-
 /*
  * core_mmu_set_entry() - Set entry in translation table
  * @tbl_info:	Translation table properties
