@@ -629,18 +629,6 @@ static bool core_mmu_place_tee_ram_at_top(paddr_t paddr)
 	return (paddr & l1mask) > (l1size / 2);
 }
 
-static void core_mmu_set_info_table(struct core_mmu_table_info *tbl_info,
-		unsigned int level, vaddr_t va_base, void *table)
-{
-	tbl_info->level = level;
-	tbl_info->table = table;
-	tbl_info->va_base = va_base;
-	tbl_info->shift = 0;
-	assert(level <= 3);
-
-	tbl_info->num_entries = 1;
-}
-
 uint32_t core_mmu_type_to_attr(enum teecore_memtypes t)
 {
 	const uint32_t attr = TEE_MATTR_VALID_BLOCK;
@@ -2042,15 +2030,6 @@ void core_mmu_get_user_va_range(vaddr_t *base, size_t *size)
 		*size = TA_RAM_SIZE;
 }
 
-void core_mmu_get_user_pgdir(struct core_mmu_table_info *pgd_info)
-{
-	vaddr_t va_range_base;
-	void *tbl = &g_thread_pml4[thread_get_id()][0];
-
-	core_mmu_get_user_va_range(&va_range_base, NULL);
-	core_mmu_set_info_table(pgd_info, 2, va_range_base, tbl);
-}
-
 static void clear_user_map(short int thread_id)
 {
 	memset((void *)&g_thread_user_ta_pd[thread_id][0],
@@ -2078,13 +2057,11 @@ void core_mmu_set_user_map(struct core_mmu_user_map *map)
 void core_mmu_create_user_map(struct user_mode_ctx *uctx,
 				struct core_mmu_user_map *map)
 {
-	struct core_mmu_table_info dir_info;
 	struct vm_region *r;
 	short int thread_id = thread_get_id();
 	int ret;
 
 	clear_user_map(thread_id);
-	core_mmu_get_user_pgdir(&dir_info);
 
 	TAILQ_FOREACH(r, &((uctx->vm_info).regions), link) {
 		paddr_t pa = 0;
