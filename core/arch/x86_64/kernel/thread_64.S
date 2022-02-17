@@ -15,11 +15,7 @@
 
 .section .text.thread_asm
 
-/* void thread_resume(struct thread_ctx_regs *regs, struct thread_smc_args *args,
- *                      vaddr_t tmp_stack)
- */
-
-FUNC thread_resume , :
+.macro SAVE_REGS
     pushfq
     pushq %rax
     pushq %rbx
@@ -34,7 +30,30 @@ FUNC thread_resume , :
     pushq %r13
     pushq %r14
     pushq %r15
-    pushq %rdi
+.endm
+
+.macro RESTORE_REGS
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rbp
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+    popfq
+.endm
+
+/* void thread_resume(struct thread_ctx_regs *regs, struct thread_smc_args *args,
+ *                      vaddr_t tmp_stack)
+ */
+FUNC thread_resume , :
+    SAVE_REGS
     pushq %rsi
 
     movq %rsp, (%rdx)
@@ -50,21 +69,7 @@ END_FUNC thread_resume
  *						vaddr_t tmp_stack)
  */
 FUNC thread_rpc_resume , :
-    pushfq
-    pushq %rax
-    pushq %rbx
-    pushq %rcx
-    pushq %rdx
-    pushq %rbp
-    pushq %r8
-    pushq %r9
-    pushq %r10
-    pushq %r11
-    pushq %r12
-    pushq %r13
-    pushq %r14
-    pushq %r15
-    pushq %rdi
+    SAVE_REGS
     pushq %rsi
 
     movq %rsp, (%rdx)
@@ -91,68 +96,26 @@ FUNC thread_rpc_resume , :
     movq 40(%rsi), %rbx
     movl %ebx, 20(%rdi)
 
-    popq %rax
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %rbp
-    popq %rbx
-    popq %r9
-    popq %r8
-    popq %rcx
-    popq %rdx
-    popq %rsi
-    popfq
+    RESTORE_REGS
 
     retq
 END_FUNC thread_rpc_resume
 
 /*void foreign_intr_resume(vaddr_t sp, struct thread_smc_args *args, vaddr_t abt_stack);*/
 FUNC foreign_intr_resume , :
-    pushfq
-    pushq %rax
-    pushq %rbx
-    pushq %rcx
-    pushq %rdx
-    pushq %rbp
-    pushq %r8
-    pushq %r9
-    pushq %r10
-    pushq %r11
-    pushq %r12
-    pushq %r13
-    pushq %r14
-    pushq %r15
-    pushq %rdi
+    SAVE_REGS
     pushq %rsi
 
     movq %rsp, (%rdx)
 
     movq %rdi, %rsp
 
-    popq %rdi
-    popq %rax
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %rbp
-    popq %rbx
-    popq %r9
-    popq %r8
-    popq %rcx
-    popq %rdx
-    popq %rsi
-    popfq
+    RESTORE_REGS
 
     retq
 END_FUNC foreign_intr_resume
 
+/* void __thread_std_smc_entry(struct thread_smc_args *args); */
 FUNC thread_std_smc_entry , :
     movq %rsp, %rdi
 
@@ -181,42 +144,14 @@ FUNC thread_std_smc_entry , :
     movq %r14, 32(%rsi)
     movq %r15, 40(%rsi)
 
-    popq %rdi
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
-    popfq
+    RESTORE_REGS
 
     retq
 END_FUNC thread_std_smc_entry
 
 /* void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]) */
 FUNC thread_rpc , :
-    pushfq
-    pushq %rsi
-    pushq %rdx
-    pushq %rcx
-    pushq %r8
-    pushq %r9
-    pushq %rbx
-    pushq %rbp
-    pushq %r10
-    pushq %r11
-    pushq %r12
-    pushq %r13
-    pushq %r14
-    pushq %r15
-    pushq %rax
+    SAVE_REGS
     pushq %rdi
 
     xorq %rax, %rax
@@ -252,42 +187,13 @@ FUNC thread_rpc , :
     movq %r14, 32(%rsi)
     movq %r15, 40(%rsi)
 
-    popq %rdi
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
-    popfq
+    RESTORE_REGS
 
     retq
 END_FUNC thread_rpc
 
 FUNC foreign_intr_handle , :
-    pushfq
-    pushq %rsi
-    pushq %rdx
-    pushq %rcx
-    pushq %r8
-    pushq %r9
-    pushq %rbx
-    pushq %rbp
-    pushq %r10
-    pushq %r11
-    pushq %r12
-    pushq %r13
-    pushq %r14
-    pushq %r15
-    pushq %rax
-    pushq %rdi
+    SAVE_REGS
 
     movq $OPTEE_SMC_RETURN_RPC_FOREIGN_INTR, %r10
 
@@ -317,21 +223,7 @@ FUNC foreign_intr_handle , :
     movq %r14, 32(%rsi)
     movq %r15, 40(%rsi)
 
-    popq %rdi
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
-    popfq
+    RESTORE_REGS
 
     retq
 END_FUNC foreign_intr_handle
