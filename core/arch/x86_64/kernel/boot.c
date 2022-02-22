@@ -47,7 +47,7 @@
 #define PADDR_INVALID		ULONG_MAX
 
 /* early stack */
-uint8_t _kstack[PAGE_SIZE] __aligned(8);
+uint8_t _kstack[PAGE_SIZE * CFG_TEE_CORE_NB_CORE] __aligned(STACK_ALIGNMENT);
 
 #if defined(CFG_BOOT_SECONDARY_REQUEST)
 struct ns_entry_context {

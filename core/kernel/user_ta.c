@@ -156,7 +156,11 @@ static TEE_Result user_ta_enter(struct ts_session *session,
 
 	/* Make room for usr_params at top of stack */
 	usr_stack = utc->uctx.stack_ptr;
+#if defined(X86_64)
+	usr_stack -= (ROUNDUP(sizeof(struct utee_params), STACK_ALIGNMENT) + 8);
+#else
 	usr_stack -= ROUNDUP(sizeof(struct utee_params), STACK_ALIGNMENT);
+#endif
 	usr_params = (struct utee_params *)usr_stack;
 	if (ta_sess->param)
 		init_utee_param(usr_params, ta_sess->param, param_va);
