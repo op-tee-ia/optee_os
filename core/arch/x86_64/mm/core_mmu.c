@@ -1155,9 +1155,9 @@ void __weak core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg)
 #endif
 	vaddr_t len = ROUNDUP((vaddr_t)__nozi_end, SMALL_PAGE_SIZE) - start;
 	struct tee_mmap_region *tmp_mmap = get_tmp_mmap();
-	unsigned long offs = 0;
 
 	(void)cfg;
+	(void)seed;
 
 	check_sec_nsec_mem_config();
 
@@ -1175,7 +1175,7 @@ void __weak core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg)
 	};
 
 	COMPILE_TIME_ASSERT(CFG_MMAP_REGIONS >= 13);
-	offs = init_mem_map(tmp_mmap, ARRAY_SIZE(static_memory_map), seed);
+	init_mem_map(tmp_mmap, ARRAY_SIZE(static_memory_map), seed);
 
 	check_mem_map(tmp_mmap);
 	core_init_mmu(tmp_mmap);
@@ -2209,7 +2209,8 @@ bool core_mmu_find_table(struct mmu_partition *prtn, vaddr_t va, unsigned int ma
 	vaddr_t va_base = 0;
 	unsigned int num_entries = NO_OF_PML4_ENTRIES;
 
-	(void*) prtn;
+	(void) prtn;
+
 	while (true) {
 		unsigned int level_size_shift = (level - 1);
 		unsigned int n = (va - va_base) >> level_size_shift;
@@ -2393,11 +2394,8 @@ TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 	uint32_t exceptions;
 	vaddr_t vaddr = vstart;
 	size_t i;
-	bool secure;
 
 	assert(!(core_mmu_type_to_attr(memtype) & TEE_MATTR_PX));
-
-	secure = core_mmu_type_to_attr(memtype) & TEE_MATTR_SECURE;
 
 	if (vaddr & SMALL_PAGE_MASK)
 		return TEE_ERROR_BAD_PARAMETERS;
