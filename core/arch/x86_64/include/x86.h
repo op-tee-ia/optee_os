@@ -444,7 +444,8 @@ static inline uint64_t check_smep_avail(void)
 	__asm__ __volatile__ (
 		"cpuid"
 		: "=b" (reg_b)
-		: "a" (reg_a), "c" (reg_c));
+		: "a" (reg_a), "c" (reg_c)
+		: "edx");
 	return ((reg_b>>0x07) & 0x1);
 }
 
@@ -457,7 +458,8 @@ static inline uint64_t check_smap_avail(void)
 	__asm__ __volatile__ (
 		"cpuid"
 		: "=b" (reg_b)
-		: "a" (reg_a), "c" (reg_c));
+		: "a" (reg_a), "c" (reg_c)
+		: "edx");
 	return ((reg_b>>0x14) & 0x1);
 }
 

@@ -16,7 +16,6 @@ FUNC __syscall_sys_return , :
     movl $0, (%rdx)  /* panic_code = 0 */
     popq %rsi
     movl $0, (%rsi) /* panic = false */
-    popq %rdi
     popq %r15
     popq %r14
     popq %r13
@@ -35,7 +34,6 @@ FUNC __syscall_panic , :
     popq %rsi
     movl $1, (%rsi) /* panic = true */
     movq $TEE_ERROR_TARGET_DEAD, %rax /* return value */
-    popq %rdi
     popq %r15
     popq %r14
     popq %r13

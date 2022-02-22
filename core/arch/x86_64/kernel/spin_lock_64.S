@@ -10,28 +10,28 @@
 /* void __cpu_spin_lock(unsigned int *lock); */
 FUNC __cpu_spin_lock , :
 1:
-   movq $SPINLOCK_UNLOCK, %rax
-   movq $SPINLOCK_LOCK, %rdx
-   lock cmpxchgq %rdx, (%rdi)
+   movl $SPINLOCK_UNLOCK, %eax
+   movl $SPINLOCK_LOCK, %edx
+   lock cmpxchg %edx, (%edi)
    jnz 2f
-   retq
+   ret
 2:
    pause
-   cmp $SPINLOCK_UNLOCK,(%rdi)
+   cmp $SPINLOCK_UNLOCK,(%edi)
    je 1b
    jmp 2b
 END_FUNC __cpu_spin_lock
 
 /* unsigned int __cpu_spin_trylock(unsigned int *lock); */
 FUNC __cpu_spin_trylock , :
-    movq $SPINLOCK_UNLOCK, %rax
-    movq $SPINLOCK_LOCK, %rdx
-    lock cmpxchgq %rdx, (%rdi)
-    retq
+    movl $SPINLOCK_UNLOCK, %eax
+    movl $SPINLOCK_LOCK, %edx
+    lock cmpxchg %edx, (%edi)
+    ret
 END_FUNC __cpu_spin_trylock
 
 /* void __cpu_spin_unlock(unsigned int *lock); */
 FUNC __cpu_spin_unlock , :
-    movq  $SPINLOCK_UNLOCK, (%rdi)
-    retq
+    movl  $SPINLOCK_UNLOCK, (%edi)
+    ret
 END_FUNC __cpu_spin_unlock

@@ -351,7 +351,6 @@ FUNC __thread_enter_user_mode , :
     pushq %r14
     pushq %r15
 
-    pushq %rdi
     pushq %rsi
 
     pushq %rdx
