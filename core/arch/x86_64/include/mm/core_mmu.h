@@ -507,6 +507,13 @@ enum core_mmu_fault {
 	CORE_MMU_FAULT_OTHER,
 };
 
+
+/*
+ * core_mmu_init - early init tee core mmu function
+ * this routine makes default setting for tee core mmu.
+ */
+void core_mmu_init(void);
+
 /*
  * core_mmu_get_fault_type() - get fault type
  * @fault_descr:	Content of fault status or exception syndrome register
