@@ -1031,36 +1031,6 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 	return rc;
 }
 
-
-/*
- * Provides addresses and size of kernel code that must be mapped while in
- * user mode.
- */
-void thread_get_user_kcode(struct mobj **mobj, size_t *offset,
-					 vaddr_t *va, size_t *sz)
-{
-	*mobj = mobj_tee_ram;
-	*offset = 0;
-	core_mmu_get_user_va_range(va, NULL);
-	// TODO: hard code size temporarily to align with ARM.
-	*sz = 0x8000;
-}
-
-/*
- * Provides addresses and size of kernel (rw) data that must be mapped
- * while in user mode.
- */
-void thread_get_user_kdata(struct mobj **mobj, size_t *offset,
-					 vaddr_t *va, size_t *sz)
-{
-	*mobj = mobj_tee_ram;
-	*offset = 0;
-	core_mmu_get_user_va_range(va, NULL);
-	 // TODO: hard code size temporarily to align with ARM.
-	*sz = 0x8000;
-	*va = *va + *sz;
-}
-
 static void gprof_set_status(struct ts_session *s __maybe_unused,
 			     enum ts_gprof_status status __maybe_unused)
 {
