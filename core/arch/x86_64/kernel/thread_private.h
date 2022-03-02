@@ -20,8 +20,6 @@ enum thread_state {
 	THREAD_STATE_ACTIVE,
 };
 
-#define MAX_TA_IDX		4
-
 struct thread_user_mode_rec {
 	uint64_t exit_status0_ptr;
 	uint64_t exit_status1_ptr;
@@ -42,15 +40,12 @@ struct thread_ctx {
 	struct thread_ctx_regs regs;
 	enum thread_state state;
 	vaddr_t stack_va_end;
-	vaddr_t stack_va_curr[MAX_TA_IDX];
+	vaddr_t stack_va_curr;
 	vaddr_t abt_stack_va_end;	/* Moved from thread_core_local */
-	uint32_t ta_idx;
-	uint32_t hyp_clnt_id;
 	uint32_t flags;
 	struct core_mmu_user_map user_map;
 	bool have_user_map;
 	vaddr_t kern_sp;	/* Saved kernel SP during user TA execution */
-	vaddr_t svc_sp;
 	vaddr_t svc_handle;
 	void *rpc_arg;
 	struct mobj *rpc_mobj;

@@ -13,5 +13,6 @@ void tee_syscall(void);
 void ldelf_syscall(void);
 void __syscall_sys_return(unsigned long ret, unsigned long sp);
 void __syscall_panic(unsigned long code, unsigned long sp);
+uint64_t tee_svc_sys_return_helper(uint64_t ret, uint64_t sp);
 
 #endif /*TEE_ARCH_SVC_H*/

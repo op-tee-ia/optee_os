@@ -350,6 +350,10 @@ FUNC __thread_enter_user_mode , :
     pushq %r13
     pushq %r14
     pushq %r15
+    pushq %rdi
+
+    movq  56(%rdi), %r15  //kern_sp
+    pushq %r15
 
     pushq %rsi
 

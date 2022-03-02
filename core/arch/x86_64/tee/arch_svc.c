@@ -31,7 +31,7 @@ void syscall_sys_return(unsigned long ret)
 	vaddr_t sp = 0;
 
 	x86_cli();
-	sp = thread_state_restore();
+	sp = thread_get_kern_sp();
 	__syscall_sys_return(ret, sp);
 }
 
@@ -40,7 +40,7 @@ void syscall_panic(unsigned long code)
 	vaddr_t sp = 0;
 
 	x86_cli();
-	sp = thread_state_restore();
+	sp = thread_get_kern_sp();
 	__syscall_panic(code, sp);
 }
 
@@ -137,3 +137,12 @@ const unsigned long ldelf_syscall_table[] = {
 	(unsigned long)ldelf_syscall_remap,
 	(unsigned long)ldelf_syscall_gen_rnd_num,
 };
+
+uint64_t tee_svc_sys_return_helper(uint64_t ret, uint64_t sp)
+{
+    thread_set_kern_sp(sp);
+
+    write_msr(SYSENTER_ESP_MSR, sp);
+
+    return ret;
+}
