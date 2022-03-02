@@ -10,12 +10,14 @@
 .section .text.arch_svc_asm
 
 FUNC __syscall_sys_return , :
-    movq %rdi, %rax
     movq %rsi, %rsp
     popq %rdx
     movl $0, (%rdx)  /* panic_code = 0 */
     popq %rsi
     movl $0, (%rsi) /* panic = false */
+    popq %rsi
+    call tee_svc_sys_return_helper
+    popq %rdi
     popq %r15
     popq %r14
     popq %r13
@@ -33,7 +35,10 @@ FUNC __syscall_panic , :
     movl %eax, (%rdx)  /* panic_code */
     popq %rsi
     movl $1, (%rsi) /* panic = true */
-    movq $TEE_ERROR_TARGET_DEAD, %rax /* return value */
+    movq $TEE_ERROR_TARGET_DEAD, %rdi /* return value */
+    popq %rsi
+    call tee_svc_sys_return_helper
+    popq %rdi
     popq %r15
     popq %r14
     popq %r13

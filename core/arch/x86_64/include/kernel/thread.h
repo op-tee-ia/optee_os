@@ -220,27 +220,6 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 		uint32_t *exit_status0, uint32_t *exit_status1);
 
 /*
- * thread_unwind_user_mode() - Unwinds kernel stack from user entry
- * @ret:	Value to return from thread_enter_user_mode()
- * @exit_status0: Exit status 0
- * @exit_status1: Exit status 1
- *
- * This is the function that exception handlers can return into
- * to resume execution in kernel mode instead of user mode.
- *
- * This function is closely coupled with thread_enter_user_mode() since it
- * need to restore registers saved by thread_enter_user_mode() and when it
- * returns make it look like thread_enter_user_mode() just returned. It is
- * expected that the stack pointer is where thread_enter_user_mode() left
- * it. The stack will be unwound and the function will return to where
- * thread_enter_user_mode() was called from.  Exit_status0 and exit_status1
- * are filled in the corresponding pointers supplied to
- * thread_enter_user_mode().
- */
-void thread_unwind_user_mode(uint32_t ret, uint32_t exit_status0,
-		uint32_t exit_status1);
-
-/*
  * thread_get_saved_thread_sp() - Returns the saved sp of current thread
  *
  * When switching from the thread stack pointer the value is stored
@@ -319,6 +298,10 @@ static inline bool __nostackcheck get_stack_hard_limits(vaddr_t *start,
 {
 	return get_stack_limits(start, end, true);
 }
+
+vaddr_t __nostackcheck thread_get_kern_sp(void);
+
+void __nostackcheck thread_set_kern_sp(vaddr_t sp);
 
 bool thread_is_in_normal_mode(void);
 
@@ -426,12 +409,6 @@ struct thread_param {
  */
 uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
 		struct thread_param *params);
-
-/**
- * Returns current thread stack for kernel path restoring
- * @returns current thread stack
- */
-vaddr_t thread_state_restore(void);
 
 void foreign_intr_handle(uint32_t id);
 
