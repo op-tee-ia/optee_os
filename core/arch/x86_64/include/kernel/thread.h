@@ -184,6 +184,18 @@ static inline bool __nostackcheck thread_foreign_intr_disabled(void)
 }
 
 /*
+ * thread_user_clear_vfp() - Clears the vfp state
+ * @uctx:	pointer to user mode context containing the saved state to clear
+ */
+#ifdef CFG_WITH_VFP
+void thread_user_clear_vfp(struct user_mode_ctx *uctx);
+#else
+static inline void thread_user_clear_vfp(struct user_mode_ctx *uctx __unused)
+{
+}
+#endif
+
+/*
  * thread_enter_user_mode() - Enters user mode
  * @a0:		Passed in r/x0 for user_func
  * @a1:		Passed in r/x1 for user_func

@@ -31,7 +31,11 @@ struct ts_session {
 	 * syscalls to store handlers of opened TA/SP binaries.
 	 */
 	void *user_ctx;
+#if defined(X86_64)
 	void (*handle_svc)(void);
+#else
+	bool (*handle_svc)(struct thread_svc_regs *regs);
+#endif
 };
 
 enum ts_gprof_status {
@@ -47,7 +51,11 @@ struct ts_ops {
 	void (*dump_ftrace)(struct ts_ctx *ctx);
 	void (*destroy)(struct ts_ctx *ctx);
 	uint32_t (*get_instance_id)(struct ts_ctx *ctx);
+#if defined(X86_64)
 	void (*handle_svc)(void);
+#else
+	bool (*handle_svc)(struct thread_svc_regs *regs);
+#endif
 #ifdef CFG_TA_GPROF_SUPPORT
 	void (*gprof_set_status)(enum ts_gprof_status status);
 #endif
