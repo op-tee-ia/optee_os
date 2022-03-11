@@ -3,12 +3,14 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright (c) 2020, Arm Limited
  */
-
-#include <x86.h>
+#ifndef X86_64
+#include <arm.h>
+#endif
 #include <assert.h>
 #include <kernel/mutex.h>
 #include <kernel/panic.h>
 #include <kernel/pseudo_ta.h>
+#include <kernel/stmm_sp.h>
 #include <kernel/tee_common.h>
 #include <kernel/tee_misc.h>
 #include <kernel/tee_ta_manager.h>
@@ -97,7 +99,7 @@ static bool has_single_instance_lock(void)
 
 struct tee_ta_session *__noprof to_ta_session(struct ts_session *sess)
 {
-	assert(is_ta_ctx(sess->ctx));
+	assert(is_ta_ctx(sess->ctx) || is_stmm_ctx(sess->ctx));
 	return container_of(sess, struct tee_ta_session, ts_sess);
 }
 
@@ -105,6 +107,9 @@ static struct tee_ta_ctx *ts_to_ta_ctx(struct ts_ctx *ctx)
 {
 	if (is_ta_ctx(ctx))
 		return to_ta_ctx(ctx);
+
+	if (is_stmm_ctx(ctx))
+		return &(to_stmm_ctx(ctx)->ta_ctx);
 
 	panic("bad context");
 }
@@ -664,6 +669,11 @@ static TEE_Result tee_ta_init_session(TEE_ErrorOrigin *err,
 	/* Look for already loaded TA */
 	res = tee_ta_init_session_with_context(s, uuid);
 	mutex_unlock(&tee_ta_mutex);
+	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
+		goto out;
+
+	/* Look for secure partition */
+	res = stmm_init_session(uuid, s);
 	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
 		goto out;
 

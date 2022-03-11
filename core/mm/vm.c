@@ -3,8 +3,11 @@
  * Copyright (c) 2016, Linaro Limited
  * Copyright (c) 2014, STMicroelectronics International N.V.
  */
-
+#ifdef X86_64
 #include <x86.h>
+#else
+#include <arm.h>
+#endif
 #include <assert.h>
 #include <initcall.h>
 #include <kernel/panic.h>
@@ -1063,6 +1066,11 @@ void vm_info_final(struct user_mode_ctx *uctx)
 	if (!uctx->vm_info.asid)
 		return;
 
+#ifndef X86_64
+	/* clear MMU entries to avoid clash when asid is reused */
+	tlbi_asid(uctx->vm_info.asid);
+#endif
+
 	asid_free(uctx->vm_info.asid);
 	while (!TAILQ_EMPTY(&uctx->vm_info.regions))
 		umap_remove_region(&uctx->vm_info,
@@ -1294,7 +1302,6 @@ void vm_set_ctx(struct ts_ctx *ctx)
 		core_mmu_set_user_map(&map);
 		tee_pager_assign_um_tables(uctx);
 	}
-
 	tsd->ctx = ctx;
 }
 

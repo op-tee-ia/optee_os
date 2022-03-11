@@ -167,7 +167,9 @@ static TEE_Result user_ta_enter(struct ts_session *session,
 	else
 		memset(usr_params, 0, sizeof(*usr_params));
 
+#if defined(X86_64)
 	user_ta_handle_svc();
+#endif
 
 	res = thread_enter_user_mode(func, kaddr_to_uref(session),
 				     (vaddr_t)usr_params, cmd, usr_stack,
@@ -175,8 +177,12 @@ static TEE_Result user_ta_enter(struct ts_session *session,
 				     &utc->ta_ctx.panicked,
 				     &utc->ta_ctx.panic_code);
 
+	thread_user_clear_vfp(&utc->uctx);
 
 	if (utc->ta_ctx.panicked) {
+#ifndef X86_64
+		abort_print_current_ts();
+#endif
 		DMSG("tee_user_ta_enter: TA panicked with code 0x%x",
 		     utc->ta_ctx.panic_code);
 		res = TEE_ERROR_TARGET_DEAD;

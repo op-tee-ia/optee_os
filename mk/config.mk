@@ -270,7 +270,7 @@ CFG_TA_ASLR_MAX_OFFSET_PAGES ?= 128
 # When this flag is enabled, the early init code will introduce a random
 # offset when mapping TEE Core. ASLR makes the exploitation of memory
 # corruption vulnerabilities more difficult.
-CFG_CORE_ASLR ?= n
+CFG_CORE_ASLR ?= y
 
 # Load user TAs from the REE filesystem via tee-supplicant
 CFG_REE_FS_TA ?= y
@@ -539,7 +539,7 @@ CFG_CORE_THREAD_SHIFT ?= 0
 
 # Enable support for dynamic shared memory (shared memory anywhere in
 # non-secure memory).
-CFG_CORE_DYN_SHM ?= n
+CFG_CORE_DYN_SHM ?= y
 
 # Enable support for reserved shared memory (shared memory in a carved out
 # memory area).
