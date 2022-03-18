@@ -37,23 +37,34 @@ endif
 
 core-platform-cppflags	+= -I$(arch-dir)/include
 core-platform-subdirs += \
-	$(addprefix $(arch-dir)/, kernel tee mm) $(platform-dir)
+	$(addprefix $(arch-dir)/, kernel mm tee) $(platform-dir)
 
 core-platform-subdirs += $(arch-dir)/sm
 
-x86-64-platform-cppflags += -DX86_64=1 -D__LP64__=1 -DLTC_NO_ROLC -DLTC_NO_FAST
-
-platform-cflags-generic ?= -g -ffunction-sections -fdata-sections -pipe
-platform-aflags-generic ?= -g -pipe -D__ASSEMBLY__
+platform-cflags-generic ?= -ffunction-sections -fdata-sections -pipe
+platform-aflags-generic ?= -pipe
+platform-aflags-generic += -D__ASSEMBLY__
+x86-64-platform-cppflags += -DX86_64=1 -D__LP64__=1
 
 ifeq ($(DEBUG),1)
-platform-cflags-optimization ?=  -O0
-else
-platform-cflags-optimization ?=  -Os
+# For backwards compatibility
+$(call force,CFG_CC_OPT_LEVEL,0)
+$(call force,CFG_DEBUG_INFO,y)
+endif
+ifeq ($(CFG_CC_OPTIMIZE_FOR_SIZE),n)
+# For backwards compatibility
+$(call force,CFG_CC_OPT_LEVEL,0)
 endif
 
+# Optimize for size by default, usually gives good performance too
+CFG_CC_OPT_LEVEL ?= s
+platform-cflags-optimization ?= -O$(CFG_CC_OPT_LEVEL)
+
+CFG_DEBUG_INFO ?= y
+ifeq ($(CFG_DEBUG_INFO),y)
 platform-cflags-debug-info ?= -g3
-platform-aflags-debug-info ?=
+platform-aflags-debug-info ?= -g
+endif
 
 core-platform-cflags += $(platform-cflags-optimization)
 core-platform-cflags += $(platform-cflags-generic)
@@ -61,6 +72,10 @@ core-platform-cflags += $(platform-cflags-debug-info)
 
 core-platform-aflags += $(platform-aflags-generic)
 core-platform-aflags += $(platform-aflags-debug-info)
+
+ifeq ($(CFG_CORE_ASLR),y)
+core-platform-cflags += -fpie
+endif
 
 arch-bits-core := 64
 core-platform-cppflags += $(x86-64-platform-cppflags)
