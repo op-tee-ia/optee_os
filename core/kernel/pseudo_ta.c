@@ -261,19 +261,6 @@ static TEE_Result verify_pseudo_tas_conformance(void)
 	const struct pseudo_ta_head *end =
 		SCATTERED_ARRAY_END(pseudo_tas, struct pseudo_ta_head);
 	const struct pseudo_ta_head *pta;
-#if defined(X86_64)
-	uint32_t pth_size = sizeof(struct pseudo_ta_head);
-	uint64_t align_start = (uint64_t)start;
-	/* Workaround:
-	   In the tee.dmp, we found that __scattered_array_begin was not equal
-	   to the first TA __scattered_array_0pseudo_tas address. Thus, access
-	   psedudo TA via __scattered_array_begin would be wrong.
-	   So make the WA to make them align.
-	   TODO: fix the WA
-	*/
-	align_start = ROUNDUP(align_start, pth_size);
-	start = (const struct pseudo_ta_head *)align_start;
-#endif
 
 	for (pta = start; pta < end; pta++) {
 		const struct pseudo_ta_head *pta2;
@@ -308,26 +295,10 @@ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
 	struct pseudo_ta_ctx *stc = NULL;
 	struct tee_ta_ctx *ctx;
 	const struct pseudo_ta_head *ta;
-#if defined(X86_64)
-	uint32_t pth_size = sizeof(struct pseudo_ta_head);
-	uint64_t align_start;
-#endif
 
 	DMSG("Lookup pseudo TA %pUl", (void *)uuid);
 
 	ta = SCATTERED_ARRAY_BEGIN(pseudo_tas, struct pseudo_ta_head);
-#if defined(X86_64)
-	/* Workaround:
-	   In the tee.dmp, we found that __scattered_array_begin was not equal
-	   to the first TA __scattered_array_0pseudo_tas address. Thus, access
-	   psedudo TA via __scattered_array_begin would be wrong.
-	   So make the WA to make them align.
-	   TODO: fix the WA
-	*/
-	align_start = (uint64_t)ta;
-	align_start = ROUNDUP(align_start, pth_size);
-	ta = (const struct pseudo_ta_head *)align_start;
-#endif
 	while (true) {
 		if (ta >= SCATTERED_ARRAY_END(pseudo_tas,
 					      struct pseudo_ta_head))
