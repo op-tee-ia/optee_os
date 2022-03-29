@@ -54,14 +54,13 @@ struct thread_smc_args {
 };
 
 struct thread_ctx_regs {
-	uint64_t rflags;
 	uint64_t rip;
-	uint64_t r10;
-	uint64_t r11;
-	uint64_t r12;
-	uint64_t r13;
-	uint64_t r14;
-	uint64_t r15;
+	uint64_t rsp_kern;
+	uint64_t rsp_usr;
+	uint64_t rdi;
+	uint64_t rsi;
+	uint64_t rdx;
+	uint64_t rcx;
 };
 
 struct thread_specific_data {
@@ -87,7 +86,7 @@ struct thread_core_local *thread_get_core_local(void);
  *
  * Returns true on success and false on errors.
  */
-bool thread_init_stack(uint32_t stack_id, vaddr_t sp, vaddr_t abt_sp);
+bool thread_init_stack(uint32_t stack_id, vaddr_t sp);
 
 /*
  * Initializes thread contexts. Called in thread_init_boot_thread() if
@@ -204,7 +203,7 @@ static inline bool __nostackcheck thread_foreign_intr_disabled(void)
  */
 uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 		unsigned long a2, unsigned long a3, unsigned long user_sp,
-		unsigned long entry_func, uint32_t client,
+		unsigned long entry_func, bool is_32bit,
 		uint32_t *exit_status0, uint32_t *exit_status1);
 
 /*

@@ -68,19 +68,12 @@ void thread_handle_std_smc(struct thread_smc_args *args)
 	else
 		thread_alloc_and_run(args);
 
+	if (args->a0 != OPTEE_SMC_RETURN_ETHREAD_LIMIT && args->a0 != OPTEE_SMC_RETURN_ERESUME)
+		thread_smc_args_retrieve(args);
+
 #ifdef CFG_VIRTUALIZATION
 	virt_unset_guest();
 #endif
-
-	if (args->a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
-		IMSG("return due to thread limit\n");
-		return;
-	}
-
-	if (args->a0 == OPTEE_SMC_RETURN_ERESUME) {
-		IMSG("return due to resume error\n");
-		return;
-	}
 }
 
 /**
@@ -204,14 +197,15 @@ static uint32_t std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
  * Note: this function is weak just to make it possible to exclude it from
  * the unpaged area.
  */
-void __weak __thread_std_smc_entry(struct thread_smc_args *args)
+uint32_t __weak __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
+        uint32_t a3)
 {
 	uint32_t rv = 0;
 
 #ifdef CFG_VIRTUALIZATION
 	virt_on_stdcall();
 #endif
-	rv = std_smc_entry(args->a0, args->a1, args->a2, args->a3);
+	rv = std_smc_entry(a0, a1, a2, a3);
 
 	if (rv == OPTEE_SMC_RETURN_OK) {
 		struct thread_ctx *thr = threads + thread_get_id();
@@ -225,7 +219,7 @@ void __weak __thread_std_smc_entry(struct thread_smc_args *args)
 		}
 	}
 
-	args->a0 = rv;
+	return rv;
 }
 
 bool thread_disable_prealloc_rpc_cache(uint64_t *cookie)
