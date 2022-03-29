@@ -374,26 +374,15 @@ static void print_stack_limits(void)
 }
 #endif
 
-static void init_regs(struct thread_ctx *thread, struct thread_smc_args *args)
+static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
+        uint32_t a2, uint32_t a3)
 {
-	struct thread_ctx_regs *regs;
-
-	thread->stack_va_curr = thread->stack_va_end -
-		sizeof(struct thread_ctx_regs);
-	thread->stack_va_curr = ROUNDDOWN(thread->stack_va_curr, 64);
-	regs = (struct thread_ctx_regs *)(thread->stack_va_curr);
-
-	memset(regs, 0, sizeof(*regs));
-
-	regs->rip = (uint64_t)thread_std_smc_entry;
-	regs->rflags = 0x3002;
-
-	regs->r10 = args->a0;
-	regs->r11 = args->a1;
-	regs->r12 = args->a2;
-	regs->r13 = args->a3;
-	regs->r14 = args->a4;
-	regs->r15 = args->a5;
+	thread->regs.rip = (uint64_t)thread_std_smc_entry;
+	thread->regs.rsp_kern = thread->stack_va_end;
+	thread->regs.rdi = a0;
+	thread->regs.rsi = a1;
+	thread->regs.rdx = a2;
+	thread->regs.rcx = a3;
 }
 
 void thread_init_boot_thread(void)
@@ -462,14 +451,12 @@ void thread_alloc_and_run(struct thread_smc_args *args)
 	l->curr_thread = n;
 
 	threads[n].flags = 0;
-	init_regs(threads + n, args);
+	init_regs(threads + n, args->a0, args->a1, args->a2, args->a3);
 
 	switch_interrupt_stack(n);
 
 	l->flags &= ~THREAD_CLF_TMP;
-
-	thread_resume((struct thread_ctx_regs *)(threads[n].stack_va_curr), args,
-			l->tmp_stack_va_end);
+	thread_resume(&threads[n].regs);
 }
 
 #ifdef CFG_SECURE_PARTITION
@@ -480,6 +467,19 @@ void thread_sp_alloc_and_run(struct thread_smc_args *args __maybe_unused)
 			       spmc_sp_thread_entry);
 }
 #endif
+
+static void copy_a0_to_a3(struct thread_ctx_regs *regs, uint32_t a0, uint32_t a1,
+        uint32_t a2, uint32_t a3)
+{
+	/*
+	 * Update returned values from RPC, values will appear in
+	 * rdi, rsi, rdx, rcx when thread is resumed.
+	 */
+	regs->rdi = a0;
+	regs->rsi = a1;
+	regs->rdx = a2;
+	regs->rcx = a3;
+}
 
 #ifdef CFG_SYSCALL_FTRACE
 static void __noprof ftrace_suspend(void)
@@ -530,27 +530,30 @@ void thread_resume_from_rpc(struct thread_smc_args *args)
 	}
 
 	l->curr_thread = n;
+
+	if (threads[n].have_user_map) {
+		core_mmu_set_user_map(&threads[n].user_map);
+		if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR)
+			tee_ta_ftrace_update_times_resume();
+	}
+
+	syscall_init(threads[n].kern_sp, threads[n].svc_handle);
 	switch_interrupt_stack(n);
+
+	/*
+	 * Return from RPC to request service of a foreign interrupt must not
+	 * get parameters from non-secure world.
+	 */
+	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
+		copy_a0_to_a3(&threads[n].regs, args->a1, args->a2, args->a4, args->a5);
+		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
+	}
 
 	if (threads[n].have_user_map)
 		ftrace_resume();
 
 	l->flags &= ~THREAD_CLF_TMP;
-
-	if (threads[n].have_user_map)
-		core_mmu_set_user_map(&threads[n].user_map);
-	syscall_init(threads[n].kern_sp, threads[n].svc_handle);
-
-	if (threads[n].flags & THREAD_FLAGS_COPY_ARGS_ON_RETURN) {
-		threads[n].flags &= ~THREAD_FLAGS_COPY_ARGS_ON_RETURN;
-		thread_rpc_resume(threads[n].stack_va_curr, args, l->tmp_stack_va_end);
-	} else if (threads[n].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
-		threads[n].flags &= ~THREAD_FLAGS_EXIT_ON_FOREIGN_INTR;
-		foreign_intr_resume(threads[n].abt_stack_va_end, args, l->tmp_stack_va_end);
-	} else {
-		args->a0 = OPTEE_SMC_RETURN_ERESUME;
-		return;
-	}
+	thread_resume(&threads[n].regs);
 }
 
 void __nostackcheck *thread_get_tmp_sp(void)
@@ -564,6 +567,13 @@ void __nostackcheck *thread_get_tmp_sp(void)
 	l->flags |= THREAD_CLF_TMP;
 
 	return (void *)l->tmp_stack_va_end;
+}
+
+void __nostackcheck thread_set_tmp_sp(vaddr_t sp)
+{
+	struct thread_core_local *l = thread_get_core_local();
+
+	l->tmp_stack_va_end = sp;
 }
 
 vaddr_t thread_stack_start(void)
@@ -695,7 +705,7 @@ static void release_unused_kernel_stack(struct thread_ctx *thr __unused,
 }
 #endif
 
-int thread_state_suspend(uint32_t flags, vaddr_t sp)
+int thread_state_suspend(uint32_t flags, vaddr_t sp, vaddr_t pc)
 {
 	struct thread_core_local *l = thread_get_core_local();
 	int ct = l->curr_thread;
@@ -713,17 +723,14 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp)
 
 	assert(threads[ct].state == THREAD_STATE_ACTIVE);
 	threads[ct].flags |= flags;
-
-	if (flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR) {
-		threads[ct].abt_stack_va_end = sp;
-	} else {
-		threads[ct].stack_va_curr = sp;
-	}
-
+	threads[ct].regs.rsp_kern = sp;
+	threads[ct].regs.rip = pc;
 	threads[ct].state = THREAD_STATE_SUSPENDED;
 
 	threads[ct].have_user_map = core_mmu_user_mapping_is_active();
 	if (threads[ct].have_user_map) {
+		if (threads[ct].flags & THREAD_FLAGS_EXIT_ON_FOREIGN_INTR)
+			tee_ta_ftrace_update_times_suspend();
 		core_mmu_get_user_map(&threads[ct].user_map);
 		core_mmu_set_user_map(NULL);
 	}
@@ -766,18 +773,11 @@ static void set_tmp_stack(struct thread_core_local *l, vaddr_t sp)
 	l->tmp_stack_va_end = sp;
 }
 
-static void set_abt_stack(struct thread_ctx *thread, vaddr_t sp)
-{
-	thread->abt_stack_va_end = sp;
-}
-
-bool thread_init_stack(uint32_t thread_id, vaddr_t sp, vaddr_t abt_sp)
+bool thread_init_stack(uint32_t thread_id, vaddr_t sp)
 {
 	if (thread_id >= CFG_NUM_THREADS)
 		return false;
 	threads[thread_id].stack_va_end = sp;
-	threads[thread_id].abt_stack_va_end = abt_sp;
-
 	return true;
 }
 
@@ -850,7 +850,7 @@ static void init_thread_stacks(void)
 
 	/* Assign the thread stacks */
 	for (n = 0; n < CFG_NUM_THREADS; n++) {
-		if (!thread_init_stack(n, GET_STACK_BOTTOM(stack_thread, n), GET_STACK(stack_abt[n])))
+		if (!thread_init_stack(n, GET_STACK_BOTTOM(stack_thread, n)))
 			panic("thread_init_stack failed");
 	}
 }
@@ -978,24 +978,26 @@ static void set_ctx_regs(struct thread_ctx_regs *regs, unsigned long a0,
 	 * other TAs or even the Core itself.
 	 */
 	*regs = (struct thread_ctx_regs){ };
-	regs->r10 = a0;
-	regs->r11 = a1;
-	regs->r12 = a2;
-	regs->r13 = a3;
-	regs->r14 = user_sp;
-	regs->r15 = kern_sp;
+	regs->rdi = a0;
+	regs->rsi = a1;
+	regs->rdx = a2;
+	regs->rcx = a3;
+	regs->rsp_usr = user_sp;
+	regs->rsp_kern = kern_sp;
 	regs->rip = entry_func;
 }
 
 uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 		unsigned long a2, unsigned long a3, unsigned long user_sp,
-		unsigned long entry_func, uint32_t client,
+		unsigned long entry_func, bool is_32bit,
 		uint32_t *exit_status0, uint32_t *exit_status1)
 {
 	uint32_t exceptions = 0;
 	uint32_t rc = 0;
 	uint64_t kern_sp = 0;
 	struct thread_ctx_regs *regs = NULL;
+
+	(void)is_32bit;
 
 	tee_ta_update_session_utime_resume();
 

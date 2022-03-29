@@ -40,8 +40,6 @@ struct thread_ctx {
 	struct thread_ctx_regs regs;
 	enum thread_state state;
 	vaddr_t stack_va_end;
-	vaddr_t stack_va_curr;
-	vaddr_t abt_stack_va_end;	/* Moved from thread_core_local */
 	uint32_t flags;
 	struct core_mmu_user_map user_map;
 	bool have_user_map;
@@ -89,8 +87,8 @@ void thread_init_vbar(vaddr_t addr);
 /*
  * Handles a stdcall, r10-r15 holds the parameters
  */
-void thread_std_smc_entry(void);
-void __thread_std_smc_entry(struct thread_smc_args *args);
+void thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+uint32_t __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 
 void thread_sp_alloc_and_run(struct thread_smc_args *args);
 
@@ -102,15 +100,7 @@ void thread_sp_alloc_and_run(struct thread_smc_args *args);
  * context of the current thread if THREAD_FLAGS_COPY_ARGS_ON_RETURN is set
  * in the flags field in the thread context.
  */
-void thread_resume(struct thread_ctx_regs *regs, struct thread_smc_args *args,
-						vaddr_t tmp_stack);
-
-void thread_rpc_resume(vaddr_t sp, struct thread_smc_args *args,
-						vaddr_t tmp_stack);
-/*
- * Resume thread status from a foreign interrupt
- */
-void foreign_intr_resume(vaddr_t sp, struct thread_smc_args *args, vaddr_t abt_stack);
+void thread_resume(struct thread_ctx_regs *regs);
 
 /*
  * Get the return value from a standard secure monitor call
@@ -133,12 +123,15 @@ uint32_t __thread_enter_user_mode(struct thread_ctx_regs *regs,
 /* Returns the temp stack for current CPU */
 void *thread_get_tmp_sp(void);
 
+/* Saves the temp stack for current CPU */
+void thread_set_tmp_sp(vaddr_t sp);
+
 /*
  * Marks the current thread as suspended. And updated the flags
  * for the thread context (see thread resume for use of flags).
  * Returns thread index of the thread that was suspended.
  */
-int thread_state_suspend(uint32_t flags, vaddr_t sp);
+int thread_state_suspend(uint32_t flags, vaddr_t sp, vaddr_t pc);
 
 /*
  * Save the state of current thread
@@ -160,6 +153,8 @@ void thread_alloc_and_run(struct thread_smc_args *args);
 void thread_resume_from_rpc(struct thread_smc_args *args);
 void thread_lock_global(void);
 void thread_unlock_global(void);
+
+void thread_smc_args_retrieve(struct thread_smc_args *args);
 
 /*
  * Suspends current thread and temorarily exits to non-secure world.
