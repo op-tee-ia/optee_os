@@ -630,13 +630,6 @@ out:
 	return ret;
 }
 
-bool thread_is_from_abort_mode(void)
-{
-	struct thread_core_local *l = thread_get_core_local();
-
-	return (l->flags >> THREAD_CLF_SAVED_SHIFT) & THREAD_CLF_ABORT;
-}
-
 bool thread_is_in_normal_mode(void)
 {
 	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
@@ -1015,15 +1008,6 @@ uint32_t thread_enter_user_mode(unsigned long a0, unsigned long a1,
 	rc = __thread_enter_user_mode(regs, exit_status0, exit_status1);
 	thread_unmask_exceptions(exceptions);
 	return rc;
-}
-
-static void gprof_set_status(struct ts_session *s __maybe_unused,
-			     enum ts_gprof_status status __maybe_unused)
-{
-#ifdef CFG_TA_GPROF_SUPPORT
-	if (s->ctx->ops->gprof_set_status)
-		s->ctx->ops->gprof_set_status(status);
-#endif
 }
 
 static struct mobj *alloc_shm(enum thread_shm_type shm_type, size_t size)
