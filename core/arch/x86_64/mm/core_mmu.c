@@ -188,8 +188,7 @@ register_phys_mem(MEM_AREA_TA_RAM, TA_RAM_START, TA_RAM_SIZE);
 register_phys_mem(MEM_AREA_NSEC_SHM, TEE_SHMEM_START, TEE_SHMEM_SIZE);
 #endif
 
-static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm,
-				uint64_t base_va __unused, unsigned int level);
+static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm);
 
 /*
  * Two ASIDs per context, one for kernel mode and one for user mode. ASID 0
@@ -1214,7 +1213,7 @@ void core_init_mmu(struct tee_mmap_region *mm)
 	}
 
 	/* Clear table before use */
-	init_xlation_table(mm, 0, 1);
+	init_xlation_table(mm);
 
 	COMPILE_TIME_ASSERT(CFG_LPAE_ADDR_SPACE_SIZE > 0);
 	assert(max_va < CFG_LPAE_ADDR_SPACE_SIZE);
@@ -1968,14 +1967,10 @@ static void init_kernel_mmu_table(void)
 
 }
 
-static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm,
-				uint64_t base_va __unused, unsigned int level)
+static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm)
 {
 	int ret;
 
-	assert(level <= 3);
-
-	FMSG("base_va 0x%lx level %u\n", base_va, level);
 	FMSG("%s pa 0x%lx va 0x%lx size 0x%zx region_size 0x%x attr %d",
 			teecore_memtype_name(mm->type), mm->pa, mm->va,
 			mm->size, mm->region_size, mm->attr);

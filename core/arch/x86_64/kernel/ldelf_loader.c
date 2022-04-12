@@ -160,7 +160,6 @@ TEE_Result ldelf_dump_state(struct user_mode_ctx *uctx)
 	struct dump_entry_arg *arg = NULL;
 	uint32_t panic_code = 0;
 	uint32_t panicked = 0;
-	struct thread_specific_data *tsd = thread_get_tsd();
 	struct ts_session *sess = NULL;
 	struct vm_region *r = NULL;
 	size_t n = 0;
