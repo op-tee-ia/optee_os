@@ -85,6 +85,7 @@ typedef tss_64_t tss_t;
 #define X86_CR0_CD 0x40000000 /* cache disable */
 #define X86_CR0_PG 0x80000000 /* enable paging */
 #define X86_CR4_PAE 0x00000020 /* PAE paging */
+#define X86_CR4_PGE 0x00000080 /* global pages */
 #define X86_CR4_OSFXSR 0x00000200 /* os supports fxsave */
 #define X86_CR4_OSXMMEXPT 0x00000400 /* os supports xmm exception */
 #define X86_CR4_OSXSAVE 0x00040000 /* os supports xsave */

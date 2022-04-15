@@ -1670,6 +1670,8 @@ static int x86_mmu_add_mapping(map_addr_t pml4, map_addr_t paddr,
 			/* Creating a new pd table  */
 			m = &g_pd[pd_counter];
 			pd_counter++;
+
+			mmu_flags |= X86_MMU_PG_G; /* setting global flag for kernel pages */
 		}
 		update_pdp_entry(vaddr, pml4e, virt_to_phys(m), mmu_flags);
 		pdpe = (uint64_t)m;
@@ -1701,6 +1703,8 @@ static int x86_mmu_add_mapping(map_addr_t pml4, map_addr_t paddr,
 			/* Creating a new pt */
 			m = &g_pte[pt_index][0];
 			pt_index++;
+
+			mmu_flags |= X86_MMU_PG_G; /* setting global flag for kernel pages */
 		}
 		update_pd_entry(vaddr, pdpe, virt_to_phys(m), mmu_flags);
 		pde = (uint64_t)m;
@@ -2066,7 +2070,7 @@ void core_mmu_create_user_map(struct user_mode_ctx *uctx,
 			mobj_get_pa(r->mobj, r->offset, 0, &pa);
 
 			ret = arch_mmu_map(r->va, pa, r->size,
-					(X86_MMU_PG_G | get_x86_arch_flags(r->attr)), thread_id);
+					get_x86_arch_flags(r->attr), thread_id);
 
 			if (ret) {
 				EMSG("%d\n", ret);
@@ -2863,6 +2867,8 @@ void core_mmu_init(void)
 	/* TODO: will figure out how to enable SMAP */
 	/*if (check_smap_avail())
 		cr4 |= X86_CR4_SMAP;*/
+	/* enable global pages */
+	cr4 |= X86_CR4_PGE;
 	x86_set_cr4(cr4);
 
 	/* Set NXE bit in MSR_EFER*/
