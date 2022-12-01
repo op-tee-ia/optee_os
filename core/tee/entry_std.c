@@ -111,6 +111,16 @@ static TEE_Result set_tmem_param(const struct optee_msg_param_tmem *tmem,
 		return TEE_SUCCESS;
 	}
 
+#ifdef CFG_VIRTIO_TEE
+	switch (attr & OPTEE_MSG_ATTR_TYPE_MASK) {
+		case OPTEE_MSG_ATTR_TYPE_TMEM_INPUT:
+		case OPTEE_MSG_ATTR_TYPE_TMEM_INOUT:
+			thread_rpc_copy_shm(pa, sz);
+			break;
+		default:
+			break;
+	}
+#endif
 	/* Handle non-contiguous reference from a shared memory area */
 	if (attr & OPTEE_MSG_ATTR_NONCONTIG) {
 		uint64_t shm_ref = READ_ONCE(tmem->shm_ref);

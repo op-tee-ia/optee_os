@@ -89,10 +89,15 @@ void x86_exception_handler(x86_iframe_t *frame)
 {
 	unsigned int vector = frame->vector;
 
-	if (vector >= 0x20 && vector <= 255) {
+	if (vector >= 0x20 && vector <= 0xFF) {
+#ifndef CFG_VIRTIO_TEE
+		//Don't need disable trace for OP-TEE running as standalone VM
 		trace_disable();
-		apic_it_handle(frame);
+#endif
+		apic_it_handle(vector);
+#ifndef CFG_VIRTIO_TEE
 		trace_enable();
+#endif
 		return;
 	}
 

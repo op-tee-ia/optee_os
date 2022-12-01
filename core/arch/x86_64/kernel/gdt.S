@@ -13,7 +13,7 @@
 .align 8
 DATA(_gdtr_phys)
     .short _gdt_end - _gdt - 1
-    .int _gdt
+    .quad _gdt
 
 .align 8
 DATA(_gdtr)

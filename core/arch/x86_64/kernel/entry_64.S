@@ -119,27 +119,27 @@ paging_setup:
     wrmsr
 
     /* Setting the First PML4E with a PDP table reference */
-    movl $g_pdp_init, %eax
+    movl $g_pdpt_init, %eax
     orl  $X86_KERNEL_PD_FLAGS, %eax
     movl %eax, g_pml4_init
 
     /* map the first 4GB in this table */
-    movl $g_pdp_init, %edi
-    movl $g_pte_init, %esi
-    orl  $X86_KERNEL_PD_FLAGS, %esi
+    movl $g_pdpt_init, %edi
+    movl $g_pd_init, %esi
     movl $4, %ecx
-.Lfill_pdpte_entry:
+.Lfill_pdpt_entry:
+    orl  $X86_KERNEL_PD_FLAGS, %esi
     movl %esi, (%edi)
     add  $8, %edi
     addl $4096, %esi
-    loop .Lfill_pdpte_entry
+    loop .Lfill_pdpt_entry
 
     /* loop across these page tables, incrementing the address by 2MB */
-    movl $g_pte_init, %esi
+    movl $g_pd_init, %esi
     movl $2048, %ecx
     xor  %eax, %eax
 
-.Lfill_pte_entry:
+.Lfill_pd_entry:
     mov  %eax, %ebx
     shll $21, %ebx
     orl  $X86_KERNEL_PD_LP_FLAGS, %ebx
@@ -149,7 +149,7 @@ paging_setup:
     movl %ebx, 4(%esi)
     addl $8, %esi
     inc  %eax
-    loop .Lfill_pte_entry
+    loop .Lfill_pd_entry
 
     /* Enabling Paging and from this point we are in
     32 bit compatibility mode */

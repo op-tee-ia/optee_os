@@ -87,6 +87,7 @@ typedef tss_64_t tss_t;
 #define X86_CR4_PAE 0x00000020 /* PAE paging */
 #define X86_CR4_OSFXSR 0x00000200 /* os supports fxsave */
 #define X86_CR4_OSXMMEXPT 0x00000400 /* os supports xmm exception */
+#define X86_CR4_LA57 0x00001000 /* 57-bit linear address enabling */
 #define X86_CR4_OSXSAVE 0x00040000 /* os supports xsave */
 #define X86_CR4_SMEP 0x00100000 /* SMEP protection enabling */
 #define X86_CR4_SMAP 0x00200000 /* SMAP protection enabling */

@@ -89,7 +89,7 @@ typedef uint64_t arch_flags_t;
 #define AREA_MAPPED_W_ONE_PT  (2 * MB)
 
 #define NO_OF_PML4_ENTRIES    512
-#define NO_OF_PDP_ENTRIES     512
+#define NO_OF_PDPT_ENTRIES    512
 #define NO_OF_PD_ENTRIES      512
 #define NO_OF_PT_ENTRIES      512
 #define NO_OF_PT_TABLES       40
@@ -139,13 +139,8 @@ enum page_table_levels {
  * PGDIR is the translation table above the translation table that holds
  * the pages.
  */
-#ifdef CFG_WITH_LPAE
 #define CORE_MMU_PGDIR_SHIFT	21
 #define CORE_MMU_PGDIR_LEVEL	3
-#else
-#define CORE_MMU_PGDIR_SHIFT	20
-#define CORE_MMU_PGDIR_LEVEL	2
-#endif
 #define CORE_MMU_PGDIR_SIZE		BIT(CORE_MMU_PGDIR_SHIFT)
 #define CORE_MMU_PGDIR_MASK		((paddr_t)CORE_MMU_PGDIR_SIZE - 1)
 

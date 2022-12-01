@@ -579,6 +579,27 @@
 #define OPTEE_SMC_RETURN_RPC_CMD \
 	OPTEE_SMC_RPC_VAL(OPTEE_SMC_RPC_FUNC_CMD)
 
+/*
+ * Copy shared memory from REE.
+ *
+ * "Call" register usage:
+ * a0	OPTEE_SMC_RETURN_RPC_COPY_SHM
+ * a1	physical address of shared memory
+ * a2	size of shared memory
+ * a3-7	Resume information, must be preserved
+ *
+ * "Return" register usage:
+ * a0	SMC Function ID, OPTEE_SMC_CALL_RETURN_FROM_RPC.
+ * a1	physical address of shared memory
+ * a2	size of shared memory
+ * a3-7	Preserved
+ */
+#ifdef CFG_VIRTIO_TEE
+#define OPTEE_SMC_RPC_FUNC_COPY_SHM		6
+#define OPTEE_SMC_RETURN_RPC_COPY_SHM \
+	OPTEE_SMC_RPC_VAL(OPTEE_SMC_RPC_FUNC_COPY_SHM)
+#endif
+
 /* Returned in a0 */
 #define OPTEE_SMC_RETURN_UNKNOWN_FUNCTION 0xFFFFFFFF
 

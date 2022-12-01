@@ -12,7 +12,6 @@
 
 #define PRINT_USE_MMIO 0
 #define PRINT_USE_IO_PORT 1
-#define return_flags __noreturn
 
 /* Make stacks aligned to data cache line length */
 #define STACK_ALIGNMENT		64

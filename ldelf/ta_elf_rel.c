@@ -629,6 +629,7 @@ static void e64_relocate(struct ta_elf *elf, unsigned int rel_sidx)
 			break;
 		case R_X86_64_GLOB_DAT:
 		case R_X86_64_JMP_SLOT:
+			assert(sym_tab != NULL);
 			e64_process_dyn_rela(sym_tab, num_syms, str_tab,
 					     str_tab_size, rela, where);
 			break;

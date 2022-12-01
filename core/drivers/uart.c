@@ -116,7 +116,11 @@ static const struct serial_ops uart_ops = {
 void uart_init(struct uart_data *pd, uint64_t serial_base)
 {
 	pd->base.pa = serial_base;
+#if PRINT_USE_MMIO
 	pd->base.va = 0;
 	pd->base.va = io_pa_or_va(&pd->base);
+#elif PRINT_USE_IO_PORT
+	pd->base.va = serial_base;
+#endif
 	pd->chip.ops = &uart_ops;
 }

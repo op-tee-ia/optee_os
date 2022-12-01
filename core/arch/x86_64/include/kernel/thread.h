@@ -409,6 +409,17 @@ struct thread_param {
 uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
 		struct thread_param *params);
 
+/**
+ * Copy shared memory from REE.
+ *
+ * @parg:	physical address of shared memory on TEE side
+ *
+ * @size:	size of shared memory
+ */
+#ifdef CFG_VIRTIO_TEE
+void thread_rpc_copy_shm(paddr_t parg, size_t size);
+#endif
+
 void foreign_intr_handle(uint32_t id);
 
 unsigned long thread_smc(unsigned long func_id, unsigned long a1,

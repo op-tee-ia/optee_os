@@ -22,6 +22,7 @@
 #include <tee/tee_fs_rpc.h>
 #include <sm/vmcall.h>
 #include <drivers/apic.h>
+#include <drivers/virtio_tee.h>
 #include <console.h>
 
 #include "thread_private.h"
@@ -93,7 +94,7 @@ static void thread_rpc_free_arg(uint64_t cookie)
 	}
 }
 
-static struct mobj *get_cmd_buffer(paddr_t parg, uint32_t *num_params)
+static struct mobj *get_cmd_buffer(paddr_t parg, uint32_t *num_params, size_t size)
 {
 	struct optee_msg_arg *arg;
 	size_t args_size;
@@ -101,6 +102,10 @@ static struct mobj *get_cmd_buffer(paddr_t parg, uint32_t *num_params)
 	arg = phys_to_virt(parg, MEM_AREA_NSEC_SHM);
 	if (!arg)
 		return NULL;
+
+#ifdef CFG_VIRTIO_TEE
+	thread_rpc_copy_shm(parg, size);
+#endif
 
 	*num_params = READ_ONCE(arg->num_params);
 	if (*num_params > OPTEE_MSG_MAX_NUM_PARAMS)
@@ -170,7 +175,11 @@ static uint32_t std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
 	/* Check if this region is in static shared space */
 	if (core_pbuf_is(CORE_MEM_NSEC_SHM, parg,
 			 sizeof(struct optee_msg_arg))) {
+#ifdef CFG_VIRTIO_TEE
+		mobj = get_cmd_buffer(parg, &num_params, a3);
+#else
 		mobj = get_cmd_buffer(parg, &num_params);
+#endif
 	} else {
 		if (parg & SMALL_PAGE_MASK)
 			return OPTEE_SMC_RETURN_EBADADDR;
@@ -447,6 +456,11 @@ static uint32_t get_rpc_arg(uint32_t cmd, size_t num_params,
 static uint32_t get_rpc_arg_res(struct optee_msg_arg *arg, size_t num_params,
 				struct thread_param *params)
 {
+#ifdef CFG_VIRTIO_TEE
+	struct thread_ctx *thr = threads + thread_get_id();
+
+	thread_rpc_copy_shm(virt_to_phys(arg), thr->rpc_mobj->size);
+#endif
 	for (size_t n = 0; n < num_params; n++) {
 		switch (params[n].attr) {
 		case THREAD_PARAM_ATTR_VALUE_OUT:
@@ -462,6 +476,13 @@ static uint32_t get_rpc_arg_res(struct optee_msg_arg *arg, size_t num_params,
 			 * location.
 			 */
 			params[n].u.memref.size = arg->params[n].u.rmem.size;
+#ifdef CFG_VIRTIO_TEE
+			if (arg->params[n].attr == OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT ||
+				arg->params[n].attr == OPTEE_MSG_ATTR_TYPE_TMEM_INOUT) {
+				if (arg->params[n].u.tmem.buf_ptr !=0 && arg->params[n].u.tmem.size != 0)
+					thread_rpc_copy_shm(arg->params[n].u.tmem.buf_ptr, arg->params[n].u.tmem.size);
+			}
+#endif
 			break;
 		default:
 			break;
@@ -492,6 +513,30 @@ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
 
 	return get_rpc_arg_res(arg, num_params, params);
 }
+
+#ifdef CFG_VIRTIO_TEE
+void thread_rpc_copy_shm(paddr_t parg, size_t size)
+{
+    uint32_t smc_arg_len = sizeof(struct thread_smc_args);
+    uint32_t rpc_args[THREAD_RPC_NUM_ARGS] = { OPTEE_SMC_RETURN_RPC_COPY_SHM };
+    int sz = size;
+
+    while(sz > 0) {
+        //Assume shm parg lower than 4G
+        rpc_args[1] = parg;
+        if (sz > (int)(VIRTIO_VSOCK_BUFF_ALLOC - smc_arg_len)) {
+            rpc_args[2] = VIRTIO_VSOCK_BUFF_ALLOC - smc_arg_len;
+        } else {
+            rpc_args[2] = sz;
+        }
+
+        thread_rpc(rpc_args);
+
+        parg += (VIRTIO_VSOCK_BUFF_ALLOC - smc_arg_len);
+        sz -= (VIRTIO_VSOCK_BUFF_ALLOC - smc_arg_len);
+    };
+}
+#endif
 
 /**
  * Free physical memory previously allocated with thread_rpc_alloc()
@@ -526,6 +571,11 @@ static struct mobj *get_rpc_alloc_res(struct optee_msg_arg *arg,
 	uint64_t cookie = 0;
 	size_t sz = 0;
 	paddr_t p = 0;
+#ifdef CFG_VIRTIO_TEE
+	struct thread_ctx *thr = threads + thread_get_id();
+
+	thread_rpc_copy_shm(virt_to_phys(arg), thr->rpc_mobj->size);
+#endif
 
 	if (arg->ret || arg->num_params != 1)
 		return NULL;
@@ -621,25 +671,49 @@ void thread_rpc_free_global_payload(struct mobj *mobj)
 			mobj);
 }
 
-void return_flags sm_sched_nonsecure(void)
+#ifdef CFG_VIRTIO_TEE
+extern struct thread_smc_args* g_smc_args;
+
+void __noreturn sm_sched_nonsecure(void)
+{
+	uint32_t smc_nr;
+
+	while (true) {
+		if (is_optee_boot_complete == 0) {
+			x86_set_cr8(0);
+			is_optee_boot_complete = 1;
+			IMSG("waiting for request from host, boot=%d\n", is_optee_boot_complete);
+			virtio_smc_recv_first();
+		} else {
+			virtio_smc_sim();
+		}
+	
+		//handle shared memory copy request from REE
+		if (g_smc_args->a0 == VIRTIO_SHM_COPY_REQ)
+			continue;
+
+		smc_nr = g_smc_args->a0;
+		if (OPTEE_SMC_IS_64(smc_nr)) {
+			g_smc_args->a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+			continue;
+		}
+
+		if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
+			thread_handle_fast_smc(g_smc_args);
+		else
+			thread_handle_std_smc(g_smc_args);
+	}
+}
+#else
+void __noreturn sm_sched_nonsecure(void)
 {
 	uint32_t smc_nr;
 	struct thread_smc_args args = {0};
 
 	while (true) {
 		if (is_optee_boot_complete == 0) {
-			restore_pic();
 			x86_set_cr8(0);
 			is_optee_boot_complete = 1;
-			/*
-			 * Because current x86 QEMU environment doesn't suppor
-			 * hypervisor yet, here just return to halt instead of
-			 * issue vmcall to boot up REE OS
-			 */
-#ifdef PLATFORM_QEMU
-			IMSG("Boot complete in QEMU.Execution halted\n");
-			break;
-#endif
 			IMSG("return to nonsecure firstly, boot=%d, a0=0x%lx\n",
 					is_optee_boot_complete, args.a0);
 			console_init();
@@ -660,3 +734,4 @@ void return_flags sm_sched_nonsecure(void)
 			thread_handle_std_smc(&args);
 	}
 }
+#endif

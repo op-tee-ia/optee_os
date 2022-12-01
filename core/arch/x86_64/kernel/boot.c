@@ -33,6 +33,7 @@
 #include <util.h>
 #include <kernel/fpu.h>
 #include <drivers/apic.h>
+#include <drivers/virtio_tee.h>
 #include <platform_config.h>
 #include <sm/vmcall.h>
 
@@ -627,6 +628,9 @@ void __weak boot_init_primary_late(unsigned long fdt __unused)
 	IMSG("Initializing virtualization support");
 	core_mmu_init_virtualization();
 #endif
+#ifdef CFG_VIRTIO_TEE
+	virtio_tee_init();
+#endif
 	call_finalcalls();
 	IMSG("Primary CPU switching to normal world boot");
 }
@@ -673,8 +677,6 @@ void boot_init_primary(void)
 	boot_init_primary_early(0, 0);
 
 	boot_init_primary_late(0);
-
-	DMSG("Primary CPU switching to normal world boot\n");
 }
 
 void boot_init_secondary(unsigned long nsec_entry)

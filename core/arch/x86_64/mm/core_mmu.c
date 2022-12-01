@@ -78,18 +78,18 @@ struct mmu_initial_mapping mmu_initial_mappings[] = {
 };
 
 /* 2MB MMU tables for initial usage */
-uint64_t g_pml4_init[1] __aligned(PAGE_SIZE);
-uint64_t g_pdp_init[32] __aligned(PAGE_SIZE);
-uint64_t g_pte_init[2048] __aligned(PAGE_SIZE);
+uint64_t g_pml4_init[512] __aligned(PAGE_SIZE);
+uint64_t g_pdpt_init[512] __aligned(PAGE_SIZE);
+uint64_t g_pd_init[2048] __aligned(PAGE_SIZE);
 
 /* PML4 PDP table for each thread */
 uint64_t g_thread_pml4[CFG_NUM_THREADS][NO_OF_PML4_ENTRIES] __aligned(PAGE_SIZE);
-uint64_t g_thread_pdp[CFG_NUM_THREADS][NO_OF_PDP_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_thread_pdpt[CFG_NUM_THREADS][NO_OF_PDPT_ENTRIES] __aligned(PAGE_SIZE);
 
 /* MMU tables for runtime usage for kernel */
 /* The kernel space of each thread shares the same pd and pte*/
 uint64_t g_pml4[NO_OF_PML4_ENTRIES] __aligned(PAGE_SIZE);
-uint64_t g_pdp[NO_OF_PDP_ENTRIES] __aligned(PAGE_SIZE);
+uint64_t g_pdpt[NO_OF_PDPT_ENTRIES] __aligned(PAGE_SIZE);
 uint64_t g_pd[NO_OF_PD_ENTRIES] __aligned(PAGE_SIZE);
 uint64_t g_pte[NO_OF_PT_TABLES][NO_OF_PT_ENTRIES] __aligned(PAGE_SIZE);
 
@@ -796,12 +796,6 @@ static size_t collect_mem_ranges(struct tee_mmap_region *memory_map,
 
 		/* Only unmapped virtual range may have a null phys addr */
 		assert(m.addr || !core_mmu_type_to_attr(m.type));
-
-		if (m.type == MEM_AREA_IO_SEC) {
-			m.addr = ROUNDDOWN(m.addr, CORE_MMU_PGDIR_SIZE);
-			m.size = ROUNDUP(m.size + (mem->addr - m.addr),
-				CORE_MMU_PGDIR_SIZE);
-		}
 
 		add_phys_mem(memory_map, num_elems, &m, &last);
 	}
@@ -1633,13 +1627,13 @@ static int x86_mmu_add_mapping(map_addr_t pml4, map_addr_t paddr,
 	pml4e = get_pml4_entry_from_pml4_table(vaddr, pml4);
 
 	if ((pml4e & X86_MMU_PG_P) == 0) {
-		if ((pdp_counter + 1) > NO_OF_PDP_ENTRIES) {
+		if ((pdp_counter + 1) > NO_OF_PDPT_ENTRIES) {
 			EMSG("pdp_counter %d\n", pdp_counter);
 			panic("TEE_ERROR_OUT_OF_MEMORY");
 		}
 
 		/* Creating a new pdp table */
-		m = &g_thread_pdp[id][pdp_counter];
+		m = &g_thread_pdpt[id][pdp_counter];
 		pdp_counter++;
 
 		FMSG("pdp_counter %d\n", pdp_counter);
@@ -1953,16 +1947,16 @@ static void init_kernel_mmu_table(void)
     uint8_t thread_id;
 
 	// set up page table for kernel space
-	memcpy(g_pdp, g_thread_pdp[0], sizeof(uint64_t) * NO_OF_PDP_ENTRIES);
+	memcpy(g_pdpt, g_thread_pdpt[0], sizeof(uint64_t) * NO_OF_PDPT_ENTRIES);
 	g_pml4[0] = (g_thread_pml4[0][0] & X86_FLAGS_MASK) |
-			((uint64_t)&g_pdp[0] & X86_PG_PA_FRAME);
+			((uint64_t)&g_pdpt[0] & X86_PG_PA_FRAME);
 
 	// set up page table for other threads
 	for (thread_id=1; thread_id<CFG_NUM_THREADS; thread_id++) {
-		memcpy(g_thread_pdp[thread_id], g_thread_pdp[0], sizeof(uint64_t) * NO_OF_PDP_ENTRIES);
+		memcpy(g_thread_pdpt[thread_id], g_thread_pdpt[0], sizeof(uint64_t) * NO_OF_PDPT_ENTRIES);
 
 		g_thread_pml4[thread_id][0] = (g_thread_pml4[0][0] & X86_FLAGS_MASK) |
-			((uint64_t)&g_thread_pdp[thread_id][0] & X86_PG_PA_FRAME);
+			((uint64_t)&g_thread_pdpt[thread_id][0] & X86_PG_PA_FRAME);
 	}
 
 }
@@ -2355,29 +2349,6 @@ void core_mmu_get_entry(struct core_mmu_table_info *tbl_info, unsigned idx,
 				     idx, pa, attr);
 }
 
-static void set_region(struct core_mmu_table_info *tbl_info,
-		struct tee_mmap_region *region)
-{
-	unsigned end;
-	unsigned idx;
-	paddr_t pa;
-
-	/* va, len and pa should be block aligned */
-	assert(!core_mmu_get_block_offset(tbl_info, region->va));
-	assert(!core_mmu_get_block_offset(tbl_info, region->size));
-	assert(!core_mmu_get_block_offset(tbl_info, region->pa));
-
-	idx = core_mmu_va2idx(tbl_info, region->va);
-	end = core_mmu_va2idx(tbl_info, region->va + region->size);
-	pa = region->pa;
-
-	while (idx < end) {
-		core_mmu_set_entry(tbl_info, idx, pa, region->attr);
-		idx++;
-		pa += 1 << tbl_info->shift;
-	}
-}
-
 TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 			      enum teecore_memtypes memtype)
 {
@@ -2480,10 +2451,8 @@ void core_mmu_unmap_pages(vaddr_t vstart, size_t num_pages)
 
 bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 {
-	struct core_mmu_table_info tbl_info;
 	struct tee_mmap_region *map;
 	size_t n;
-	size_t granule;
 	paddr_t p;
 	size_t l;
 
@@ -2500,23 +2469,11 @@ bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 	if (!map)
 		return false;
 
-	if (!core_mmu_find_table(NULL, map->va, UINT_MAX, &tbl_info))
-		return false;
-
-	granule = 1 << tbl_info.shift;
-	p = ROUNDDOWN(addr, granule);
-	l = ROUNDUP(len + addr - p, granule);
+	p = ROUNDDOWN(addr, SMALL_PAGE_SIZE);
+	l = ROUNDUP(len + addr - p, SMALL_PAGE_SIZE);
 
 	/* Ban overflowing virtual addresses */
 	if (map->size < l)
-		return false;
-
-	/*
-	 * Something is wrong, we can't fit the va range into the selected
-	 * table. The reserved va range is possibly missaligned with
-	 * granule.
-	 */
-	if (core_mmu_va2idx(&tbl_info, map->va + len) >= tbl_info.num_entries)
 		return false;
 
 	/* Find end of the memory map */
@@ -2540,11 +2497,17 @@ bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 		map->size = l;
 	}
 	map->type = type;
-	map->region_size = granule;
+	map->region_size = SMALL_PAGE_SIZE;
 	map->attr = core_mmu_type_to_attr(type);
 	map->pa = p;
 
-	set_region(&tbl_info, map);
+	for (n = 0; n < CFG_NUM_THREADS; n++) {
+		if (arch_mmu_map(map->va, map->pa, map->size,
+				get_x86_arch_flags(map->attr), n)) {
+			EMSG("arch_mmu_map failed\n");
+			return false;
+		}
+	}
 
 	return true;
 }
@@ -2858,6 +2821,10 @@ void core_mmu_init(void)
 
 	/* Setting the SMEP & SMAP bit in CR4 */
 	cr4 = x86_get_cr4();
+	if (cr4 & X86_CR4_LA57)
+		IMSG("Five level paging needed!\n");
+	else
+		IMSG("Four level paging needed!\n");
 	if (check_smep_avail())
 		cr4 |= X86_CR4_SMEP;
 	/* TODO: will figure out how to enable SMAP */
@@ -2876,4 +2843,6 @@ void core_mmu_init(void)
 	addr_width = x86_get_address_width();
 	g_paddr_width = (uint8_t)(addr_width & 0xFF);
 	g_vaddr_width = (uint8_t)((addr_width >> 8) & 0xFF);
+	IMSG("paddr width=%d/vaddr width=%d on this platform\n",
+		g_paddr_width, g_vaddr_width);
 }
