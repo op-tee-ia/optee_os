@@ -421,6 +421,11 @@ static void init_tss(void)
 		1, 0, 0, SEG_TYPE_TSS, 0, 0);
 
 	x86_ltr(TSS_SELECTOR);
+
+#ifdef CFG_TDX
+	//TODO: use stack_tmp for #VE handling for now
+	system_tss.ist2 = GET_STACK(stack_tmp[0]);
+#endif
 }
 
 void thread_alloc_and_run(struct thread_smc_args *args)

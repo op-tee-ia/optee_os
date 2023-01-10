@@ -48,6 +48,10 @@ typedef uint64_t arch_flags_t;
 /* XD  Execute-disable, 1=disable execution */
 #define X86_MMU_PG_NX      (1ul << 63)
 
+/* TDX Shared bit */
+/* TODO: Update macro once IA32 update TDX memory share bit definition */
+#define X86_MMU_TDX_SHARED  0x200
+
 #define X86_MMU_CLEAR       0x0
 #define X86_DIRTY_ACCESS_MASK   0xf9f
 

@@ -86,6 +86,7 @@ SECTIONS
 	__flatmap_unpg_rx_start = LD_ROUNDDOWN(__text_start, SMALL_PAGE_SIZE);
 
 	.text : {
+		KEEP(*(.text.header))
 		KEEP(*(.text._start))
 		KEEP(*(.text.boot))
 		__identity_map_init_start = .;

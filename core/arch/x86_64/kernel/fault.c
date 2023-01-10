@@ -10,6 +10,9 @@
 #include <drivers/apic.h>
 #include <kernel/fault.h>
 #include <tee/tee_svc.h>
+#ifdef CFG_TDX
+#include <kernel/tdx.h>
+#endif
 
 /* exceptions */
 #define INT_DIVIDE_0        0x00
@@ -21,6 +24,7 @@
 #define INT_PAGE_FAULT      0x0e
 #define INT_MF              0x10
 #define INT_XM              0x13
+#define INT_VE  			0x14
 
 static void dump_fault_frame(x86_iframe_t *frame)
 {
@@ -113,6 +117,12 @@ void x86_exception_handler(x86_iframe_t *frame)
 	case INT_PAGE_FAULT:
 		x86_pfe_handler(frame);
 		break;
+
+#ifdef CFG_TDX
+	case INT_VE:
+		x86_handle_ve(frame);
+		break;
+#endif
 
 	case INT_DIVIDE_0:
 	case INT_DEBUG_EX:

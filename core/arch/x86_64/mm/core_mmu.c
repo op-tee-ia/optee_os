@@ -18,12 +18,16 @@
 #include <kernel/linker.h>
 #include <kernel/panic.h>
 #include <kernel/spinlock.h>
+#ifdef CFG_TDX
+#include <kernel/tdx.h>
+#endif
 #include <kernel/tee_l2cc_mutex.h>
 #include <kernel/tee_misc.h>
 #include <kernel/tee_ta_manager.h>
 #include <kernel/thread.h>
 #include <kernel/tlb_helpers.h>
 #include <kernel/user_mode_ctx.h>
+#include <kernel/user_ta.h>
 #include <kernel/virtualization.h>
 
 #include <mm/core_memprot.h>
@@ -39,7 +43,6 @@
 #include <util.h>
 #include <x86.h>
 #include <console.h>
-#include <kernel/user_ta.h>
 
 #include "core_mmu_private.h"
 
@@ -65,6 +68,14 @@ int optee_mem_structs_ready;
 /* Address width including virtual/physical address*/
 uint8_t g_vaddr_width;
 uint8_t g_paddr_width;
+
+#ifdef CFG_TDX
+uint8_t g_td_shared_bit = 0;
+static inline uint64_t tdx_shared_bit(void) 
+{
+	return 1ULL << (g_td_shared_bit - 1);
+}
+#endif
 
 /* Initial memory mappings */
 struct mmu_initial_mapping mmu_initial_mappings[] = {
@@ -1177,6 +1188,10 @@ void __weak core_init_mmu_map(unsigned long seed, struct core_mmu_config *cfg)
 	DMSG("Enable runtime MMU\n");
 
 	x86_set_cr3((uint64_t)&g_pml4[0]);
+#ifdef CFG_TDX
+	//Set #VE exception stack again 
+	thread_init_per_cpu();
+#endif
 	optee_mem_structs_ready = 1;
 	console_init();
 }
@@ -1288,6 +1303,11 @@ static arch_flags_t get_x86_arch_flags(arch_flags_t flags)
 	if (!((flags & TEE_MATTR_PX) || (flags & TEE_MATTR_UX)))
 		arch_flags |= X86_MMU_PG_NX; // Disable execution
 
+#ifdef CFG_TDX
+	if (!(flags & TEE_MATTR_SECURE))
+		arch_flags |= X86_MMU_TDX_SHARED;
+#endif
+
 	return arch_flags;
 }
 
@@ -1392,12 +1412,27 @@ static void update_pt_entry(vaddr_t vaddr, paddr_t paddr, uint64_t pde,
 							arch_flags_t flags)
 {
 	uint32_t pt_index;
+	uint64_t ret = 0;
 
 	uint64_t *pt_table = (uint64_t *)(pde & X86_PG_PA_FRAME);
 
 	pt_index = ((uint64_t)vaddr >> PT_SHIFT) & ADDR_MASK;
 
 	pt_table[pt_index] = (uint64_t)paddr | flags;
+
+#ifdef CFG_TDX
+	if (flags & X86_MMU_TDX_SHARED) {
+		pt_table[pt_index] |= tdx_shared_bit();
+		ret = tdx_map_gpa(paddr, PAGE_SIZE, TDX_MEM_SHARED);
+		if (ret != 0 )
+			EMSG("tdx map gpa shared failed: 0x%lx/0x%lx/0x%lx\n", ret, vaddr, paddr);
+	} else {
+		pt_table[pt_index] &= ~tdx_shared_bit();
+		ret = tdx_map_gpa(paddr, PAGE_SIZE, TDX_MEM_PRIVATE);
+		if (ret != 0 )
+			EMSG("tdx map gpa private failed: 0x%lx/0x%lx/0x%lx\n", ret, vaddr, paddr);
+	}
+#endif
 }
 
 static void update_pd_entry(vaddr_t vaddr, uint64_t pdpe, map_addr_t m,
@@ -2292,13 +2327,21 @@ TEE_Result cache_op_inner(enum cache_op op, void *va, size_t len)
 	case DCACHE_INVALIDATE:
 	case ICACHE_AREA_INVALIDATE:
 	case DCACHE_AREA_INVALIDATE:
+#ifdef CFG_TDX
+		//TODO: need to fix #VE handling issue if running in TD
+#else
 		invd();
+#endif
 		break;
 	case DCACHE_CLEAN:
 	case DCACHE_CLEAN_INV:
 	case DCACHE_AREA_CLEAN:
 	case DCACHE_AREA_CLEAN_INV:
+#ifdef CFG_TDX
+		//TODO: need to fix #VE handling issue if running in TD
+#else
 		wbinvd();
+#endif
 		break;
 	case DCACHE_TLB_INVALIDATE:
 		ret = cache_tlb_inv(va, len);
@@ -2835,7 +2878,10 @@ void core_mmu_init(void)
 	/* Set NXE bit in MSR_EFER*/
 	efer_msr = read_msr(x86_MSR_EFER);
 	efer_msr |= x86_EFER_NXE;
+#ifndef CFG_TDX
+	//TODO: operation failed on TDX. Do we need this?
 	write_msr(x86_MSR_EFER, efer_msr);
+#endif
 
 	/* getting the address width from CPUID instr */
 	/* Bits 07-00: Physical Address width info */
@@ -2845,4 +2891,19 @@ void core_mmu_init(void)
 	g_vaddr_width = (uint8_t)((addr_width >> 8) & 0xFF);
 	IMSG("paddr width=%d/vaddr width=%d on this platform\n",
 		g_paddr_width, g_vaddr_width);
+
+#ifdef CFG_TDX
+	td_info_t info;
+
+	if (!tdx_get_info(&info)) {
+		if (g_paddr_width != info.gpaw) {
+			DMSG("Physical address width mismatch! (0x%x/0x%lx)\n",
+					g_paddr_width, info.gpaw);
+			panic("Physical address width mismatch!");
+		}
+
+		g_td_shared_bit = info.gpaw;
+		IMSG("TDX info tdx_shared_bit: %d\n", g_td_shared_bit);
+	}
+#endif
 }

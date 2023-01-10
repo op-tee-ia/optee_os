@@ -135,7 +135,15 @@ DATA(_idt)
 .rept NUM_INT
     .short 0        /* low 16 bits of ISR offset (_isr#i & 0FFFFh) */
     .short CODE_64_SELECTOR   /* selector */
+#ifdef CFG_TDX
+.if i == 0x14       /* #VE handling */
+    .byte  0x2      /* use IST2 */
+.else
     .byte  0x1      /* use IST1 */
+.endif
+#else
+    .byte  0x1      /* use IST1 */
+#endif
     .byte  0x8e     /* present, ring 0, 64-bit interrupt gate */
     .short  0       /* high 16 bits of ISR offset (_isr#i / 65536) */
     .short  0       /* ISR offset */

@@ -19,7 +19,11 @@ srcs-y += trace_ext.c
 srcs-y += misc.c
 
 srcs-y += boot.c
+ifeq ($(CFG_TDX),y)
+srcs-y += entry_64_td.S
+else
 srcs-y += entry_64.S
+endif
 
 srcs-$(CFG_VIRTUALIZATION) += virtualization.c
 
@@ -27,6 +31,10 @@ srcs-y += link_dummies_paged.c
 srcs-y += link_dummies_init.c
 
 asm-defines-y += asm-defines.c
+
+srcs-$(CFG_TDX) += tdcall.S
+srcs-$(CFG_TDX) += tdvmcall.S
+srcs-$(CFG_TDX) += tdx.c
 
 ifeq ($(CFG_SYSCALL_FTRACE),y)
 # We would not like to profile thread.c file as it provide common APIs
