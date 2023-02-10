@@ -43,15 +43,7 @@
 #include "mbedtls/asn1.h"
 #endif
 
-#if defined(MBEDTLS_PLATFORM_C)
 #include "mbedtls/platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_printf     printf
-#define mbedtls_calloc    calloc
-#define mbedtls_free       free
-#endif
 
 #if !defined(MBEDTLS_DHM_ALT)
 
@@ -231,8 +223,8 @@ int mbedtls_dhm_make_params( mbedtls_dhm_context *ctx, int x_size,
         MBEDTLS_MPI_CHK( mbedtls_mpi_write_binary( ( X ),               \
                                                    p + 2,               \
                                                    ( n ) ) );           \
-        *p++ = (unsigned char)( ( n ) >> 8 );                           \
-        *p++ = (unsigned char)( ( n )      );                           \
+        *p++ = MBEDTLS_BYTE_1( n );                                     \
+        *p++ = MBEDTLS_BYTE_0( n );                                     \
         p += ( n );                                                     \
     } while( 0 )
 

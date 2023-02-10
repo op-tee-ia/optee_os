@@ -77,10 +77,12 @@ static int ecdh_gen_public_restartable( mbedtls_ecp_group *grp,
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
 
-    /* If multiplication is in progress, we already generated a privkey */
+    int restarting = 0;
 #if defined(MBEDTLS_ECP_RESTARTABLE)
-    if( rs_ctx == NULL || rs_ctx->rsm == NULL )
+    restarting = ( rs_ctx != NULL && rs_ctx->rsm != NULL );
 #endif
+    /* If multiplication is in progress, we already generated a privkey */
+    if( !restarting )
         MBEDTLS_MPI_CHK( mbedtls_ecp_gen_privkey( grp, d, f_rng, p_rng ) );
 
     MBEDTLS_MPI_CHK( mbedtls_ecp_mul_restartable( grp, Q, d, &grp->G,
@@ -399,7 +401,7 @@ static int ecdh_read_params_internal( mbedtls_ecdh_context_mbed *ctx,
 }
 
 /*
- * Read the ServerKeyExhange parameters (RFC 4492)
+ * Read the ServerKeyExchange parameters (RFC 4492)
  *      struct {
  *          ECParameters    curve_params;
  *          ECPoint         public;

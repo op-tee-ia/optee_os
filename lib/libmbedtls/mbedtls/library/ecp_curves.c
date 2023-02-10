@@ -38,11 +38,6 @@
 #define ECP_VALIDATE( cond )        \
     MBEDTLS_INTERNAL_VALIDATE( cond )
 
-#if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
-    !defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
-
 #define ECP_MPI_INIT(s, n, p) {s, (n), (mbedtls_mpi_uint *)(p)}
 
 #define ECP_MPI_INIT_ARRAY(x)   \
@@ -795,6 +790,8 @@ int mbedtls_ecp_group_load( mbedtls_ecp_group *grp, mbedtls_ecp_group_id id )
 {
     ECP_VALIDATE_RET( grp != NULL );
     mbedtls_ecp_group_free( grp );
+
+    mbedtls_ecp_group_init( grp );
 
     grp->id = id;
 

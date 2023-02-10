@@ -26,13 +26,7 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_PLATFORM_C)
 #include "mbedtls/platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc    calloc
-#define mbedtls_free       free
-#endif
 
 int mbedtls_asn1_write_len( unsigned char **p, unsigned char *start, size_t len )
 {
@@ -60,8 +54,8 @@ int mbedtls_asn1_write_len( unsigned char **p, unsigned char *start, size_t len 
         if( *p - start < 3 )
             return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
 
-        *--(*p) = ( len       ) & 0xFF;
-        *--(*p) = ( len >>  8 ) & 0xFF;
+        *--(*p) = MBEDTLS_BYTE_0( len );
+        *--(*p) = MBEDTLS_BYTE_1( len );
         *--(*p) = 0x82;
         return( 3 );
     }
@@ -71,31 +65,31 @@ int mbedtls_asn1_write_len( unsigned char **p, unsigned char *start, size_t len 
         if( *p - start < 4 )
             return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
 
-        *--(*p) = ( len       ) & 0xFF;
-        *--(*p) = ( len >>  8 ) & 0xFF;
-        *--(*p) = ( len >> 16 ) & 0xFF;
+        *--(*p) = MBEDTLS_BYTE_0( len );
+        *--(*p) = MBEDTLS_BYTE_1( len );
+        *--(*p) = MBEDTLS_BYTE_2( len );
         *--(*p) = 0x83;
         return( 4 );
     }
 
+    int len_is_valid = 1;
 #if SIZE_MAX > 0xFFFFFFFF
-    if( len <= 0xFFFFFFFF )
+    len_is_valid = ( len <= 0xFFFFFFFF );
 #endif
+    if( len_is_valid )
     {
         if( *p - start < 5 )
             return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
 
-        *--(*p) = ( len       ) & 0xFF;
-        *--(*p) = ( len >>  8 ) & 0xFF;
-        *--(*p) = ( len >> 16 ) & 0xFF;
-        *--(*p) = ( len >> 24 ) & 0xFF;
+        *--(*p) = MBEDTLS_BYTE_0( len );
+        *--(*p) = MBEDTLS_BYTE_1( len );
+        *--(*p) = MBEDTLS_BYTE_2( len );
+        *--(*p) = MBEDTLS_BYTE_3( len );
         *--(*p) = 0x84;
         return( 5 );
     }
 
-#if SIZE_MAX > 0xFFFFFFFF
     return( MBEDTLS_ERR_ASN1_INVALID_LENGTH );
-#endif
 }
 
 int mbedtls_asn1_write_tag( unsigned char **p, unsigned char *start, unsigned char tag )
@@ -132,6 +126,11 @@ int mbedtls_asn1_write_mpi( unsigned char **p, unsigned char *start, const mbedt
     // Write the MPI
     //
     len = mbedtls_mpi_size( X );
+
+    /* DER represents 0 with a sign bit (0=nonnegative) and 7 value bits, not
+     * as 0 digits. We need to end up with 020100, not with 0200. */
+    if( len == 0 )
+        len = 1;
 
     if( *p < start || (size_t)( *p - start ) < len )
         return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
@@ -472,7 +471,7 @@ mbedtls_asn1_named_data *mbedtls_asn1_store_named_data(
         cur->val.len = val_len;
     }
 
-    if( val != NULL )
+    if( val != NULL && val_len != 0 )
         memcpy( cur->val.p, val, val_len );
 
     return( cur );

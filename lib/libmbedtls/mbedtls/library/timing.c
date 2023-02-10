@@ -19,12 +19,7 @@
 
 #include "common.h"
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PLATFORM_C)
 #include "mbedtls/platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf     printf
-#endif
 
 #if defined(MBEDTLS_TIMING_C)
 
@@ -56,15 +51,15 @@ struct _hr_time
 
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/time.h>
 #include <signal.h>
+/* time.h should be included independently of MBEDTLS_HAVE_TIME. If the
+ * platform matches the ifdefs above, it will be used. */
 #include <time.h>
-
+#include <sys/time.h>
 struct _hr_time
 {
     struct timeval start;
 };
-
 #endif /* _WIN32 && !EFIX64 && !EFI32 */
 
 #if !defined(HAVE_HARDCLOCK) && defined(MBEDTLS_HAVE_ASM) &&  \
@@ -267,7 +262,7 @@ static void TimerProc( void *TimerContext )
     Sleep( alarmMs );
     mbedtls_timing_alarmed = 1;
     /* _endthread will be called implicitly on return
-     * That ensures execution of thread funcition's epilogue */
+     * That ensures execution of thread function's epilogue */
 }
 
 void mbedtls_set_alarm( int seconds )
@@ -364,7 +359,6 @@ int mbedtls_timing_get_delay( void *data )
     return( 0 );
 }
 
-#endif /* !MBEDTLS_TIMING_ALT */
 
 #if defined(MBEDTLS_SELF_TEST)
 
@@ -526,5 +520,5 @@ hard_test_done:
 }
 
 #endif /* MBEDTLS_SELF_TEST */
-
+#endif /* !MBEDTLS_TIMING_ALT */
 #endif /* MBEDTLS_TIMING_C */
