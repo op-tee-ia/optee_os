@@ -28,7 +28,7 @@
 
 /* Manually change the number to align with file size */
 #ifdef CFG_TEE_CORE_DEBUG
-#define ELF_FILE_SIZE 659480
+#define ELF_FILE_SIZE 663576
 #else
 #define ELF_FILE_SIZE 335896
 #endif

@@ -19,6 +19,8 @@
 #define LAPIC_ENABLED               (1ULL << 11)
 #define LAPIC_X2_ENABLED            (1ULL << 10)
 #define LAPIC_SOFTWARE_ENABLED      (1ULL << 8)
+#define LAPIC_TIMER_MASK_BIT        (1ULL << 16)
+#define LAPIC_TIMER_VEC_MASK        0xFF
 
 #define APIC_DS_BIT (1<<12)
 #define MSR_X2APIC_BASE 0x800
@@ -38,6 +40,8 @@ static char master_pic, slave_pic;
 
 static struct apic_data lapic_data;
 
+static uint8_t lvt_timer_vec;
+
 //dummy functions on x86
 static void apic_op_add(struct itr_chip *chip __unused, size_t it __unused,
 	uint32_t flags __unused)
@@ -52,6 +56,13 @@ static void apic_op_enable(struct itr_chip *chip __unused, size_t it __unused)
 
 static void apic_op_disable(struct itr_chip *chip __unused, size_t it __unused)
 {
+#ifdef CFG_VIRTIO_TEE
+	if (it == lvt_timer_vec) {
+		lapic_write_reg(LAPIC_LVT_TIMER_REG,
+			lapic_read_reg(LAPIC_LVT_TIMER_REG) | LAPIC_TIMER_MASK_BIT);
+	}
+#endif
+
 	return;
 }
 
@@ -137,6 +148,9 @@ static void local_apic_init(void)
 	uint64_t lapic_base_phy_addr = LAPIC_BASE_ADDR(read_msr(MSR_APIC_BASE));
 
 	lapic_base_virtual_addr = (vaddr_t)phys_to_virt_io(lapic_base_phy_addr);
+
+	lvt_timer_vec = lapic_read_reg(LAPIC_LVT_TIMER_REG) & LAPIC_TIMER_VEC_MASK;
+	IMSG("lvt_timer_vec=%d\n", lvt_timer_vec);
 
 	lapic_data.chip.ops = &apic_ops;
 }

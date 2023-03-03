@@ -16,6 +16,7 @@ typedef enum {
 	LAPIC_SIVR              = 0xF,
 	LAPIC_INTR_CMD_REG      = 0x30, /* 64-bits in x2APIC */
 	LAPIC_INTR_CMD_HI_REG   = 0x31, /* not available in x2APIC */
+	LAPIC_LVT_TIMER_REG     = 0x32,
 	LAPIC_SELF_IPI_REG      = 0x3F  /* not available in xAPIC */
 } lapic_reg_id_t;
 
