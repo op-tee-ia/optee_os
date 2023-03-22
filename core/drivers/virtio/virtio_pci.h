@@ -8,8 +8,10 @@
 
 /* Virtio devices must have the PIC Vendor ID 0x1AF4 */
 #define VIRTIO_DEVICE_VENDOR_ID 0x1AF4
-/* Experimental PCI tee device has Device ID 0x1053 */
-#define VIRTIO_PCI_DEVICE_TEE_ID 0x1053
+/* Virtio PCI socket device has Device ID 0x1053 */
+#define VIRTIO_PCI_DEVICE_SOCKET_ID 0x1053
+/* Virtio PCI legacy socket device has Device ID 0x1012 */
+#define VIRTIO_PCI_DEVICE_LEGACY_SOCKET_ID 0x1012
 
 /* Virtio structure PCI capabilities: Common configuration */
 #define VIRTIO_PCI_CAP_COMMON_CFG 0x1

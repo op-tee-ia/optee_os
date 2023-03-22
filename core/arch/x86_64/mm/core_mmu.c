@@ -1412,7 +1412,9 @@ static void update_pt_entry(vaddr_t vaddr, paddr_t paddr, uint64_t pde,
 							arch_flags_t flags)
 {
 	uint32_t pt_index;
+#ifdef CFG_TDX
 	uint64_t ret = 0;
+#endif
 
 	uint64_t *pt_table = (uint64_t *)(pde & X86_PG_PA_FRAME);
 

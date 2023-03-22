@@ -134,17 +134,18 @@ static void virtio_pci_get_dev_func(uint8_t* dev, uint8_t* func)
 {
     uint8_t device;
     uint8_t function;
-    uint32_t expect;
+    uint32_t expect1, expect2;
     uint32_t dev_vndr;
 
-    expect = VIRTIO_DEVICE_VENDOR_ID | (VIRTIO_PCI_DEVICE_TEE_ID << 16);
+    expect1 = VIRTIO_DEVICE_VENDOR_ID | (VIRTIO_PCI_DEVICE_SOCKET_ID << 16);
+    expect2 = VIRTIO_DEVICE_VENDOR_ID | (VIRTIO_PCI_DEVICE_LEGACY_SOCKET_ID << 16);
 
     for (device = 0; device < PCI_MAX_DEV_NUM; device++) {
         for (function = 0; function < PCI_MAX_FUNC_NUM; function++) {
             dev_vndr = pci_read32(0, device, function, PCI_CONFIG_VENDOR_ID_OFFSET);
 
             DMSG("%d/%d/0x%x\n",device, function, dev_vndr);
-            if (dev_vndr == expect) {
+            if (dev_vndr == expect1 || dev_vndr == expect2) {
                 *dev = device;
                 *func = function;
                 return;
