@@ -94,7 +94,11 @@ static void thread_rpc_free_arg(uint64_t cookie)
 	}
 }
 
+#ifdef CFG_VIRTIO_TEE
 static struct mobj *get_cmd_buffer(paddr_t parg, uint32_t *num_params, size_t size)
+#else
+static struct mobj *get_cmd_buffer(paddr_t parg, uint32_t *num_params)
+#endif
 {
 	struct optee_msg_arg *arg;
 	size_t args_size;
