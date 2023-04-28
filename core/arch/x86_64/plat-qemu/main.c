@@ -25,7 +25,9 @@
 static struct uart_data console_data __nex_bss;
 
 register_phys_mem(MEM_AREA_IO_SEC, APIC_BASE, APIC_REG_SIZE);
+#ifdef CFG_VIRTIO_TEE
 register_phys_mem(MEM_AREA_RAM_NSEC, VIRTIO_BASE, VIRTIO_SIZE);
+#endif
 
 
 void console_init(void)

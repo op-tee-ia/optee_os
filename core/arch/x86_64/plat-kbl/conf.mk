@@ -18,6 +18,8 @@ CFG_TA_DYNLINK ?= y
 CFG_CORE_ASLR ?= n
 CFG_CORE_DYN_SHM ?= n
 
+CFG_FOREIGN_INTR ?= y
+
 # use mbedtls lib
 CFG_CRYPTOLIB_NAME ?= mbedtls
 CFG_CRYPTOLIB_DIR ?= lib/libmbedtls

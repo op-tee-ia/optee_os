@@ -422,6 +422,12 @@ static void init_tss(void)
 
 	x86_ltr(TSS_SELECTOR);
 
+#ifdef CFG_IVSHMEM
+	//need to handle interrupt in sm_sched_nonsecure
+	system_tss.rsp0 = GET_STACK(stack_abt[0]);
+	system_tss.ist1 = GET_STACK(stack_abt[0]);
+#endif
+
 #ifdef CFG_TDX
 	//TODO: use stack_tmp for #VE handling for now
 	system_tss.ist2 = GET_STACK(stack_tmp[0]);

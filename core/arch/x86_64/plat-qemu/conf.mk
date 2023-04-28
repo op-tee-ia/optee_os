@@ -2,7 +2,6 @@ $(call force,CFG_GENERIC_BOOT,y)
 $(call force,CFG_APIC,y)
 $(call force,CFG_UART,y)
 $(call force,CFG_PCI,y)
-$(call force,CFG_VIRTIO_TEE,y)
 $(call force,CFG_PM_STUBS,y)
 $(call force,CFG_SECURE_TIME_SOURCE_REE,y)
 
@@ -20,7 +19,7 @@ CFG_TA_DYNLINK ?= y
 CFG_CORE_ASLR ?= n
 CFG_CORE_DYN_SHM ?= n
 
-CFG_TDX ?= y
+CFG_IVSHMEM ?= y
 
 # use mbedtls lib
 CFG_CRYPTOLIB_NAME ?= mbedtls

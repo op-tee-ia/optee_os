@@ -464,6 +464,34 @@ static inline uint64_t check_smap_avail(void)
 	return ((reg_b>>0x14) & 0x1);
 }
 
+static inline uint64_t get_lapicx1_id(void)
+{
+	uint64_t reg_a = 0x1;
+	uint64_t reg_b = 0x0;
+	uint64_t reg_c = 0x0;
+
+	__asm__ __volatile__ (
+		"cpuid"
+		: "=b" (reg_b)
+		: "a" (reg_a), "c" (reg_c)
+		: "edx");
+	return ((reg_b>>0x18));
+}
+
+static inline uint64_t check_x2apic_support(void)
+{
+	uint64_t reg_a = 0x1;
+	uint64_t reg_b = 0x0;
+	uint64_t reg_c = 0x0;
+
+	__asm__ __volatile__ (
+		"cpuid"
+		: "=c" (reg_c)
+		: "a" (reg_a), "b" (reg_b)
+		: "edx");
+	return (reg_c&(0x1<<0x15));
+}
+
 static inline void invd(void)
 {
 	__asm__ __volatile__ ("invd");

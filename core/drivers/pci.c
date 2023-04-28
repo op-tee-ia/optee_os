@@ -167,3 +167,25 @@ void pci_write32(uint8_t bus, uint8_t device, uint8_t function, uint8_t reg, uin
     hw_write_port_32(PCI_CONFIG_DATA_REGISTER, value);
 }
 
+uint32_t pci_resource_start(uint8_t bus, uint8_t device, uint8_t function,
+	uint8_t bar_off)
+{
+	return (pci_read32(bus, device, function, bar_off) & 0xFFFFFFF0);
+}
+
+uint32_t pci_resource_len(uint8_t bus, uint8_t device, uint8_t function,
+	uint8_t bar_off)
+{
+	uint32_t bar = 0, len = 0;
+
+	bar = pci_read32(bus, device, function, bar_off);
+	pci_write32(bus, device, function, bar_off, 0xFFFFFFFF);
+	len = pci_read32(bus, device, function, bar_off);
+	pci_write32(bus, device, function, bar_off, bar);
+	if (len == 0x0) {
+		return 0x0;
+	} else {
+		return (~(len & 0xFFFFFFF0) + 1);
+	}
+}
+

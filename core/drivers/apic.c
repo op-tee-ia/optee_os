@@ -21,6 +21,7 @@
 #define LAPIC_SOFTWARE_ENABLED      (1ULL << 8)
 #define LAPIC_TIMER_MASK_BIT        (1ULL << 16)
 #define LAPIC_TIMER_VEC_MASK        0xFF
+#define MSR_x2APIC_ID               0x802
 
 #define APIC_DS_BIT (1<<12)
 #define MSR_X2APIC_BASE 0x800
@@ -209,10 +210,12 @@ static void lapic_software_enable(void)
 		return;
 
 	if (apic_base_msr & LAPIC_X2_ENABLED) {
+		IMSG("x2 lapic id=0x%lx\n", read_msr(MSR_x2APIC_ID));
 		value = lapic_x2_read_reg(LAPIC_SIVR);
 		value = value | LAPIC_SOFTWARE_ENABLED;
 		lapic_x2_write_reg(LAPIC_SIVR, value);
 	} else {
+		IMSG("x1 lapic id=0x%lx\n", get_lapicx1_id());
 		value = lapic_x1_read_reg(LAPIC_SIVR);
 		value = value | LAPIC_SOFTWARE_ENABLED;
 		lapic_x1_write_reg(LAPIC_SIVR, value);
@@ -248,6 +251,11 @@ void apic_init(void)
 
 	x86_set_cr8(0xF);
 
+	if (check_x2apic_support())
+		IMSG("support x2 apic\n");
+	else
+		IMSG("not support x2 apic\n");
+
 	local_apic_init();
 
 	lapic_software_enable();
@@ -258,15 +266,15 @@ void apic_init(void)
 void apic_it_handle(uint32_t id)
 {
 //TODO: will merge these tow cases for interrupt handling
-#ifdef CFG_VIRTIO_TEE
-	itr_handle(id);
-
-	lapic_eoi();
-#else
+#ifdef CFG_FOREIGN_INTR
 	send_self_ipi(id);
 
 	lapic_eoi();
 
 	foreign_intr_handle(id);
+#else
+	itr_handle(id);
+
+	lapic_eoi();
 #endif
 }

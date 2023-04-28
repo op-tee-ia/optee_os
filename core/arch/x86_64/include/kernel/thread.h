@@ -42,6 +42,19 @@ struct thread_core_local {
 #endif
 } THREAD_CORE_LOCAL_ALIGNED;
 
+#ifdef CFG_IVSHMEM
+struct thread_smc_args {
+	uint64_t a0;	/* SMC function ID */
+	uint64_t a1;	/* Parameter */
+	uint64_t a2;	/* Parameter */
+	uint64_t a3;	/* Thread ID when returning from RPC */
+	uint64_t a4;	/* Not used */
+	uint64_t a5;	/* Not used */
+	uint64_t a6;	/* Not used */
+	uint64_t a7;	/* Hypervisor Client ID */
+	uint64_t a8;	/* OP-TEE handling status */
+} __packed;
+#else
 struct thread_smc_args {
 	uint64_t a0;	/* SMC function ID */
 	uint64_t a1;	/* Parameter */
@@ -52,6 +65,7 @@ struct thread_smc_args {
 	uint64_t a6;	/* Not used */
 	uint64_t a7;	/* Hypervisor Client ID */
 };
+#endif
 
 struct thread_ctx_regs {
 	uint64_t rip;

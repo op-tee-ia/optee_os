@@ -7,8 +7,7 @@
 #define DRIVER_VIRTIO_H
 
 #include <mm/core_mmu.h>
-
-#include "io_mem.h"
+#include <drivers/io_mem.h>
 
 
 struct virtio_config;

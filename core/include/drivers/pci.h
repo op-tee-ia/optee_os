@@ -83,8 +83,13 @@ struct pci_type0_config {
     offsetof(struct pci_type0_config, vendor_id)
 #define PCI_CONFIG_COMMAND_OFFSET offsetof(struct pci_type0_config, command)
 #define PCI_CONFIG_STATUS_OFFSET offsetof(struct pci_type0_config, status)
+#define PCI_CONFIG_REVISION_OFFSET offsetof(struct pci_type0_config, revision_id)
 #define PCI_CONFIG_BAR0_OFFSET \
     offsetof(struct pci_type0_config, base_addr_reg0)
+#define PCI_CONFIG_BAR1_OFFSET \
+    offsetof(struct pci_type0_config, base_addr_reg1)
+#define PCI_CONFIG_BAR2_OFFSET \
+    offsetof(struct pci_type0_config, base_addr_reg2)
 #define PCI_CONFIG_CAP_PTR_OFFSET \
     offsetof(struct pci_type0_config, capabilities_pointer)
 
@@ -125,6 +130,16 @@ typedef union {
     } __packed  bits;
     uint32_t uint32;
 } __packed  pci_config_address_t;
+
+/* MSI-X capability registers */
+#define	PCI_MSIX_FLAGS			2		/* Message Control */
+#define PCI_MSIX_FLAGS_ENABLE	0x8000	/* MSI-X enable */
+
+/* MSI-X Table entry format */
+#define PCI_MSIX_ENTRY_LOWER_ADDR	0  /* Message Address */
+#define PCI_MSIX_ENTRY_UPPER_ADDR	4  /* Message Upper Address */
+#define PCI_MSIX_ENTRY_DATA			8  /* Message Data */
+#define PCI_MSIX_ENTRY_VECTOR_CTRL	12 /* Vector Control */
 
 
 /**
@@ -202,8 +217,15 @@ void pci_write32(uint8_t bus,
                  uint32_t val);
 
 /**
- * pci_init - PCI config init function
+ * pci_resource_start - Get PCI BAR address
  */
-//void pci_init(void);
+uint32_t pci_resource_start(uint8_t bus, uint8_t device, uint8_t function,
+	uint8_t bar_off);
+
+/**
+ * pci_resource_len - Get PCI BAR len
+ */
+uint32_t pci_resource_len(uint8_t bus, uint8_t device, uint8_t function,
+	uint8_t bar_off);
 
 #endif

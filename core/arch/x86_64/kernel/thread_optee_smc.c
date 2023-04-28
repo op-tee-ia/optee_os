@@ -9,6 +9,7 @@
 #include <io.h>
 #include <kernel/misc.h>
 #include <kernel/msg_param.h>
+#include <kernel/spinlock.h>
 #include <kernel/thread.h>
 #include <kernel/virtualization.h>
 #include <mm/core_mmu.h>
@@ -22,7 +23,12 @@
 #include <tee/tee_fs_rpc.h>
 #include <sm/vmcall.h>
 #include <drivers/apic.h>
+#ifdef CFG_IVSHMEM
+#include <drivers/ivshmem.h>
+#endif
+#ifdef CFG_VIRTIO_TEE
 #include <drivers/virtio_tee.h>
+#endif
 #include <console.h>
 
 #include "thread_private.h"
@@ -706,6 +712,65 @@ void __noreturn sm_sched_nonsecure(void)
 			thread_handle_fast_smc(g_smc_args);
 		else
 			thread_handle_std_smc(g_smc_args);
+	}
+}
+#elif defined CFG_IVSHMEM
+#define OPTEE_HANDLE_DONE 0xa5a5a5a5
+
+extern struct thread_smc_args *g_smc_args;
+extern struct optee_smc_ring *smc_avail_ring;
+extern struct optee_smc_ring *smc_used_ring;
+extern struct optee_vm_ids *smc_vm_ids;
+
+static unsigned int smc_lock = SPINLOCK_UNLOCK;
+
+void __noreturn sm_sched_nonsecure(void)
+{
+	uint32_t smc_nr;
+	uint16_t index;
+
+	while (true) {
+		if (is_optee_boot_complete == 0) {
+			x86_set_cr8(0);
+			is_optee_boot_complete = 1;
+			IMSG("waiting for request from REE, boot=%d\n", is_optee_boot_complete);
+		}
+		
+		//Check if there are more reqeusts in shm queue
+		if (smc_used_ring->head == smc_used_ring->tail) {
+			//If no more requests, just halt
+			x86_sti();
+			x86_hlt();
+			x86_cli();
+		}
+
+		//Get request from shm queue
+		cpu_spin_lock(&smc_lock);
+		if (smc_used_ring->head == smc_used_ring->tail) {
+			cpu_spin_unlock(&smc_lock);
+			continue;
+		}
+		index = smc_used_ring->ring[smc_used_ring->head];
+		smc_used_ring->head = (smc_used_ring->head + 1) % OPTEE_SHM_QUEUE_SIZE;
+		cpu_spin_unlock(&smc_lock);
+
+		smc_nr = g_smc_args[index].a0;
+		IMSG("get request %d/%d/%d/%d/%d/0x%x\n",
+			index, smc_avail_ring->head, smc_avail_ring->tail, smc_used_ring->head,
+			smc_used_ring->tail, smc_nr);
+		if (OPTEE_SMC_IS_64(smc_nr)) {
+			g_smc_args[index].a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+			continue;
+		}
+
+		if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
+			thread_handle_fast_smc(&g_smc_args[index]);
+		else
+			thread_handle_std_smc(&g_smc_args[index]);
+
+		g_smc_args[index].a8 = OPTEE_HANDLE_DONE;
+
+		ivshmem_doorbell_ring(0, smc_vm_ids->ree_id);
 	}
 }
 #else

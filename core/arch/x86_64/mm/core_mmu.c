@@ -196,7 +196,11 @@ register_phys_mem_ul(MEM_AREA_TEE_ASAN, ASAN_MAP_PA, ASAN_MAP_SZ);
 register_phys_mem(MEM_AREA_TA_RAM, TA_RAM_START, TA_RAM_SIZE);
 #endif
 #ifdef CFG_CORE_RESERVED_SHM
+#ifdef CFG_IVSHMEM
+paddr_t tee_shmem_start = 0;
+#else
 register_phys_mem(MEM_AREA_NSEC_SHM, TEE_SHMEM_START, TEE_SHMEM_SIZE);
+#endif
 #endif
 
 static struct tee_mmap_region *init_xlation_table(struct tee_mmap_region *mm);
@@ -2156,8 +2160,13 @@ bool core_pbuf_is(uint32_t attr, paddr_t pbuf, size_t len)
 							TA_RAM_SIZE);
 #ifdef CFG_CORE_RESERVED_SHM
 	case CORE_MEM_NSEC_SHM:
+#ifdef CFG_IVSHMEM
+		return core_is_buffer_inside(pbuf, len, tee_shmem_start,
+							TEE_SHMEM_SIZE);
+#else
 		return core_is_buffer_inside(pbuf, len, TEE_SHMEM_START,
 							TEE_SHMEM_SIZE);
+#endif
 #endif
 	case CORE_MEM_SDP_MEM:
 		return pbuf_is_sdp_mem(pbuf, len);
@@ -2786,6 +2795,11 @@ static TEE_Result teecore_init_pub_ram(void)
 {
 	vaddr_t s = 0;
 	vaddr_t e = 0;
+
+#ifdef CFG_IVSHMEM
+	nsec_shared->paddr = tee_shmem_start;
+	IMSG("Change nsec_shared->paddr to 0x%lx\n", nsec_shared->paddr);
+#endif
 
 	/* get virtual addr/size of NSec shared mem allocated from teecore */
 	core_mmu_get_mem_by_type(MEM_AREA_NSEC_SHM, &s, &e);

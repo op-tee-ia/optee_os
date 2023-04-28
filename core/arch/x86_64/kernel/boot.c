@@ -33,6 +33,9 @@
 #include <util.h>
 #include <kernel/fpu.h>
 #include <drivers/apic.h>
+#ifdef CFG_IVSHMEM
+#include <drivers/ivshmem.h>
+#endif
 #include <drivers/virtio_tee.h>
 #include <platform_config.h>
 #include <sm/vmcall.h>
@@ -621,6 +624,9 @@ void __weak boot_init_primary_late(unsigned long fdt __unused)
 #endif
 
 	main_init_gic();
+#ifdef CFG_IVSHMEM
+	ivshmem_init();
+#endif
 #ifndef CFG_VIRTUALIZATION
 	init_tee_runtime();
 #endif
