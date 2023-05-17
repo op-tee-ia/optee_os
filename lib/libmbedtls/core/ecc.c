@@ -100,20 +100,24 @@ static TEE_Result ecc_get_keysize(uint32_t curve, uint32_t algo,
 	return TEE_SUCCESS;
 }
 
-/*
- * Clear some memory that was used to prepare the context
- */
-static void ecc_clear_precomputed(mbedtls_ecp_group *grp)
+static mbedtls_ecp_group_id curve_to_group_id(uint32_t curve)
 {
-	size_t i = 0;
-
-	if (grp->T) {
-		for (i = 0; i < grp->T_size; i++)
-			mbedtls_ecp_point_free(&grp->T[i]);
-		free(grp->T);
-	}
-	grp->T = NULL;
-	grp->T_size = 0;
+       switch (curve) {
+       case TEE_ECC_CURVE_NIST_P192:
+               return MBEDTLS_ECP_DP_SECP192R1;
+       case TEE_ECC_CURVE_NIST_P224:
+               return MBEDTLS_ECP_DP_SECP224R1;
+       case TEE_ECC_CURVE_NIST_P256:
+               return MBEDTLS_ECP_DP_SECP256R1;
+       case TEE_ECC_CURVE_NIST_P384:
+               return MBEDTLS_ECP_DP_SECP384R1;
+       case TEE_ECC_CURVE_NIST_P521:
+               return MBEDTLS_ECP_DP_SECP521R1;
+       case TEE_ECC_CURVE_SM2:
+               return MBEDTLS_ECP_DP_SM2;
+       default:
+               return MBEDTLS_ECP_DP_NONE;
+       }
 }
 
 static TEE_Result ecc_generate_keypair(struct ecc_keypair *key, size_t key_size)
@@ -142,7 +146,6 @@ static TEE_Result ecc_generate_keypair(struct ecc_keypair *key, size_t key_size)
 		FMSG("mbedtls_ecdsa_genkey failed.");
 		goto exit;
 	}
-	ecc_clear_precomputed(&ecdsa.grp);
 
 	/* check the size of the keys */
 	if ((mbedtls_mpi_bitlen(&ecdsa.Q.X) > key_size_bits) ||
@@ -314,20 +317,24 @@ static TEE_Result ecc_shared_secret(struct ecc_keypair *private_key,
 	int lmd_res = 0;
 	uint8_t one[1] = { 1 };
 	mbedtls_ecdh_context ecdh;
+	mbedtls_ecp_group_id gid;
 	size_t out_len = 0;
 
 	memset(&ecdh, 0, sizeof(ecdh));
+	memset(&gid, 0, sizeof(gid));
 	mbedtls_ecdh_init(&ecdh);
-	lmd_res = mbedtls_ecp_group_load(&ecdh.grp, private_key->curve);
+	gid = curve_to_group_id(private_key->curve);
+	lmd_res = mbedtls_ecdh_setup(&ecdh, gid);
 	if (lmd_res != 0) {
 		res = TEE_ERROR_NOT_SUPPORTED;
 		goto out;
 	}
 
-	ecdh.d = *(mbedtls_mpi *)private_key->d;
-	ecdh.Qp.X = *(mbedtls_mpi *)public_key->x;
-	ecdh.Qp.Y = *(mbedtls_mpi *)public_key->y;
-	mbedtls_mpi_read_binary(&ecdh.Qp.Z, one, sizeof(one));
+	assert(ecdh.var == MBEDTLS_ECDH_VARIANT_MBEDTLS_2_0);
+	ecdh.ctx.mbed_ecdh.d = *(mbedtls_mpi *)private_key->d;
+	ecdh.ctx.mbed_ecdh.Qp.X = *(mbedtls_mpi *)public_key->x;
+	ecdh.ctx.mbed_ecdh.Qp.Y = *(mbedtls_mpi *)public_key->y;
+	mbedtls_mpi_read_binary(&ecdh.ctx.mbed_ecdh.Qp.Z, one, sizeof(one));
 
 	lmd_res = mbedtls_ecdh_calc_secret(&ecdh, &out_len, secret,
 					   *secret_len, mbd_rand, NULL);
@@ -338,9 +345,9 @@ static TEE_Result ecc_shared_secret(struct ecc_keypair *private_key,
 	*secret_len = out_len;
 out:
 	/* Reset mpi to skip freeing here, those mpis will be freed with key */
-	mbedtls_mpi_init(&ecdh.d);
-	mbedtls_mpi_init(&ecdh.Qp.X);
-	mbedtls_mpi_init(&ecdh.Qp.Y);
+	mbedtls_mpi_init(&ecdh.ctx.mbed_ecdh.d);
+	mbedtls_mpi_init(&ecdh.ctx.mbed_ecdh.Qp.X);
+	mbedtls_mpi_init(&ecdh.ctx.mbed_ecdh.Qp.Y);
 	mbedtls_ecdh_free(&ecdh);
 	return res;
 }

@@ -62,6 +62,9 @@
 #define MBEDTLS_PEM_WRITE_C
 #define MBEDTLS_HKDF_C
 
+/* To comply with current xtest cases*/
+#define MBEDTLS_RSA_GEN_KEY_MIN_BITS 256
+
 #include <mbedtls/check_config.h>
 
 #endif /* __MBEDTLS_CONFIG_UTA_H */
