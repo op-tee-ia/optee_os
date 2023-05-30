@@ -1,4 +1,5 @@
 global-incdirs-y += include
+global-incdirs-y += .
 srcs-y += keystore_ta.c
 srcs-y += operations.c
 srcs-y += tables.c
