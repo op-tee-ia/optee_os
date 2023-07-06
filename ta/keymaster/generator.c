@@ -792,7 +792,7 @@ out_rk:
 	}
 
 
-	EMSG("populate attrs is finished with err %d", res);
+	DMSG("populate attrs is finished with err %d", res);
 	free_attrs(attrs.attrs, attrs.attrs_count);
 
 	return res;
