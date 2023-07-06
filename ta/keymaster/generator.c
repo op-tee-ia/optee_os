@@ -410,6 +410,11 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 	res = TEE_AllocateTransientObject(type, key_size, &obj_h);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to allocate transient object, res=%x", res);
+		/* Convert error code to Android style */
+		if (res == TEE_ERROR_OUT_OF_MEMORY)
+			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		else if (res == TEE_ERROR_NOT_SUPPORTED)
+			res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 		goto gk_out;
 	}
 	DMSG("key_size = %u, sizeof(attrs_in) = %zu, attrs_in_count = %u",
