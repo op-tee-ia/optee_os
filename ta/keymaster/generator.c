@@ -883,7 +883,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 		case KM_PAD_RSA_PSS:
 			switch (digest) {
 			case KM_DIGEST_MD5:
-				algo = TEE_ALG_RSASSA_PKCS1_V1_5_MD5;
+				algo = TEE_ALG_RSASSA_PKCS1_PSS_MGF1_MD5;
 				break;
 			case KM_DIGEST_SHA1:
 				algo = TEE_ALG_RSASSA_PKCS1_PSS_MGF1_SHA1;
@@ -915,7 +915,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 		case KM_PAD_RSA_OAEP:
 			switch (digest) {
 			case KM_DIGEST_MD5:
-				algo = TEE_ALG_RSASSA_PKCS1_V1_5_MD5;
+				algo = TEE_ALG_RSAES_PKCS1_OAEP_MGF1_MD5;
 				break;
 			case KM_DIGEST_SHA1:
 				algo = TEE_ALG_RSAES_PKCS1_OAEP_MGF1_SHA1;
