@@ -41,7 +41,7 @@ static void dump_fault_frame(x86_iframe_t *frame)
 	EMSG("errc: %16lx CR2: %16lx\n", frame->err_code, x86_get_cr2());
 }
 
-static void exception_die(x86_iframe_t *frame, const char *msg)
+static void __noreturn exception_die(x86_iframe_t *frame, const char *msg)
 {
 	trace_ext_puts(msg);
 	dump_fault_frame(frame);
@@ -52,7 +52,7 @@ static void exception_die(x86_iframe_t *frame, const char *msg)
 	}
 }
 
-static void x86_gpf_handler(x86_iframe_t *frame)
+static void __noreturn x86_gpf_handler(x86_iframe_t *frame)
 {
 	exception_die(frame, "unhandled gpf, halting\n");
 }
@@ -70,7 +70,7 @@ static void x86_invop_handler(x86_iframe_t *frame)
 	}
 }
 
-static void x86_unhandled_exception(x86_iframe_t *frame)
+static void __noreturn x86_unhandled_exception(x86_iframe_t *frame)
 {
 	EMSG("vector %u\n", (unsigned int)frame->vector);
 	exception_die(frame, "unhandled exception, halting\n");

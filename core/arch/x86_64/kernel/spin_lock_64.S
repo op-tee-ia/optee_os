@@ -17,7 +17,7 @@ FUNC __cpu_spin_lock , :
    ret
 2:
    pause
-   cmp $SPINLOCK_UNLOCK,(%edi)
+   cmpl $SPINLOCK_UNLOCK,(%edi)
    je 1b
    jmp 2b
 END_FUNC __cpu_spin_lock

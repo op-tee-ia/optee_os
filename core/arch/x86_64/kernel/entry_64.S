@@ -71,7 +71,7 @@ real_start:
     /* We need to jump to our sane 32 bit CS */
     pushl $CODE_SELECTOR
     pushl $.Lfarjump
-    retf
+    lret
 
 .Lfarjump:
     /* zero the bss section */
@@ -161,7 +161,7 @@ paging_setup:
     after this we will be on real 64 bit mode */
     pushl $CODE_64_SELECTOR  /* Need to put it in the right CS */
     pushl $farjump64
-    retf
+    lret
 
 .align 8
 .code64
