@@ -102,7 +102,7 @@ FUNC tee_syscall , :
 
     popq %rcx /* pop rsp */
     popq %rdx /* pop rip */
-    rex.W sysexit
+    rex64 sysexit
 
 END_FUNC tee_syscall
 
@@ -157,6 +157,6 @@ FUNC ldelf_syscall , :
 
     popq %rcx /* pop rsp */
     popq %rdx /* pop rip */
-    rex.W sysexit
+    rex64 sysexit
 
 END_FUNC ldelf_syscall
