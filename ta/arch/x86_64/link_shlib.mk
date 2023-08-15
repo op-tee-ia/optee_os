@@ -21,8 +21,6 @@ shlink-ldflags  = $(LDFLAGS)
 shlink-ldflags += -shared -z max-page-size=4096
 shlink-ldflags += $(call ld-option,-z separate-loadable-segments)
 shlink-ldflags += --as-needed # Do not add dependency on unused shlib
-# From LD 2.31, x86 will separate PT_LOAD segment by default, arm does not. So we need to add this flag explicitly for x86.
-shlink-ldflags += -z noseparate-code
 
 shlink-ldadd  = $(LDADD)
 shlink-ldadd += $(addprefix -L,$(libdirs))
