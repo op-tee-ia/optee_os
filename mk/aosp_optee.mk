@@ -44,6 +44,8 @@ else
 HOST_MAKE := $(MAKE)
 endif
 
+# We assume python installed in this path
+HOST_PATH=/usr/bin
 
 # OPTEE_OUT_DIR could be exported explicitly
 # if PRODUCT_OUT is not the default out directory in aosp workspace
@@ -83,6 +85,7 @@ BUILD_OPTEE_OS_DEFINED := true
 $(OPTEE_BIN):
 	@echo "Start building optee_os..."
 	+$(HOST_MAKE) -C $(TOP_ROOT_ABS)/$(OPTEE_OS_DIR) \
+		PATH=$(HOST_PATH):$$PATH \
 		O=$(ABS_OPTEE_OS_OUT_DIR) \
 		CFG_USER_TA_TARGETS=$(OPTEE_TA_TARGETS) \
 		CFG_ARM64_core=$(OPTEE_CFG_ARM64_CORE) \
@@ -126,6 +129,7 @@ $(TA_TMP_FILE): PRIVATE_TA_TMP_DIR := $(TA_TMP_DIR)
 $(TA_TMP_FILE): $(OPTEE_BIN)
 	@echo "Start building TA for $(PRIVATE_TA_SRC_DIR) $(PRIVATE_TA_TMP_FILE)..."
 	+$(HOST_MAKE) -C $(TOP_ROOT_ABS)/$(PRIVATE_TA_SRC_DIR) O=$(ABS_OPTEE_TA_OUT_DIR)/$(PRIVATE_TA_TMP_DIR) \
+		PATH=$(HOST_PATH):$$PATH \
 		TA_DEV_KIT_DIR=$(TA_DEV_KIT_DIR) \
 		$(CROSS_COMPILE_LINE) \
 		$(OPTEE_EXTRA_TA_FLAGS)
