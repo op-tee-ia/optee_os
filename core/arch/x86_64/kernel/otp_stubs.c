@@ -10,6 +10,8 @@
 #include <signed_hdr.h>
 #include <ta_pub_key.h>
 
+#include <tpm2_seed.h>
+
 /*
  * Override these in your platform code to really fetch device-unique
  * bits from e-fuses or whatever.
@@ -19,7 +21,15 @@
 
 __weak TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 {
-	memset(&hwkey->data[0], 0, sizeof(hwkey->data));
+	tpm2_init_seed();
+
+	tpm2_read_lock_seed(&hwkey->data[0], sizeof(hwkey->data));
+
+	DMSG("optee hwkey len =%d:", sizeof(hwkey->data));
+	for(int i=0; i<sizeof(hwkey->data); i++){
+		DMSG("%2d", hwkey->data[i]);
+	}
+
 	return TEE_SUCCESS;
 }
 
