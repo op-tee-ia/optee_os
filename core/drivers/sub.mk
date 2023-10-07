@@ -45,4 +45,5 @@ srcs-$(CFG_UART) += uart.c
 srcs-$(CFG_PCI) += pci.c
 subdirs-$(CFG_VIRTIO_TEE) += virtio
 srcs-$(CFG_IVSHMEM) += ivshmem.c
+srcs-$(CFG_EDK2_TPM) += tpm2_seed.c
 subdirs-$(CFG_EDK2_TPM) += edk2_tpm

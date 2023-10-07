@@ -24,6 +24,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Base.h>
 
+extern uint64_t g_tpm_base_vaddr;
+
 /**
   Retrieves a token number based on a token name.
 
@@ -394,7 +396,9 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
   @return  64-bit value for the token specified by TokenName.
 
 **/
-#define PcdGet64(TokenName)                 _PCD_GET_MODE_64_##TokenName
+//#define PcdGet64(TokenName)                 _PCD_GET_MODE_64_##TokenName
+#define PcdGet64(TokenName)  g_tpm_base_vaddr
+
 
 /**
   Retrieves a pointer to a PCD token buffer based on a token name.
