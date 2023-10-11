@@ -7,6 +7,9 @@
 
 #include <assert.h>
 #include <crypto/crypto.h>
+#ifdef CFG_IVSHMEM
+#include <drivers/ivshmem.h>
+#endif
 #include <kernel/handle.h>
 #include <kernel/huk_subkey.h>
 #include <kernel/ldelf_loader.h>
@@ -113,6 +116,63 @@ static TEE_Result system_derive_ta_unique_key(struct user_mode_ctx *uctx,
 
 	return res;
 }
+
+#ifdef CFG_IVSHMEM
+static TEE_Result system_get_rot(struct user_mode_ctx *uctx,
+					      uint32_t param_types,
+					      TEE_Param params[TEE_NUM_PARAMS])
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	uint32_t access_flags = 0;
+	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					  TEE_PARAM_TYPE_NONE,
+					  TEE_PARAM_TYPE_NONE,
+					  TEE_PARAM_TYPE_NONE);
+
+	if (exp_pt != param_types)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	/*
+	 * The root of trust shall not end up in non-secure memory by
+	 * mistake.
+	 *
+	 * Note that we're allowing shared memory as long as it's
+	 * secure. This is needed because a TA always uses shared memory
+	 * when communicating with another TA.
+	 */
+	access_flags = TEE_MEMORY_ACCESS_WRITE | TEE_MEMORY_ACCESS_ANY_OWNER |
+		       TEE_MEMORY_ACCESS_SECURE;
+	res = vm_check_access_rights(uctx, access_flags,
+				     (uaddr_t)params[0].memref.buffer,
+				     params[0].memref.size);
+	if (res != TEE_SUCCESS)
+		return TEE_ERROR_SECURITY;
+
+	//TODO: will add multiple ivshmem devices handling
+	res = ivshmem_rot_copy(0, params[0].memref.buffer,
+				params[0].memref.size);
+
+	return res;
+}
+
+static TEE_Result system_clean_rot(uint32_t param_types,
+					      TEE_Param params[TEE_NUM_PARAMS])
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
+					  TEE_PARAM_TYPE_NONE,
+					  TEE_PARAM_TYPE_NONE,
+					  TEE_PARAM_TYPE_NONE);
+
+	if (exp_pt != param_types)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	//TODO: will add multiple ivshmem devices handling
+	res = ivshmem_rot_clean(0, params[0].value.a);
+
+	return res;
+}
+#endif
 
 static TEE_Result system_map_zi(struct user_mode_ctx *uctx,
 				uint32_t param_types,
@@ -350,6 +410,12 @@ static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
 		return system_get_tpm_event_log(param_types, params);
 	case PTA_SYSTEM_SUPP_PLUGIN_INVOKE:
 		return system_supp_plugin_invoke(param_types, params);
+#ifdef CFG_IVSHMEM
+	case PTA_SYSTEM_GET_ROT:
+		return system_get_rot(uctx, param_types, params);
+	case PTA_SYSTEM_CLEAN_ROT:
+		return system_clean_rot(param_types, params);
+#endif
 	default:
 		break;
 	}

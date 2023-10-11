@@ -15,6 +15,7 @@
 #include <optee_msg.h>
 #include <platform_config.h>
 #include <string.h>
+#include <string_ext.h>
 #include <trace.h>
 
 #define IVSHMEM_VENDOR_ID	0x1AF4
@@ -30,6 +31,7 @@
 #define MSIX_DM_LOWEST_PRIO		0x100
 
 #define IVSHMEM_SMC_SIZE		0x200000
+#define IVSHMEM_ROT_MAX_SIZE		0x100000
 
 struct ivshmem_device {
 	uint8_t dev;
@@ -39,6 +41,7 @@ struct ivshmem_device {
 	vaddr_t regs_addr;
 	vaddr_t msix_addr;
 	vaddr_t smc_addr;
+	vaddr_t rot_addr;
 
 	uint32_t bar0_addr;
 	uint32_t bar0_len;
@@ -82,7 +85,6 @@ static uint8_t ivshmem_get_dev_func(void)
 		for (function = 0; function < PCI_MAX_FUNC_NUM; function++) {
 			dev_vndr = pci_read32(0, device, function, PCI_CONFIG_VENDOR_ID_OFFSET);
 
-			DMSG("%d/%d/0x%x\n",device, function, dev_vndr);
 			if (dev_vndr == expect) {
 				g_ivshmem_devs[num].dev = device;
 				g_ivshmem_devs[num].func = function;
@@ -185,6 +187,9 @@ void ivshmem_init(void)
 			smc_used_ring->ring[j] = OPTEE_SHM_QUEUE_SIZE;
 		}
 
+		g_ivshmem_devs[i].rot_addr = g_ivshmem_devs[i].smc_addr + 0x100000;
+		IMSG("IVSHMEM device %d: rot_addr=0x%lx\n", i, g_ivshmem_devs[i].rot_addr);
+
 		tee_shmem_start = ROUNDUP(g_ivshmem_devs[i].bar2_addr + 0x200000, 0x100000);
 		IMSG("IVSHMEM device %d: tee_shmem_start=0x%lx\n", i, tee_shmem_start);
 		if ((tee_shmem_start + TEE_SHMEM_SIZE) >
@@ -264,6 +269,26 @@ void ivshmem_doorbell_ring(uint8_t dev, uint32_t peer)
 	assert(peer != 0);
 
 	io_write_32((void *)(g_ivshmem_devs[dev].regs_addr + DOORBELL_OFF), peer<<16);
+}
+
+TEE_Result ivshmem_rot_copy(uint8_t dev, void *dest, size_t size)
+{
+	if (g_ivshmem_devs[dev].rot_addr != 0 && size <= IVSHMEM_ROT_MAX_SIZE) {
+		memcpy(dest, (void *)g_ivshmem_devs[dev].rot_addr, size);
+		return TEE_SUCCESS;
+	} else {
+		return TEE_ERROR_NOT_SUPPORTED;
+	}
+}
+
+TEE_Result ivshmem_rot_clean(uint8_t dev, size_t size)
+{
+	if (g_ivshmem_devs[dev].rot_addr != 0 && size <= IVSHMEM_ROT_MAX_SIZE) {
+		memzero_explicit((void *)g_ivshmem_devs[dev].rot_addr, size);
+		return TEE_SUCCESS;
+	} else {
+		return TEE_ERROR_NOT_SUPPORTED;
+	}
 }
 
 

@@ -201,4 +201,19 @@
  */
 #define PTA_SYSTEM_SUPP_PLUGIN_INVOKE	13
 
+/*
+ * Get root of trust information
+ *
+ * [out]  params[0].memref.buffer     Buffer for rot info
+ * [in]   params[0].memref.size       Size of rot info
+ */
+#define PTA_SYSTEM_GET_ROT	14
+
+/*
+ * Clean root of trust information
+ *
+ * [in]  params[0].value.a       Size of rot needed to be clear
+ */
+#define PTA_SYSTEM_CLEAN_ROT	15
+
 #endif /* __PTA_SYSTEM_H */

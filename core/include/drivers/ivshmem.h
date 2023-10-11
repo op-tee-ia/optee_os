@@ -7,6 +7,7 @@
 #define DRIVER_IVSHMEM_H
 
 #include <compiler.h>
+#include <tee_api_types.h>
 
 #define OPTEE_SHM_QUEUE_SIZE 64
 
@@ -26,5 +27,11 @@ void ivshmem_init(void);
 
 /* Ivshmem device doorbell ring operation */
 void ivshmem_doorbell_ring(uint8_t dev, uint32_t peer);
+
+/* ROT infomation copy basedon ivshmem */
+TEE_Result ivshmem_rot_copy(uint8_t dev, void *dest, size_t size);
+
+/* ROT infomation clean basedon ivshmem */
+TEE_Result ivshmem_rot_clean(uint8_t dev, size_t size);
 
 #endif
