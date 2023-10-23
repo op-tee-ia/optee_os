@@ -7,14 +7,14 @@
 #include <efi.h>
 #include <lib.h>
 #include <byteswap.h>
-#include "Tcg2Protocol.h"
-#include "Tpm2CommandLib.h"
-#include "Tpm2Help.h"
+#include <Tcg2Protocol.h>
+#include <Tpm2CommandLib.h>
+#include <Tpm2Help.h>
 
 #include <string.h>
 #include <trace.h>
 
-#include <drivers/tpm2_ops.h>
+#include "tpm2_ops.h"
 
 static EFI_STATUS tpm2_get_capability(
 		IN      TPM_CAP                   Capability,
@@ -105,9 +105,9 @@ EFI_STATUS tpm2_delete_index(IN UINT32 index)
 }
 
 EFI_STATUS tpm2_read_nvindex(TPMI_RH_NV_INDEX nv_index,
-                            UINT16 data_size,
-							BYTE *data,
-							UINT16 offset)
+						UINT16 data_size,
+						BYTE *data,
+						UINT16 offset)
 {
 	EFI_STATUS ret;
 	TPMS_AUTH_COMMAND session_data = {0};
@@ -122,8 +122,8 @@ EFI_STATUS tpm2_read_nvindex(TPMI_RH_NV_INDEX nv_index,
 	nv_read_data.size = data_size;
 
 	do {
-        ret = Tpm2NvRead(nv_index, nv_index, &session_data, nv_read_data.size, offset, &nv_read_data);
-        retry_times --;
+		ret = Tpm2NvRead(nv_index, nv_index, &session_data, nv_read_data.size, offset, &nv_read_data);
+		retry_times --;
 	} while (ret == EFI_DEVICE_ERROR && retry_times > 0);
 
 	if (EFI_ERROR(ret)) {
@@ -148,9 +148,9 @@ EFI_STATUS tpm2_read_lock_nvindex(TPMI_RH_NV_INDEX nv_index)
 }
 
 EFI_STATUS tpm2_write_nvindex(TPMI_RH_NV_INDEX nv_index,
-                              UINT16 data_size,
-							  BYTE *data,
-							  UINT16 offset)
+							UINT16 data_size,
+							BYTE *data,
+							UINT16 offset)
 {
 	EFI_STATUS ret = EFI_SUCCESS;
 	TPMS_AUTH_COMMAND session_data = {0};
@@ -163,8 +163,8 @@ EFI_STATUS tpm2_write_nvindex(TPMI_RH_NV_INDEX nv_index,
 	memcpy(nv_write_data.buffer, data, nv_write_data.size);
 
 	do {
-        ret = Tpm2NvWrite(nv_index, nv_index, &session_data, &nv_write_data, offset);
-        retry_times --;
+		ret = Tpm2NvWrite(nv_index, nv_index, &session_data, &nv_write_data, offset);
+		retry_times --;
 	} while (ret == EFI_DEVICE_ERROR && retry_times > 0);
 
 	if (EFI_ERROR(ret)) {
@@ -185,7 +185,7 @@ EFI_STATUS tpm2_write_lock_nvindex(TPMI_RH_NV_INDEX nv_index)
 }
 
 EFI_STATUS create_index_and_write_lock(TPM_NV_INDEX nv_index, TPMA_NV attributes,
-					      UINT16 data_size, BYTE *data)
+							UINT16 data_size, BYTE *data)
 {
 	EFI_STATUS ret;
 
@@ -209,8 +209,8 @@ EFI_STATUS create_index_and_write_lock(TPM_NV_INDEX nv_index, TPMA_NV attributes
 
 out:
 	if (EFI_ERROR(ret)){
-        if (EFI_SUCCESS != tpm2_delete_index(nv_index))
-            EMSG("Failed to delete nv index.\n");
+		if (EFI_SUCCESS != tpm2_delete_index(nv_index))
+			EMSG("Failed to delete nv index.\n");
 	}
 
 	return ret;

@@ -6,23 +6,22 @@
 #include <efi.h>
 #include <lib.h>
 #include <byteswap.h>
-#include "Tcg2Protocol.h"
-#include "Tpm2CommandLib.h"
-#include "Tpm2Help.h"
-
-#include <drivers/tpm2_ops.h>
+#include <Tcg2Protocol.h>
+#include <Tpm2CommandLib.h>
+#include <Tpm2Help.h>
 
 #include <string.h>
 #include <trace.h>
-
-#include "Base.h"
+#include <Base.h>
 #include <mm/core_mmu.h>
 #include <mm/core_memprot.h>
 #include <types_ext.h>
 #include <kernel/tee_common_otp.h>
 
+#include "tpm2_ops.h"
+
 uint64_t g_tpm_base_vaddr = 0;
-bool g_seed_fused = 0;
+bool g_seed_fused = false;
 
 #define NV_INDEX_OPTEEOS_SEED  0x01500050
 
@@ -35,28 +34,28 @@ static const attribute_matrix_t config_table =
 {
 	NV_INDEX_OPTEEOS_SEED,
 	{
-        /* The Index data can be written if Owner Authorization is provided. */
-        .TPMA_NV_OWNERWRITE = 1,
-        /* Authorizations to change the Index contents that require
-            * USER role may be provided with an HMAC session or password.
-        */
-        .TPMA_NV_AUTHWRITE = 1,
-        /* The Index data may be read if the authValue is provided. */
-        . TPMA_NV_AUTHREAD = 1,
-        /* A partial write of the Index data is not allowed. The write size
-         * shall match the defined space size.
-         */
-        .TPMA_NV_WRITEALL = 1,
-        /* TPM2_NV_WriteLock may be used to prevent further writes
-         * to this location regardless of TPM reset/restart.
-         */
-        .TPMA_NV_WRITEDEFINE = 1,
-        /* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
-         * for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
-         * Reads of this Index are blocked until the next TPM Reset or TPM Restart.
-         */
-        .TPMA_NV_READ_STCLEAR = 1,
-    }
+		/* The Index data can be written if Owner Authorization is provided. */
+		.TPMA_NV_OWNERWRITE = 1,
+		/* Authorizations to change the Index contents that require
+			* USER role may be provided with an HMAC session or password.
+		*/
+		.TPMA_NV_AUTHWRITE = 1,
+		/* The Index data may be read if the authValue is provided. */
+		. TPMA_NV_AUTHREAD = 1,
+		/* A partial write of the Index data is not allowed. The write size
+			* shall match the defined space size.
+			*/
+		.TPMA_NV_WRITEALL = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+			* to this location regardless of TPM reset/restart.
+			*/
+		.TPMA_NV_WRITEDEFINE = 1,
+		/* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
+			* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
+			* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
+			*/
+		.TPMA_NV_READ_STCLEAR = 1,
+	}
 };
 
 register_phys_mem(MEM_AREA_IO_SEC, _PCD_VALUE_PcdTpmBaseAddress, 0x1000);
@@ -75,7 +74,7 @@ static EFI_STATUS tpm2_check_cap_permanent(void)
 
 	/* Verify the LOCKOUT_AUTH */
 	if (!per.lockoutAuthSet)
-		EMSG("TPM LOCKOUT_AUTH is not set, set it can get higher security");
+		IMSG("TPM LOCKOUT_AUTH is not set, set it can get higher security");
 
 	if (!per.ownerAuthSet)
 		IMSG("TPM owner is not taken! Take it after verification to get higher security!");
@@ -153,7 +152,7 @@ static EFI_STATUS tpm2_check_optee_seed_index(void)
 
 static EFI_STATUS tpm2_init_seed(void)
 {
-	EFI_STATUS ret;
+	EFI_STATUS ret = EFI_SUCCESS;
 
 	if (!g_seed_fused) {
 		g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
@@ -170,7 +169,7 @@ static EFI_STATUS tpm2_init_seed(void)
 			return ret;
 		}
 
-		g_seed_fused = 1;
+		g_seed_fused = true;
 	}
 
 	return ret;
