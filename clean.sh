@@ -1,5 +1,5 @@
 # Script to build the optee-os image
-# Usage: ./clean_qemu.sh
+# Usage: ./clean.sh
 #
 #!/bin/sh
 #set -v -x
@@ -9,7 +9,7 @@ export ARCH=x86_64
 export CROSS_COMPILE=
 export CROSS_COMPILE64=
 
-export PLATFORM=qemu
+export PLATFORM=standalonevm
 
 make clean -j4
 

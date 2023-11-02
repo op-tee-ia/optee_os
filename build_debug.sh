@@ -1,5 +1,5 @@
 # Script to build the optee-os image
-# Usage: ./build_qemu_debug.sh
+# Usage: ./build_debug.sh
 #
 #!/bin/sh
 #set -v -x
@@ -12,7 +12,7 @@ export CROSS_COMPILE64=
 export CFG_TEE_CORE_LOG_LEVEL=3
 export DEBUG=1
 export CFG_TEE_BENCHMARK=n
-export PLATFORM=qemu
+export PLATFORM=standalonevm
 
 make -j4
 
