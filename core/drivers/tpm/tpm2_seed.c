@@ -68,7 +68,7 @@ static EFI_STATUS tpm2_check_cap_permanent(void)
 
 	ret = tpm2_get_cap_permanent(&per);
 	if (EFI_ERROR(ret)) {
-		EMSG("Check TPM cap permanent for lockoutAuthSet failed(%ld)", ret);
+		EMSG("Check TPM cap permanent for lockoutAuthSet failed(%lx)", ret);
 		return ret;
 	}
 
@@ -105,7 +105,7 @@ static EFI_STATUS tpm2_fuse_optee_seed(void)
 	// Read the data again to verify it
 	ret = tpm2_read_nvindex(NV_INDEX_OPTEEOS_SEED, HW_UNIQUE_KEY_LENGTH, read_seed, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Read optee seed back failed(%ld) just after write it", ret);
+		EMSG("Read optee seed back failed(%lx) just after write it", ret);
 		goto out;
 	}
 	if (memcmp(optee_seed.buffer, read_seed, sizeof(read_seed))) {
@@ -134,13 +134,13 @@ static EFI_STATUS tpm2_check_optee_seed_index(void)
 	ret = Tpm2NvReadPublic(NV_INDEX_OPTEEOS_SEED, &NvPublic, &NvName);
 	if (EFI_ERROR(ret)) {
 		if (ret != EFI_NOT_FOUND) {
-			EMSG("Read optee seed NV index failed(%ld)", ret);
+			EMSG("Read optee seed NV index failed(%lx)", ret);
 			return ret;
 		}
 
 		ret = tpm2_fuse_optee_seed();
 		if (EFI_ERROR(ret))
-			EMSG("Failed(%ld) to fuse optee seed", ret);
+			EMSG("Failed(%lx) to fuse optee seed", ret);
 
 		return ret;
 	}
@@ -159,13 +159,13 @@ static EFI_STATUS tpm2_init_seed(void)
 
 		ret = tpm2_check_cap_permanent();
 		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%ld) to check tpm cap.", ret);
+			EMSG("Failed(%lx) to check tpm cap.", ret);
 			return ret;
 		}
 
 		ret = tpm2_check_optee_seed_index();
 		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%ld) to check optee seed status.", ret);
+			EMSG("Failed(%lx) to check optee seed status.", ret);
 			return ret;
 		}
 
@@ -185,13 +185,13 @@ static EFI_STATUS tpm2_read_lock_seed(OUT BYTE *Key, IN UINT16 KeySize)
 
 	ret = tpm2_read_nvindex(config_table.nv_index, HW_UNIQUE_KEY_LENGTH, TempKey, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed to read nv index:%ld.\n", ret);
+		EMSG("Failed to read nv index:%lx.\n", ret);
 		goto out;
 	}
 
 	ret = tpm2_read_lock_nvindex(config_table.nv_index);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed to read lock nv index:%ld.\n", ret);
+		EMSG("Failed to read lock nv index:%lx.\n", ret);
 		goto out;
 	}
 
@@ -211,13 +211,13 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 
 	ret = tpm2_init_seed();
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%ld) to init optee seed.", ret);
+		EMSG("Failed(%lx) to init optee seed.", ret);
 		return TEE_ERROR_GENERIC;
 	}
 
 	ret = tpm2_read_lock_seed(&hwkey->data[0], sizeof(hwkey->data));
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%ld) to read and lock optee seed.", ret);
+		EMSG("Failed(%lx) to read and lock optee seed.", ret);
 		return TEE_ERROR_GENERIC;
 	}
 

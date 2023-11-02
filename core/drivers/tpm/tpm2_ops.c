@@ -30,7 +30,7 @@ static EFI_STATUS tpm2_get_capability(
 
 	ret = Tpm2GetCapability(Capability, Property, PropertyCount, MoreData, CapabilityData);
 	if (EFI_ERROR(ret)) {
-		EMSG("Call Tpm2GetCapability failed(%ld)", ret);
+		EMSG("Call Tpm2GetCapability failed(%lx)", ret);
 		return ret;
 	}
 
@@ -55,7 +55,7 @@ EFI_STATUS tpm2_get_cap_permanent(TPMA_PERMANENT *per)
 
 	ret = tpm2_get_capability(TPM_CAP_TPM_PROPERTIES, TPM_PT_PERMANENT, 1, &more_data, &cap_data);
 	if (EFI_ERROR(ret)) {
-		EMSG("Get TPM cap permanent failed(%ld)", ret);
+		EMSG("Get TPM cap permanent failed(%lx)", ret);
 		return ret;
 	}
 	prop = &cap_data.data.tpmProperties;
@@ -127,7 +127,7 @@ EFI_STATUS tpm2_read_nvindex(TPMI_RH_NV_INDEX nv_index,
 	} while (ret == EFI_DEVICE_ERROR && retry_times > 0);
 
 	if (EFI_ERROR(ret)) {
-		EMSG("Read NVIndex failed: %ld.\n", ret);
+		EMSG("Read NVIndex failed: %lx.\n", ret);
 		return ret;
 	}
 	memcpy(data, nv_read_data.buffer, nv_read_data.size);
@@ -168,7 +168,7 @@ EFI_STATUS tpm2_write_nvindex(TPMI_RH_NV_INDEX nv_index,
 	} while (ret == EFI_DEVICE_ERROR && retry_times > 0);
 
 	if (EFI_ERROR(ret)) {
-		EMSG("Write TPM NV index failed, index: 0x%x, size: %d, ret: %ld.\n",
+		EMSG("Write TPM NV index failed, index: 0x%x, size: %d, ret: %lx.\n",
 						nv_index, nv_write_data.size, ret);
 	}
 
@@ -191,19 +191,19 @@ EFI_STATUS create_index_and_write_lock(TPM_NV_INDEX nv_index, TPMA_NV attributes
 
 	ret = tpm2_create_nvindex(nv_index, attributes, data_size);
 	if (EFI_ERROR(ret)) {
-		EMSG("NV Index failed(%ld) to create, index: 0x%x, size: %d", ret, nv_index, data_size);
+		EMSG("NV Index failed(%lx) to create, index: 0x%x, size: %d", ret, nv_index, data_size);
 		goto out;
 	}
 
 	ret = tpm2_write_nvindex(nv_index, data_size, data, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Write to NV Index failed(%ld), index: 0x%x, size: %d", ret, nv_index, data_size);
+		EMSG("Write to NV Index failed(%lx), index: 0x%x, size: %d", ret, nv_index, data_size);
 		goto out;
 	}
 
 	ret = tpm2_write_lock_nvindex(nv_index);
 	if (EFI_ERROR(ret)) {
-		EMSG("Write lock to NV Index failed(%ld), index: 0x%x", ret, nv_index);
+		EMSG("Write lock to NV Index failed(%lx), index: 0x%x", ret, nv_index);
 		goto out;
 	}
 
