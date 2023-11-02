@@ -85,7 +85,7 @@ PtpCrbWaitRegisterBits (
   UINT32                            RegRead;
   UINT32                            WaitTime;
 
-  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 30) {
+  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 1) {
     RegRead = MmioRead32 ((UINTN)Register);
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
@@ -463,7 +463,7 @@ Tpm2SubmitCommand (
   PtpInterface = Tpm2GetPtpInterface ((VOID *) (UINTN) PcdGet64 (PcdTpmBaseAddress));
   switch (PtpInterface) {
   case PtpInterfaceCrb:
-    return PtpCrbTpmCommand (
+        return PtpCrbTpmCommand (
              (PTP_CRB_REGISTERS_PTR) (UINTN) PcdGet64 (PcdTpmBaseAddress),
              InputParameterBlock,
              InputParameterBlockSize,
@@ -472,7 +472,7 @@ Tpm2SubmitCommand (
              );
   case PtpInterfaceFifo:
   case PtpInterfaceTis:
-    return Tpm2TisTpmCommand (
+        return Tpm2TisTpmCommand (
              (TIS_PC_REGISTERS_PTR) (UINTN) PcdGet64 (PcdTpmBaseAddress),
              InputParameterBlock,
              InputParameterBlockSize,
