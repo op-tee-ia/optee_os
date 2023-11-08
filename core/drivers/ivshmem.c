@@ -27,11 +27,19 @@
 #define IVPOSITION_OFF 0x08
 #define DOORBELL_OFF   0x0C
 
+#define ROT_INTERRUPT_OFF		1
+#define ROLLBACK_INDEX_INTERRUPT_OFF	2
+
+#define MSIX_ADDR_LOW_FIXED		0xFEE00000
+#define MSIX_ADDR_LOW_RH		0x8
+
 #define MSIX_DM_FIXED			0x000
 #define MSIX_DM_LOWEST_PRIO		0x100
 
 #define IVSHMEM_SMC_SIZE		0x200000
 #define IVSHMEM_ROT_MAX_SIZE		0x100000
+
+#define IVSHMEM_MSIX_ENTRY_NUM		3
 
 struct ivshmem_device {
 	uint8_t dev;
@@ -62,13 +70,35 @@ struct optee_vm_ids *smc_vm_ids = NULL;
 
 static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
 {
-    return ITRR_HANDLED;
+	return ITRR_HANDLED;
+}
+
+static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
+{
+	return ITRR_HANDLED;
+}
+
+static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
+{
+	return ITRR_HANDLED;
 }
 
 static struct itr_handler ivshmem_doorbell_itr = {
 	.it = IVSHMEM_DOORBELL_VECTOR,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
+};
+
+static struct itr_handler ivshmem_rot_itr = {
+	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rot_itr_cb,
+};
+
+static struct itr_handler ivshmem_rollback_index_itr = {
+	.it = IVSHMEM_DOORBELL_VECTOR + ROLLBACK_INDEX_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rollback_index_itr_cb,
 };
 
 static uint8_t ivshmem_get_dev_func(void)
@@ -241,25 +271,30 @@ void ivshmem_init(void)
 				cap_offset += 0x4; 
 			}
 
-			msg_lower_addr = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
-				PCI_MSIX_ENTRY_LOWER_ADDR);
-			msg_upper_addr = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
-				PCI_MSIX_ENTRY_UPPER_ADDR);
-			msg_data = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
-				PCI_MSIX_ENTRY_DATA);
-			vector_ctrl = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
-				PCI_MSIX_ENTRY_VECTOR_CTRL);
+			for (j = 0; j < IVSHMEM_MSIX_ENTRY_NUM; j++) {
+				msg_lower_addr = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
+					PCI_MSIX_ENTRY_SIZE * j + PCI_MSIX_ENTRY_LOWER_ADDR);
+				msg_upper_addr = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
+					PCI_MSIX_ENTRY_SIZE * j + PCI_MSIX_ENTRY_UPPER_ADDR);
+				msg_data = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
+					PCI_MSIX_ENTRY_SIZE * j + PCI_MSIX_ENTRY_DATA);
+				vector_ctrl = (uint32_t *)(g_ivshmem_devs[i].msix_addr +
+					PCI_MSIX_ENTRY_SIZE * j + PCI_MSIX_ENTRY_VECTOR_CTRL);
 			
-			*msg_lower_addr = 0xFEE00008;
-			*msg_upper_addr = 0x0;
-			*msg_data = IVSHMEM_DOORBELL_VECTOR | MSIX_DM_LOWEST_PRIO;
-			*vector_ctrl = 0x0;
-			IMSG("IVSHMEM device %d: msi-x table entry 0 0x%x/0x%x/0x%x/0x%x\n", i,
-				*msg_lower_addr, *msg_upper_addr, *msg_data, *vector_ctrl);
+				*msg_lower_addr = MSIX_ADDR_LOW_FIXED | MSIX_ADDR_LOW_RH;
+				*msg_upper_addr = 0x0;
+				*msg_data = (IVSHMEM_DOORBELL_VECTOR + i * IVSHMEM_MSIX_ENTRY_NUM + j) |
+					MSIX_DM_LOWEST_PRIO;
+				*vector_ctrl = 0x0;
+				IMSG("IVSHMEM device %d: msi-x table entry %d 0x%x/0x%x/0x%x/0x%x\n", i, j,
+					*msg_lower_addr, *msg_upper_addr, *msg_data, *vector_ctrl);
+			}
 		}
 	}
 
 	itr_add(&ivshmem_doorbell_itr);
+	itr_add(&ivshmem_rot_itr);
+	itr_add(&ivshmem_rollback_index_itr);
 
 	return;
 }

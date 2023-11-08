@@ -136,9 +136,10 @@ typedef union {
 #define PCI_MSIX_FLAGS_ENABLE	0x8000	/* MSI-X enable */
 
 /* MSI-X Table entry format */
+#define PCI_MSIX_ENTRY_SIZE		16
 #define PCI_MSIX_ENTRY_LOWER_ADDR	0  /* Message Address */
 #define PCI_MSIX_ENTRY_UPPER_ADDR	4  /* Message Upper Address */
-#define PCI_MSIX_ENTRY_DATA			8  /* Message Data */
+#define PCI_MSIX_ENTRY_DATA		8  /* Message Data */
 #define PCI_MSIX_ENTRY_VECTOR_CTRL	12 /* Vector Control */
 
 
