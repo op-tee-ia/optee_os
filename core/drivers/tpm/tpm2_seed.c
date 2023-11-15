@@ -21,7 +21,9 @@
 #include "tpm2_ops.h"
 
 uint64_t g_tpm_base_vaddr = 0;
-bool g_seed_fused = false;
+
+static bool g_huk_initialized = false;
+static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
 
 #define NV_INDEX_OPTEEOS_SEED  0x01500050
 
@@ -154,22 +156,18 @@ static EFI_STATUS tpm2_init_seed(void)
 {
 	EFI_STATUS ret = EFI_SUCCESS;
 
-	if (!g_seed_fused) {
-		g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
+	g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
 
-		ret = tpm2_check_cap_permanent();
-		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%lx) to check tpm cap.", ret);
-			return ret;
-		}
+	ret = tpm2_check_cap_permanent();
+	if (EFI_ERROR(ret)) {
+		EMSG("Failed(%lx) to check tpm cap.", ret);
+		return ret;
+	}
 
-		ret = tpm2_check_optee_seed_index();
-		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%lx) to check optee seed status.", ret);
-			return ret;
-		}
-
-		g_seed_fused = true;
+	ret = tpm2_check_optee_seed_index();
+	if (EFI_ERROR(ret)) {
+		EMSG("Failed(%lx) to check optee seed status.", ret);
+		return ret;
 	}
 
 	return ret;
@@ -209,17 +207,27 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 {
 	EFI_STATUS ret;
 
-	ret = tpm2_init_seed();
-	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to init optee seed.", ret);
-		return TEE_ERROR_GENERIC;
+	if (!hwkey)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (!g_huk_initialized)
+	{
+		ret = tpm2_init_seed();
+		if (EFI_ERROR(ret)) {
+			EMSG("Failed(%lx) to init optee seed.", ret);
+			return TEE_ERROR_GENERIC;
+		}
+
+		ret = tpm2_read_lock_seed(g_huk, HW_UNIQUE_KEY_LENGTH);
+		if (EFI_ERROR(ret)) {
+			EMSG("Failed(%lx) to read and lock optee seed.", ret);
+			return TEE_ERROR_GENERIC;
+		}
+
+		g_huk_initialized = true;
 	}
 
-	ret = tpm2_read_lock_seed(&hwkey->data[0], sizeof(hwkey->data));
-	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to read and lock optee seed.", ret);
-		return TEE_ERROR_GENERIC;
-	}
+	memcpy(&hwkey->data[0], g_huk, HW_UNIQUE_KEY_LENGTH);
 
 	return TEE_SUCCESS;
 }
