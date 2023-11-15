@@ -18,11 +18,53 @@
 #include "master_crypto.h"
 #include "shift.h"
 
+#include "mbedtls/md.h"
+#include "mbedtls/hkdf.h"
+#include "mbedtls/platform.h"
 //Master key for encryption/decryption of all CA's keys,
 //and also used as HBK (hardware-bound private key) during attestation
 
 static uint8_t objID[] = {0xa7U, 0x62U, 0xcfU, 0x11U};
 static uint8_t iv[IV_LENGTH];
+
+static TEE_Result TA_derive_kek(TEE_ObjectHandle ikm,
+			uint8_t *kek, size_t kek_size,
+			const uint8_t *hidden, const size_t hidden_size)
+{
+	TEE_Result res = TEE_SUCCESS;
+	uint8_t kmkData[KEY_LENGTH];
+	uint32_t kmk_size = KEY_LENGTH;
+	const unsigned char salt[] = "OP-TEE Keymaster";
+	const size_t salt_size = sizeof(salt);
+
+	if (!ikm || !hidden)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = TEE_GetObjectBufferAttribute(ikm,
+				TEE_ATTR_SECRET_VALUE,
+				kmkData,
+				&kmk_size);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to read keymaster master key, res=%x", res);
+		goto out;
+	}
+
+	res = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+				salt/*salt*/, salt_size,
+				kmkData/*input key*/, sizeof(kmkData),
+				hidden/*app specific info */, hidden_size,
+				kek/*output key*/, kek_size);
+	if (res != 0){
+		EMSG("Failed to derive key encryption key, res=%x", res);
+		res = TEE_ERROR_GENERIC;
+		goto out;
+	}
+
+out:
+	mbedtls_platform_zeroize(kmkData, sizeof(kmkData));
+
+	return res;
+}
 
 TEE_Result TA_open_secret_key(TEE_ObjectHandle *secretKey)
 {
@@ -145,7 +187,9 @@ error:
 	return res;
 }
 
-TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode)
+TEE_Result TA_execute(uint8_t *data, const size_t size,
+			const uint8_t* hidden, const size_t hidden_size,
+			const uint32_t mode)
 {
 	uint8_t *outbuf = NULL;
 	uint32_t outbuf_size = size;
@@ -155,6 +199,9 @@ TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode)
 	TEE_ObjectHandle secretKey = TEE_HANDLE_NULL;
 	uint8_t tag[TAG_LENGTH];
 	uint32_t tagLen = TAG_LENGTH;
+	uint8_t kekData[KEY_LENGTH];
+	TEE_ObjectHandle kek = TEE_HANDLE_NULL;
+	TEE_Attribute attr = { };
 
 	DMSG("%s %d size = %zu", __func__, __LINE__, size);
 	res = TA_open_secret_key(&secretKey);
@@ -176,12 +223,37 @@ TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode)
 		goto exit;
 	}
 
+	res = TEE_AllocateTransientObject(TEE_TYPE_AES,
+				KEY_LENGTH * BITS_IN_BYTE, &kek);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to allocate transient object, res = %x", res);
+		res = TEE_ERROR_GENERIC;
+		goto free_op;
+	}
+
+	TEE_MemFill(kekData, 0, KEY_LENGTH);
+	res = TA_derive_kek(secretKey, kekData, sizeof(kekData), hidden, hidden_size);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to derive kek, res=%x", res);
+		goto free_op;
+	}
+
+	attr.attributeID = TEE_ATTR_SECRET_VALUE;
+	attr.content.ref.buffer = kekData;
+	attr.content.ref.length = sizeof(kekData);
+	res = TEE_PopulateTransientObject(kek, &attr, 1);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to populate transient object, res = %x", res);
+		goto free_op;
+	}
+
 	//Use persistent key objects
-	res = TEE_SetOperationKey(op, secretKey);
+	res = TEE_SetOperationKey(op, kek);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to set secret key, res=%x", res);
 		goto free_op;
 	}
+
 	TEE_AEInit(op, iv, sizeof(iv), TAG_LENGTH * BITS_IN_BYTE, 0, 0);
 	if (res == TEE_SUCCESS && size > 0) {
 		if (mode == TEE_MODE_ENCRYPT) {
@@ -197,7 +269,7 @@ TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode)
 					(void *)(data + size - TAG_LENGTH), TAG_LENGTH);
 		}
 	}
-	if (res != TEE_SUCCESS)
+		if (res != TEE_SUCCESS)
 		EMSG("Error TEE_AEFinal res=%x", res);
 	else {
 		TEE_MemMove(data, outbuf, size - TAG_LENGTH);
@@ -207,22 +279,26 @@ TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode)
 free_op:
 	if (op != TEE_HANDLE_NULL)
 		TEE_FreeOperation(op);
+	if (kek != TEE_HANDLE_NULL)
+		TEE_FreeTransientObject(kek);
 exit:
 	if (outbuf != NULL)
 		TEE_Free(outbuf);
 	return res;
 }
 
-TEE_Result TA_encrypt(uint8_t *data, const size_t size)
+TEE_Result TA_encrypt(uint8_t *data, const size_t size,
+			const uint8_t* hidden, const size_t hidden_size)
 {
 	DMSG("%s %d", __func__, __LINE__);
-	return TA_execute(data, size, TEE_MODE_ENCRYPT);
+	return TA_execute(data, size, hidden, hidden_size, TEE_MODE_ENCRYPT);
 }
 
-TEE_Result TA_decrypt(uint8_t *data, const size_t size)
+TEE_Result TA_decrypt(uint8_t *data, const size_t size,
+			const uint8_t* hidden, const size_t hidden_size)
 {
 	DMSG("%s %d", __func__, __LINE__);
-	return TA_execute(data, size, TEE_MODE_DECRYPT);
+	return TA_execute(data, size, hidden, hidden_size, TEE_MODE_DECRYPT);
 }
 
 void TA_free_master_key(void)

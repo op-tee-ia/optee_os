@@ -130,9 +130,6 @@ struct rot_data_t{
 	uint8_t  vbmetaDigest[AVB_SHA512_DIGEST_SIZE];
 };
 
-struct rot_data_t g_root_of_trust = {0};
-bool g_rot_data_set = false;
-
 typedef struct tee_km_context {
 	bool version_info_set;
 	bool rot_info_set;
