@@ -33,9 +33,9 @@ TEE_Result TA_open_secret_key(TEE_ObjectHandle *secretKey);
 
 TEE_Result TA_create_secret_key(void);
 
-TEE_Result TA_execute(uint8_t *data, const size_t size, const uint32_t mode);
-TEE_Result TA_encrypt(uint8_t *data, const size_t size);
-TEE_Result TA_decrypt(uint8_t *data, const size_t size);
+TEE_Result TA_execute(uint8_t *data, const size_t size, const uint8_t *hidden, const size_t hidden_size, const uint32_t mode);
+TEE_Result TA_encrypt(uint8_t *data, const size_t size, const uint8_t *hidden, const size_t hidden_size);
+TEE_Result TA_decrypt(uint8_t *data, const size_t size, const uint8_t *hidden, const size_t hidden_size);
 
 void TA_free_master_key(void);
 

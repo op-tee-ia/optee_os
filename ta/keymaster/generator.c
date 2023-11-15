@@ -719,7 +719,8 @@ keymaster_error_t TA_persistent_obj_from_attrs(TEE_ObjectHandle *obj_h,
 
 keymaster_error_t TA_restore_key(uint8_t *key_material,
 				const keymaster_key_blob_t *key_blob,
-				uint32_t *key_size, uint32_t *type,
+				uint32_t *key_size, const uint8_t* hidden,
+				const size_t hidden_size, uint32_t *type,
 				TEE_ObjectHandle *obj_h,
 				keymaster_key_param_set_t *params_t)
 {
@@ -736,7 +737,7 @@ keymaster_error_t TA_restore_key(uint8_t *key_material,
 
 	TEE_MemMove(key_material, key_blob->key_material,
 		    key_blob->key_material_size);
-	res = TA_decrypt(key_material, key_blob->key_material_size);
+	res = TA_decrypt(key_material, key_blob->key_material_size, hidden, hidden_size);
 	if (res != TEE_SUCCESS) {
 		if (res == (keymaster_error_t)TEE_ERROR_MAC_INVALID) {
 			res = KM_ERROR_INVALID_KEY_BLOB;

@@ -24,6 +24,7 @@
 #include "ta_ca_defs.h"
 #include "keystore_ta.h"
 #include "attestation.h"
+#include <pta_system.h>
 
 static TEE_TASessionHandle session_rngSTA = TEE_HANDLE_NULL;
 
@@ -33,6 +34,7 @@ static void TA_init_km_context(void)
 {
 	memset(&optee_km_context, 0, sizeof(tee_km_context_t));
 	optee_km_context.version_info_set = false;
+	optee_km_context.rot_info_set = false;
 }
 
 TEE_Result TA_CreateEntryPoint(void)
@@ -139,6 +141,168 @@ static uint32_t tee_get_os_version(void)
 static uint32_t tee_get_os_patchlevel(void)
 {
 	return optee_km_context.os_patchlevel;
+}
+
+static keymaster_error_t TA_set_rot_data(void)
+{
+	TEE_TASessionHandle sess = TEE_HANDLE_NULL;
+	TEE_Param params[TEE_NUM_PARAMS] = { };
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	if (optee_km_context.rot_info_set)
+		return KM_ERROR_ROOT_OF_TRUST_ALREADY_SET;
+
+	uint32_t ret_orig = 0;
+	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					       TEE_PARAM_TYPE_NONE,
+					       TEE_PARAM_TYPE_NONE,
+					       TEE_PARAM_TYPE_NONE);
+
+	res = TEE_OpenTASession(&(const TEE_UUID)PTA_SYSTEM_UUID,
+				TEE_TIMEOUT_INFINITE, 0, NULL, &sess,
+				&ret_orig);
+	if (res) {
+		EMSG("Failed(%d) to open PTA session", res);
+		res = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+
+	params[0].memref.buffer = &optee_km_context.rot;
+	params[0].memref.size = sizeof(struct rot_data_t);
+
+	res = TEE_InvokeTACommand(sess, TEE_TIMEOUT_INFINITE,
+				  PTA_SYSTEM_GET_ROT,
+				  param_types, params, &ret_orig);
+	if (res) {
+		EMSG("Failed(%d) to open PTA session", res);
+		res = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+out:
+	TEE_CloseTASession(sess);
+
+	return res;
+}
+
+static keymaster_error_t TA_get_client_info(
+				const keymaster_key_param_set_t *input_set,
+				keymaster_blob_t *client_id,
+				keymaster_blob_t *app_data)
+{
+	keymaster_error_t res = KM_ERROR_OK;
+
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_MemFill(client_id, 0, sizeof(keymaster_blob_t));
+	TEE_MemFill(app_data, 0, sizeof(keymaster_blob_t));
+
+	for (size_t i = 0; i < input_set->length; i++) {
+		if (input_set->params[i].tag == KM_TAG_APPLICATION_ID) {
+			client_id->data_length = input_set->params[i].key_param.blob.data_length;
+			/* Freed when deserialized blob is destroyed by caller */
+			client_id->data = TEE_Malloc(client_id->data_length, TEE_MALLOC_FILL_ZERO);
+			if (!client_id->data) {
+				EMSG("Failed to allocate memory for client id");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto err;
+			}
+			TEE_MemMove(client_id->data, input_set->params[i].key_param.blob.data, client_id->data_length);
+		}
+		if (input_set->params[i].tag == KM_TAG_APPLICATION_DATA) {
+			app_data->data_length = input_set->params[i].key_param.blob.data_length;
+			/* Freed when deserialized blob is destroyed by caller */
+			app_data->data = TEE_Malloc(app_data->data_length, TEE_MALLOC_FILL_ZERO);
+			if (!app_data->data) {
+				EMSG("Failed to allocate memory for app_data");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto err;
+			}
+			TEE_MemMove(app_data->data, input_set->params[i].key_param.blob.data, app_data->data_length);
+		}
+	}
+
+	return KM_ERROR_OK;
+
+err:
+	if (client_id->data)
+		TEE_Free(client_id->data);
+	if (app_data->data)
+		TEE_Free(app_data->data);
+	return res;
+}
+
+static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_size,
+			keymaster_blob_t* client_id, keymaster_blob_t* app_data)
+{
+	keymaster_error_t res = KM_ERROR_OK;
+	size_t buf_size = 0;
+	bool oob = false; /* out of bounds flag */
+
+	buf_size = client_id->data_length + SIZE_LENGTH_AKMS
+				+ app_data->data_length + SIZE_LENGTH_AKMS
+				+ sizeof(struct rot_data_t);
+
+	uint8_t* tmp = TEE_Malloc(buf_size, TEE_MALLOC_FILL_ZERO);
+	if (!tmp) {
+		EMSG("Failed to allocate memory for hidden");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto err;
+	}
+
+	uint8_t* out = tmp;
+	uint8_t* out_end = tmp + buf_size;
+
+	/* copy client_id to hidden */
+	out += TA_serialize_blob_akms(out, out_end,
+				client_id, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto err;
+	}
+
+	/* copy app_data to hidden */
+	out += TA_serialize_blob_akms(out, out_end,
+				app_data, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto err;
+	}
+
+	/* set rot data if not */
+	if (!optee_km_context.rot_info_set) {
+		res = TA_set_rot_data();
+		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
+			EMSG("Failed(%d) to get root of trust data", res);
+			goto err;
+		}
+		optee_km_context.rot_info_set = true;
+	}
+
+	/* copy rot data to hidden */
+	if (TA_is_out_of_bounds(out, out_end, sizeof(struct rot_data_t))) {
+		EMSG("Out of output buffer space");
+		oob = true;
+		goto err;
+	}
+	TEE_MemMove(out, &optee_km_context.rot, sizeof(struct rot_data_t));
+	out += sizeof(struct rot_data_t);
+
+	if (out != out_end) {
+		EMSG("Out buffer mismatch");
+		goto err;
+	}
+
+	*hidden_size = buf_size;
+	*hidden = tmp;
+	return KM_ERROR_OK;
+
+err:
+	if (tmp)
+		TEE_Free(tmp);
+	return res;
 }
 
 static keymaster_error_t TA_configure(TEE_Param params[TEE_NUM_PARAMS])
@@ -349,6 +513,10 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t os_version = 0xFFFFFFFF;
 	uint32_t os_patchlevel = 0xFFFFFFFF;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	in = (uint8_t *)params[0].memref.buffer;
 	in_end = in + params[0].memref.size;
@@ -445,13 +613,26 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 
-	res = TA_encrypt(key_material, key_blob.key_material_size);
+	res = TA_get_client_info(&params_t, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+	
+	res = TA_encrypt(key_material, key_blob.key_material_size,
+					hidden, hidden_size);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to encrypt key blob, res=%x", res);
 		goto exit;
 	}
 	key_blob.key_material = key_material;
-
+	
 exit:
 	out += TA_serialize_rsp_err(out, out_end, &res, &oob);
 	if (oob) {
@@ -483,6 +664,13 @@ out:
 	TA_free_params(&characts.hw_enforced);
 	TA_free_params(&params_t);
 
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 
@@ -508,6 +696,8 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	uint32_t type = 0;
 	bool exportable = false;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -550,8 +740,15 @@ static keymaster_error_t TA_getKeyCharacteristics(
 		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
 		goto exit;
 	}
-	res = TA_restore_key(key_material, &key_blob, &key_size, &type, &obj_h,
-			     &params_t);
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, &key_blob, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto exit;
 
@@ -595,6 +792,8 @@ out:
 	TA_free_params(&chr.sw_enforced);
 	TA_free_params(&chr.hw_enforced);
 	TA_free_params(&params_t);
+	if (hidden)
+		TEE_Free(hidden);
 
 	return res;
 }
@@ -623,6 +822,10 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t attrs_in_count = 0;
 	uint64_t key_rsa_public_exponent = UNDEFINED;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -775,7 +978,20 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	}
 
-	res = TA_encrypt(key_material, key_blob.key_material_size);
+	res = TA_get_client_info(&params_t, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_encrypt(key_material, key_blob.key_material_size,
+				hidden, hidden_size);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to encrypt blob");
 		goto out;
@@ -820,6 +1036,12 @@ exit:
 	TA_free_params(&characts.hw_enforced);
 	if (key_material)
 		TEE_Free(key_material);
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
 
 	return res;
 }
@@ -844,6 +1066,10 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t key_size = UNDEFINED;
 	uint32_t type = 0;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -887,8 +1113,21 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
 		goto out;
 	}
-	res = TA_restore_key(key_material, &key_to_export, &key_size, &type,
-			     &obj_h, &params_t);
+
+	res = TA_get_client_info(&in_params, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, &key_to_export, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	res = TA_check_permission(&params_t,
@@ -939,6 +1178,13 @@ exit:
 	TA_free_params(&params_t);
 	TA_free_params(&in_params);
 
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 
@@ -972,6 +1218,8 @@ static keymaster_error_t TA_attestKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t key_chr_size = 0;
 	uint8_t verified_boot_state = 0xff;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
 
 #ifdef ENUM_PERS_OBJS
 	TA_enum_attest_objs();
@@ -1081,9 +1329,15 @@ static keymaster_error_t TA_attestKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 
+	res = TA_build_hidden_info(&hidden, &hidden_size, app_id, app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
 	/* Restore key */
 	res = TA_restore_key(key_material, &key_to_attest, &key_size,
-			     &key_type, &attestedKey, &params_t);
+			     hidden, hidden_size, &key_type, &attestedKey, &params_t);
 	if (res != KM_ERROR_OK)
 		goto exit;
 
@@ -1192,6 +1446,8 @@ out:
 	TA_free_params(&key_chr.hw_enforced);
 	TA_free_params(&params_t);
 	TA_free_cert_chain(&cert_chain);
+	if (hidden)
+		TEE_Free(hidden);
 
 	return res;
 }
@@ -1396,6 +1652,10 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	TEE_OperationHandle *digest_op = TEE_HANDLE_NULL;
 	uint8_t key_id[TAG_LENGTH];
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1448,8 +1708,20 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	memcpy(key_id, key.key_material + key.key_material_size - TAG_LENGTH,
 	       TAG_LENGTH);
 
-	res = TA_restore_key(key_material, &key, &key_size, &type, &obj_h,
-			     &params_t);
+	res = TA_get_client_info(&in_params, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, &key, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	switch (type) {
@@ -1516,7 +1788,7 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	}
 	res = TA_start_operation(operation_handle, key, min_sec, operation,
 				 purpose, digest_op, do_auth, padding, mode,
-				 mac_length, digest, nonce, key_id);
+				 mac_length, digest, nonce, client_id, app_data, key_id);
 	if (res != KM_ERROR_OK)
 		goto out;
 
@@ -1563,6 +1835,14 @@ exit:
 	TA_free_params(&in_params);
 	TA_free_params(&params_t);
 	TA_free_params(&out_params);
+
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 
@@ -1591,6 +1871,10 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
 	bool is_input_ext = false;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1626,8 +1910,15 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	key_material = TEE_Malloc(operation.key->key_material_size,
 				  TEE_MALLOC_FILL_ZERO);
-	res = TA_restore_key(key_material, operation.key, &key_size, &type,
-			     &obj_h, &params_t);
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &operation.client_id, &operation.app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, operation.key, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
@@ -1717,6 +2008,14 @@ exit:
 	TA_free_params(&params_t);
 	TA_free_params(&in_params);
 	TA_free_params(&out_params);
+
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 
@@ -1748,6 +2047,10 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
 	bool is_input_ext = false;
 	bool oob = false; /* out of bounds flag */
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1786,8 +2089,20 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	key_material = TEE_Malloc(operation.key->key_material_size,
 				  TEE_MALLOC_FILL_ZERO);
-	res = TA_restore_key(key_material, operation.key, &key_size, &type,
-			     &obj_h, &params_t);
+	if (!key_material) {
+		EMSG("Failed to allocate memory for key_material");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto out;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &operation.client_id, &operation.app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, operation.key, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
@@ -1893,6 +2208,14 @@ exit:
 	TA_free_params(&params_t);
 	TA_free_params(&in_params);
 	TA_free_params(&out_params);
+
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 

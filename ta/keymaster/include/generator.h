@@ -73,7 +73,8 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 
 keymaster_error_t TA_restore_key(uint8_t *key_material,
 				const keymaster_key_blob_t *key_blob,
-				uint32_t *key_size, uint32_t *type,
+				uint32_t *key_size, const uint8_t* hidden,
+				const size_t hidden_size, uint32_t *type,
 				TEE_ObjectHandle *obj_h,
 				keymaster_key_param_set_t *params_t);
 
