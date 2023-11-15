@@ -94,6 +94,7 @@ SRCS_CRYPTO += rsa.c
 SRCS_CRYPTO += sha1.c
 SRCS_CRYPTO += sha256.c
 SRCS_CRYPTO += sha512.c
+SRCS_CRYPTO += hkdf.c
 endif
 
 # OBJS_X509

@@ -60,6 +60,7 @@
 #define MBEDTLS_CERTS_C
 #define MBEDTLS_PEM_PARSE_C
 #define MBEDTLS_PEM_WRITE_C
+#define MBEDTLS_HKDF_C
 
 #include <mbedtls/check_config.h>
 
