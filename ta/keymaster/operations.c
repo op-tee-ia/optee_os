@@ -81,6 +81,16 @@ keymaster_error_t TA_abort_operation(
 				TEE_Free(operations[i].nonce.data);
 			operations[i].nonce.data = NULL;
 			operations[i].nonce.data_length = 0;
+			/*free client_id*/
+			if (operations[i].client_id.data)
+				TEE_Free(operations[i].client_id.data);
+			operations[i].client_id.data = NULL;
+			operations[i].client_id.data_length = 0;
+			/*free app_data*/
+			if (operations[i].app_data.data)
+				TEE_Free(operations[i].app_data.data);
+			operations[i].app_data.data = NULL;
+			operations[i].app_data.data_length = 0;
 			operations[i].padded = false;
 			operations[i].first = true;
 			if (operations[i].last_block.data)
@@ -118,6 +128,10 @@ void TA_reset_operations_table(void)
 		operations[i].prev_in_size = UNDEFINED;
 		operations[i].nonce.data = NULL;
 		operations[i].nonce.data_length = 0;
+		operations[i].client_id.data = NULL;
+		operations[i].client_id.data_length = 0;
+		operations[i].app_data.data = NULL;
+		operations[i].app_data.data_length = 0;
 		operations[i].last_block.data = NULL;
 		operations[i].last_block.data_length = 0;
 		operations[i].first = true;
@@ -158,8 +172,11 @@ keymaster_error_t TA_try_start_operation(
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
 				const keymaster_blob_t nonce,
+				const keymaster_blob_t client_id,
+				const keymaster_blob_t app_data,
 				uint8_t *key_id)
 {
+	keymaster_error_t ret = KM_ERROR_OK;
 	TEE_Time cur_t;
 
 	for (uint32_t i = 0; i < KM_MAX_OPERATION; i++) {
@@ -171,7 +188,8 @@ keymaster_error_t TA_try_start_operation(
 					TEE_MALLOC_FILL_ZERO);
 			if (!operations[i].key) {
 				EMSG("Failed to allocate memory for operation key struct");
-				return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				ret = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
 			}
 			operations[i].key->key_material_size =
 							key.key_material_size;
@@ -181,8 +199,8 @@ keymaster_error_t TA_try_start_operation(
 						TEE_MALLOC_FILL_ZERO);
 			if (!operations[i].key->key_material) {
 				EMSG("Failed to allocate memory for operation key data");
-				TEE_Free(operations[i].key);
-				return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				ret = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
 			}
 			TEE_MemMove(operations[i].key->key_material,
 						key.key_material,
@@ -202,17 +220,53 @@ keymaster_error_t TA_try_start_operation(
 						TEE_MALLOC_FILL_ZERO);
 			if (!operations[i].nonce.data) {
 				EMSG("Failed to allocate memory for nonce");
-				TEE_Free(operations[i].key->key_material);
-				TEE_Free(operations[i].key);
-				return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				ret = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
 			}
 			TEE_MemMove(operations[i].nonce.data,
 					nonce.data, nonce.data_length);
 			operations[i].nonce.data_length = nonce.data_length;
+			/* save client_id */
+			operations[i].client_id.data = TEE_Malloc(
+						client_id.data_length,
+						TEE_MALLOC_FILL_ZERO);
+			if (!operations[i].client_id.data) {
+				EMSG("Failed to allocate memory for client_id");
+				ret = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+			TEE_MemMove(operations[i].client_id.data,
+					client_id.data, client_id.data_length);
+			operations[i].client_id.data_length = client_id.data_length;
+			/* save app_data */
+			operations[i].app_data.data = TEE_Malloc(
+						app_data.data_length,
+						TEE_MALLOC_FILL_ZERO);
+			if (!operations[i].app_data.data) {
+				EMSG("Failed to allocate memory for app_data");
+				ret = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+			TEE_MemMove(operations[i].app_data.data,
+					app_data.data, app_data.data_length);
+			operations[i].app_data.data_length = app_data.data_length;
+
 			operations[i].op_handle = op_handle;
 			memcpy(operations[i].key_id, key_id,
 					sizeof(operations[i].key_id));
 			return KM_ERROR_OK;
+		out:
+			if (operations[i].key->key_material)
+				TEE_Free(operations[i].key->key_material);
+			if (operations[i].key)
+				TEE_Free(operations[i].key);
+			if (operations[i].nonce.data)
+				TEE_Free(operations[i].nonce.data);
+			if (operations[i].client_id.data)
+				TEE_Free(operations[i].client_id.data);
+			if (operations[i].app_data.data)
+				TEE_Free(operations[i].app_data.data);
+			return ret;
 		}
 	}
 	return KM_ERROR_TOO_MANY_OPERATIONS;
@@ -230,6 +284,8 @@ keymaster_error_t TA_start_operation(
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
 				const keymaster_blob_t nonce,
+				const keymaster_blob_t client_id,
+				const keymaster_blob_t app_data,
 				uint8_t *key_id)
 {
 	keymaster_error_t res = TA_try_start_operation(op_handle, key, min_sec,
@@ -237,7 +293,7 @@ keymaster_error_t TA_start_operation(
 						       digest_op, do_auth,
 						       padding, mode,
 						       mac_length, digest,
-						       nonce, key_id);
+						       nonce, client_id, app_data, key_id);
 	if (res != KM_ERROR_OK) {
 		res = TA_kill_old_operation();
 		if (res == KM_ERROR_OK) {
@@ -246,7 +302,7 @@ keymaster_error_t TA_start_operation(
 						     digest_op, do_auth,
 						     padding, mode,
 						     mac_length, digest,
-						     nonce, key_id);
+						     nonce, client_id, app_data, key_id);
 		}
 	}
 	return res;

@@ -37,6 +37,8 @@ typedef struct {
 	uint8_t key_id[TAG_LENGTH];
 	keymaster_key_blob_t *key;
 	keymaster_blob_t nonce;
+	keymaster_blob_t client_id;
+	keymaster_blob_t app_data;
 	keymaster_blob_t last_block;
 	keymaster_operation_handle_t op_handle;
 	keymaster_purpose_t purpose;
@@ -74,6 +76,8 @@ keymaster_error_t TA_try_start_operation(
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
 				const keymaster_blob_t nonce,
+				const keymaster_blob_t client_id,
+				const keymaster_blob_t app_data,
 				uint8_t *key_id);
 
 keymaster_error_t TA_start_operation(
@@ -89,6 +93,8 @@ keymaster_error_t TA_start_operation(
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
 				const keymaster_blob_t nonce,
+				const keymaster_blob_t client_id,
+				const keymaster_blob_t app_data,
 				uint8_t *key_id);
 
 keymaster_error_t TA_get_operation(const keymaster_operation_handle_t op_handle,
