@@ -269,7 +269,7 @@ TEE_Result TA_execute(uint8_t *data, const size_t size,
 					(void *)(data + size - TAG_LENGTH), TAG_LENGTH);
 		}
 	}
-		if (res != TEE_SUCCESS)
+	if (res != TEE_SUCCESS)
 		EMSG("Error TEE_AEFinal res=%x", res);
 	else {
 		TEE_MemMove(data, outbuf, size - TAG_LENGTH);

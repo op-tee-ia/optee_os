@@ -155,23 +155,6 @@ static TEE_Result system_get_rot(struct user_mode_ctx *uctx,
 	return res;
 }
 
-static TEE_Result system_clean_rot(uint32_t param_types,
-					      TEE_Param params[TEE_NUM_PARAMS])
-{
-	TEE_Result res = TEE_ERROR_GENERIC;
-	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
-					  TEE_PARAM_TYPE_NONE,
-					  TEE_PARAM_TYPE_NONE,
-					  TEE_PARAM_TYPE_NONE);
-
-	if (exp_pt != param_types)
-		return TEE_ERROR_BAD_PARAMETERS;
-
-	//TODO: will add multiple ivshmem devices handling
-	res = ivshmem_rot_clean(0, params[0].value.a);
-
-	return res;
-}
 #endif
 
 static TEE_Result system_map_zi(struct user_mode_ctx *uctx,
@@ -413,8 +396,6 @@ static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
 #ifdef CFG_IVSHMEM
 	case PTA_SYSTEM_GET_ROT:
 		return system_get_rot(uctx, param_types, params);
-	case PTA_SYSTEM_CLEAN_ROT:
-		return system_clean_rot(param_types, params);
 #endif
 	default:
 		break;
