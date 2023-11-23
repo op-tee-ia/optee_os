@@ -31,7 +31,9 @@ CFG_USE_TPM_EARLY ?= y
 
 # use x86 random generator
 CFG_X86_RNG ?= y
-CFG_WITH_SOFTWARE_PRNG ?= n
+ifeq ($(CFG_X86_RNG),y)
+$(call force,CFG_WITH_SOFTWARE_PRNG,n)
+endif
 
 CFG_TZDRAM_START ?= 0x01000000
 CFG_TZDRAM_SIZE  ?= 0x01000000

@@ -145,6 +145,16 @@ TEE_Result crypto_rng_read(void *buf, size_t len)
 	return TEE_SUCCESS;
 }
 
+uint8_t hw_get_random_byte(void)
+{
+	uint8_t data = 0;
+
+	if (crypto_rng_read(&data, 1))
+		panic();
+
+	return data;
+}
+
 void plat_rng_init(void)
 {
 }
@@ -166,7 +176,7 @@ void x86_drng_init(void)
 		IMSG("This platform support RDSEED.");
 		g_drng_feature |= DRNG_HAS_RDSEED;
 	}
-		
+
 }
 
 driver_init(x86_drng_init);
