@@ -284,6 +284,8 @@ free_op:
 exit:
 	if (outbuf != NULL)
 		TEE_Free(outbuf);
+	/* clean kekData before return */
+	TEE_MemFill(kekData, 0, KEY_LENGTH);
 	return res;
 }
 
