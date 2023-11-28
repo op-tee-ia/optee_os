@@ -18,7 +18,12 @@
  * The smallest blocks size that can hold two struct
  * tee_fs_htree_node_image or two struct tee_fs_htree_image.
  */
+#if defined(X86_64)
+/* Increase this size accordingly because FEK size is 32 bytes on x86 */
+#define TEST_BLOCK_SIZE		176
+#else
 #define TEST_BLOCK_SIZE		144
+#endif
 
 struct test_aux {
 	uint8_t *data;

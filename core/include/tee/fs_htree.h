@@ -21,7 +21,11 @@
 
 #define TEE_FS_HTREE_HASH_SIZE		TEE_SHA256_HASH_SIZE
 #define TEE_FS_HTREE_IV_SIZE		16
+#if defined(X86_64)
+#define TEE_FS_HTREE_FEK_SIZE		32
+#else
 #define TEE_FS_HTREE_FEK_SIZE		16
+#endif
 #define TEE_FS_HTREE_TAG_SIZE		16
 
 /* Internal struct provided to let the rpc callbacks know the size if needed */

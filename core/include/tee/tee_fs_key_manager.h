@@ -14,7 +14,11 @@
 #define TEE_FS_KM_ENC_FEK_ALG       TEE_ALG_AES_ECB_NOPAD
 #define TEE_FS_KM_SSK_SIZE          TEE_SHA256_HASH_SIZE
 #define TEE_FS_KM_TSK_SIZE          TEE_SHA256_HASH_SIZE
+#if defined(X86_64)
+#define TEE_FS_KM_FEK_SIZE          32  /* bytes */
+#else
 #define TEE_FS_KM_FEK_SIZE          16  /* bytes */
+#endif
 
 TEE_Result tee_fs_generate_fek(const TEE_UUID *uuid, void *encrypted_fek,
 			       size_t fek_size);

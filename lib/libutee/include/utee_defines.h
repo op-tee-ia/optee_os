@@ -302,7 +302,11 @@ static inline size_t __tee_alg_get_digest_size(uint32_t algo)
 /* OTP mapping                                                  */
 /* ------------------------------------------------------------ */
 #define HW_UNIQUE_KEY_WORD1      (8)
+#if defined(X86_64)
+#define HW_UNIQUE_KEY_LENGTH     (32)
+#else
 #define HW_UNIQUE_KEY_LENGTH     (16)
+#endif
 #define HW_UNIQUE_KEY_WORD2      (HW_UNIQUE_KEY_WORD1 + 1)
 #define HW_UNIQUE_KEY_WORD3      (HW_UNIQUE_KEY_WORD1 + 2)
 #define HW_UNIQUE_KEY_WORD4      (HW_UNIQUE_KEY_WORD1 + 3)
