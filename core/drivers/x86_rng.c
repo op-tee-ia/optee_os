@@ -139,7 +139,7 @@ TEE_Result crypto_rng_read(void *buf, size_t len)
 			EMSG("failed with drng_rand32\n");
 			return TEE_ERROR_GENERIC;
 		}
-		memcpy(buf + len_multiple4, &tmp_buf, len);
+		memcpy((uint8_t*)buf + len_multiple4, &tmp_buf, len);
 		tmp_buf = 0;
 	}
 	return TEE_SUCCESS;
@@ -159,7 +159,7 @@ void plat_rng_init(void)
 {
 }
 
-void x86_drng_init(void)
+static TEE_Result x86_drng_init(void)
 {
 	uint32_t info[4] = {0};
 
@@ -177,6 +177,7 @@ void x86_drng_init(void)
 		g_drng_feature |= DRNG_HAS_RDSEED;
 	}
 
+	return TEE_SUCCESS;
 }
 
 driver_init(x86_drng_init);
