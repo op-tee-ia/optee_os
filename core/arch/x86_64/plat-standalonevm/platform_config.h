@@ -14,7 +14,9 @@
 #define PRINT_USE_IO_PORT 1
 
 /* Make stacks aligned to data cache line length */
-#define STACK_ALIGNMENT		64
+#define STACK_ALIGNMENT    64
+
+#define STACK_ADJUSTMENT   8
 
 /* SDP enable but no pool defined: reserve 4MB for SDP tests */
 #if defined(CFG_SECURE_DATA_PATH) && !defined(CFG_TEE_SDP_MEM_BASE)

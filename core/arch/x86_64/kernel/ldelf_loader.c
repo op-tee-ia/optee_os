@@ -296,7 +296,7 @@ TEE_Result ldelf_dlopen(struct user_mode_ctx *uctx, TEE_UUID *uuid,
 
 	assert(uuid);
 
-	usr_stack -= ROUNDUP(sizeof(*arg), STACK_ALIGNMENT);
+	usr_stack -= (ROUNDUP(sizeof(*arg), STACK_ALIGNMENT)  + STACK_ADJUSTMENT);
 	arg = (struct dl_entry_arg *)usr_stack;
 
 	res = vm_check_access_rights(uctx,
@@ -348,7 +348,7 @@ TEE_Result ldelf_dlsym(struct user_mode_ctx *uctx, TEE_UUID *uuid,
 	if (len == maxlen)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	usr_stack -= ROUNDUP(sizeof(*arg) + len + 1, STACK_ALIGNMENT);
+	usr_stack -= (ROUNDUP(sizeof(*arg) + len + 1, STACK_ALIGNMENT)  + STACK_ADJUSTMENT);
 	arg = (struct dl_entry_arg *)usr_stack;
 
 	res = vm_check_access_rights(uctx,
