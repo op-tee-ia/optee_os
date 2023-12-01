@@ -186,10 +186,10 @@ void ivshmem_init(void)
 	uint8_t dev, func;
 	uint8_t cap_offset = 0;
 	uint16_t val16 = 0;
-	uint32_t *vector_ctrl;
-	uint32_t *msg_data;
-	uint32_t *msg_lower_addr;
-	uint32_t *msg_upper_addr;
+	volatile uint32_t *vector_ctrl;
+	volatile uint32_t *msg_data;
+	volatile uint32_t *msg_lower_addr;
+	volatile uint32_t *msg_upper_addr;
 
 	/*
 	 * PCI devices reside in bus zero for QEMU by default.
