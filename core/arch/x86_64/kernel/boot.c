@@ -31,7 +31,6 @@
 #include <trace.h>
 #include <utee_defines.h>
 #include <util.h>
-#include <kernel/fpu.h>
 #include <drivers/apic.h>
 #ifdef CFG_IVSHMEM
 #include <drivers/ivshmem.h>
@@ -578,7 +577,6 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
 	 */
 	thread_set_exceptions(THREAD_EXCP_ALL);
 	primary_save_cntfrq();
-	fpu_init();
 
 	/*
 	 * Pager: init_runtime() calls thread_kernel_enable_vfp() so we must

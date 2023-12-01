@@ -170,6 +170,9 @@ farjump64:
     /* set up the idt */
     call setup_idt
 
+    /* Init fpu */
+    call fpu_init
+
     /* Enable Console */
     call console_init
 
