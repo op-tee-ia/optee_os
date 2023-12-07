@@ -332,3 +332,61 @@ CopyAuthSessionCommand (
 
   return (UINT32)(Buffer - (UINT8 *)AuthSessionOut);
 }
+
+typedef union
+{
+	uint64_t val;
+	struct
+	{
+		uint32_t lo;
+		uint32_t hi;
+	};
+
+} msr_t;
+
+static uint64_t __attribute__((unused,always_inline))
+__RDMSR (unsigned idx)
+{
+	msr_t msr;
+
+	asm volatile ("rdmsr" : "=a" (msr.lo), "=d" (msr.hi) : "c" (idx));
+	return msr.val;
+}
+
+static uint64_t __attribute__((unused,always_inline))
+__RDTSC (void)
+{
+	uint32_t lo, hi;
+
+	asm volatile ("rdtsc" : "=a" (lo), "=d" (hi));
+	return (uint64_t) hi << 32 | lo;
+}
+
+static uint64_t rdtsc(void) {
+	return __RDTSC();
+}
+
+uint32_t get_cpu_freq(void)
+{
+	uint32_t cpu_freq;
+	uint32_t max_nb_ratio;
+	msr_t platform_info;
+
+	platform_info.val = __RDMSR (0xce);
+	max_nb_ratio = (platform_info.lo >> 8) & 0xff;
+	cpu_freq = 100 * max_nb_ratio;
+
+	return cpu_freq;
+}
+
+VOID MicroSecondDelay(UINTN microseconds)
+{
+        UINT64 total_tick;
+        if (microseconds > 10 * 1000000)
+                microseconds = 10 * 1000000;
+
+        total_tick = rdtsc() + get_cpu_freq() * microseconds;
+        while (rdtsc() < total_tick) {
+                asm volatile ("pause");
+        }
+}

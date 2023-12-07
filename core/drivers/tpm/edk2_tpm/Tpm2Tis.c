@@ -68,7 +68,7 @@ TisPcWaitRegisterBits (
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
     }
-    //MicroSecondDelay (30);
+    MicroSecondDelay (30);
   }
   return EFI_TIMEOUT;
 }
@@ -110,7 +110,7 @@ TisPcReadBurstCount (
     if (*BurstCount != 0) {
       return EFI_SUCCESS;
     }
-   // MicroSecondDelay (30);
+    MicroSecondDelay (30);
     WaitTime += 30;
   } while (WaitTime < TIS_TIMEOUT_D);
 

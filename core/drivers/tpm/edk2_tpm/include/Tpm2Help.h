@@ -185,4 +185,6 @@ CopyAuthSessionCommand (
   OUT     UINT8                     *AuthSessionOut
   );
 
+VOID MicroSecondDelay(UINTN microseconds);
+
 #endif

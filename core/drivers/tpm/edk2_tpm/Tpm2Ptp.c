@@ -90,8 +90,8 @@ PtpCrbWaitRegisterBits (
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
     }
-    //todo
-    //MicroSecondDelay (30);
+
+    MicroSecondDelay (30);
   }
   return EFI_TIMEOUT;
 }
