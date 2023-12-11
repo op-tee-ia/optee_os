@@ -85,13 +85,13 @@ PtpCrbWaitRegisterBits (
   UINT32                            RegRead;
   UINT32                            WaitTime;
 
-  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 1) {
+  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 100) {
     RegRead = MmioRead32 ((UINTN)Register);
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
     }
 
-    MicroSecondDelay (30);
+    MicroSecondDelay (100);
   }
   return EFI_TIMEOUT;
 }

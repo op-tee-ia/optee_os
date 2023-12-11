@@ -63,12 +63,12 @@ TisPcWaitRegisterBits (
   UINT8                             RegRead;
   UINT32                            WaitTime;
 
-  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 30) {
+  for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 100) {
     RegRead = MmioRead8 ((UINTN)Register);
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
     }
-    MicroSecondDelay (30);
+    MicroSecondDelay (100);
   }
   return EFI_TIMEOUT;
 }
@@ -110,8 +110,8 @@ TisPcReadBurstCount (
     if (*BurstCount != 0) {
       return EFI_SUCCESS;
     }
-    MicroSecondDelay (30);
-    WaitTime += 30;
+    MicroSecondDelay (100);
+    WaitTime += 100;
   } while (WaitTime < TIS_TIMEOUT_D);
 
   return EFI_TIMEOUT;
