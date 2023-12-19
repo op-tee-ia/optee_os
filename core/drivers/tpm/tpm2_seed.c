@@ -37,32 +37,39 @@ static const attribute_matrix_t config_table[] =
 {
 	{NV_INDEX_OPTEEOS_SEED,
 		{
-		/* The Index data can be written if Owner Authorization is provided. */
-		.TPMA_NV_OWNERWRITE = 1,
+		/* Authorization failures of the Index do not affect the DA logic
+		* and authorization of the Index is not blocked when the TPM is in
+		* Lockout mode.
+		*/
+		.TPMA_NV_NO_DA = 1,
 		/* Authorizations to change the Index contents that require
-			* USER role may be provided with an HMAC session or password.
+		* USER role may be provided with an HMAC session or password.
 		*/
 		.TPMA_NV_AUTHWRITE = 1,
 		/* The Index data may be read if the authValue is provided. */
 		. TPMA_NV_AUTHREAD = 1,
 		/* A partial write of the Index data is not allowed. The write size
-			* shall match the defined space size.
-			*/
+		* shall match the defined space size.
+		*/
 		.TPMA_NV_WRITEALL = 1,
 		/* TPM2_NV_WriteLock may be used to prevent further writes
-			* to this location regardless of TPM reset/restart.
-			*/
+		* to this location regardless of TPM reset/restart.
+		*/
 		.TPMA_NV_WRITEDEFINE = 1,
 		/* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
-			* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
-			* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
-			*/
+		* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
+		* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
+		*/
 		.TPMA_NV_READ_STCLEAR = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITE_STCLEAR = 1,
 		}
 	},
 	{NV_INDEX_BOOTLOADER,
 		{
-		.TPMA_NV_OWNERWRITE = 1,
+		.TPMA_NV_NO_DA = 1,
 		.TPMA_NV_AUTHWRITE = 1,
 		.TPMA_NV_AUTHREAD = 1,
 		.TPMA_NV_WRITE_STCLEAR = 1,
