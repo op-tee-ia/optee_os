@@ -11,6 +11,7 @@ srcs-y += Tpm2Integrity.c
 srcs-y += Tpm2Sequences.c
 srcs-y += Tpm2Session.c
 srcs-y += Tpm2Capability.c
+srcs-y += Tpm2Startup.c
 
 ifeq ($(CFG_USE_TPM_EARLY),y)
 srcs-y += RegisterFilterLibNull.c

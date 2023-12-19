@@ -376,13 +376,21 @@ EFI_STATUS tee_tpm2_init(void)
 
 EFI_STATUS tee_tpm2_end(void)
 {
-	EFI_STATUS ret1 = tpm2_read_lock_nvindex(NV_INDEX_BOOTLOADER);
-	EFI_STATUS ret2 = tpm2_write_lock_nvindex(NV_INDEX_BOOTLOADER);
+	EFI_STATUS ret = EFI_SUCCESS;
 
-	if (ret1 == EFI_SUCCESS && ret2 == EFI_SUCCESS)
-		return EFI_SUCCESS;
+	ret = tpm2_read_lock_nvindex(NV_INDEX_BOOTLOADER);
+	if (EFI_ERROR(ret))
+		return ret;
 
-	return EFI_LOAD_ERROR;
+	ret = tpm2_write_lock_nvindex(NV_INDEX_BOOTLOADER);
+	if (EFI_ERROR(ret))
+		return ret;
+
+	ret = Tpm2Shutdown(TPM_SU_CLEAR);
+	if (EFI_ERROR(ret))
+		return ret;
+
+	return ret;
 }
 
 EFI_STATUS tee_read_device_state_tpm2(UINT8 *state)
