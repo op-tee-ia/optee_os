@@ -26,8 +26,8 @@ uint64_t g_tpm_base_vaddr = 0;
 static bool g_huk_initialized = false;
 static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
 
-#define NV_INDEX_OPTEEOS_SEED  0x01500081
-#define NV_INDEX_BOOTLOADER    0x01500082
+#define NV_INDEX_OPTEEOS_SEED  0x01500091
+#define NV_INDEX_BOOTLOADER    0x01500092
 typedef struct {
 	TPMI_RH_NV_INDEX nv_index;
 	TPMA_NV attribute;
