@@ -260,7 +260,12 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 
 		g_huk_initialized = true;
 	}
-
+#ifdef CFG_TEE_CORE_DEBUG
+	memset(g_huk, 0, HW_UNIQUE_KEY_LENGTH);
+	DMSG("Warning: for debug build it will use a dummy key:");
+	for (uint32_t i=0; i<HW_UNIQUE_KEY_LENGTH; i++)
+		DMSG("huk[%d] = %x", i, g_huk[i]);
+#endif
 	memcpy(&hwkey->data[0], g_huk, HW_UNIQUE_KEY_LENGTH);
 
 	return TEE_SUCCESS;
