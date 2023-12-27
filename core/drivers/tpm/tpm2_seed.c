@@ -17,7 +17,7 @@
 #include <mm/core_memprot.h>
 #include <types_ext.h>
 #include <kernel/tee_common_otp.h>
-
+#include <mbedtls/platform_util.h>
 #include "tpm2_ops.h"
 #include <drivers/tpm2_seed.h>
 
@@ -25,6 +25,8 @@ uint64_t g_tpm_base_vaddr = 0;
 
 static bool g_huk_initialized = false;
 static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
+
+#define DIGEST_SIZE 32
 
 #define NV_INDEX_OPTEEOS_SEED  0x01500091
 #define NV_INDEX_BOOTLOADER    0x01500092
@@ -151,11 +153,8 @@ static EFI_STATUS tpm2_fuse_optee_seed(void)
 	}
 
 out:
-	// Always clear the memory
-	// Maybe be optimized?
-	memset(optee_seed.buffer, 0, HW_UNIQUE_KEY_LENGTH);
-	memset(read_seed, 0, HW_UNIQUE_KEY_LENGTH);
-	barrier();
+	mbedtls_platform_zeroize(optee_seed.buffer, HW_UNIQUE_KEY_LENGTH);
+	mbedtls_platform_zeroize(read_seed, HW_UNIQUE_KEY_LENGTH);
 	return ret;
 }
 
@@ -230,7 +229,7 @@ out:
 	if (ret == EFI_SUCCESS)
 		memcpy(Key, TempKey, HW_UNIQUE_KEY_LENGTH);
 
-	memset(TempKey, 0, sizeof(TempKey));
+	mbedtls_platform_zeroize(TempKey, sizeof(TempKey));
 
 	return ret;
 }
@@ -261,7 +260,7 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 		g_huk_initialized = true;
 	}
 #ifdef CFG_TEE_CORE_DEBUG
-	memset(g_huk, 0, HW_UNIQUE_KEY_LENGTH);
+	mbedtls_platform_zeroize(g_huk, HW_UNIQUE_KEY_LENGTH);
 	DMSG("Warning: for debug build it will use a dummy key:");
 	for (uint32_t i=0; i<HW_UNIQUE_KEY_LENGTH; i++)
 		DMSG("huk[%d] = %x", i, g_huk[i]);
@@ -381,24 +380,23 @@ EFI_STATUS tee_tpm2_init(void)
 
 EFI_STATUS tee_tpm2_end(void)
 {
-	EFI_STATUS ret = EFI_SUCCESS;
+	EFI_STATUS ret1 = tpm2_read_lock_nvindex(NV_INDEX_BOOTLOADER);
+	EFI_STATUS ret2 = tpm2_write_lock_nvindex(NV_INDEX_BOOTLOADER);
+	EFI_STATUS ret3 = Tpm2Shutdown(TPM_SU_CLEAR);
 
-	ret = tpm2_read_lock_nvindex(NV_INDEX_BOOTLOADER);
-	if (EFI_ERROR(ret))
-		return ret;
+	if (EFI_ERROR(ret3))
+		EMSG("Failed(%lx) to shutdown TPM.", ret3);
 
-	ret = tpm2_write_lock_nvindex(NV_INDEX_BOOTLOADER);
-	if (EFI_ERROR(ret))
-		return ret;
+	if (ret1 == EFI_SUCCESS && ret2 == EFI_SUCCESS)
+		return EFI_SUCCESS;
 
-	ret = Tpm2Shutdown(TPM_SU_CLEAR);
-	if (EFI_ERROR(ret))
-		return ret;
+	EMSG("Read lock TPM result:(%lx).", ret1);
+	EMSG("Write lock TPM result: (%lx).", ret2);
 
-	return ret;
+	return EFI_LOAD_ERROR;
 }
 
-EFI_STATUS tee_read_device_state_tpm2(UINT8 *state)
+EFI_STATUS tee_tpm2_read_device_state(UINT8 *state)
 {
 	EFI_STATUS ret;
 	UINT16 data_size = sizeof(UINT8);
@@ -419,7 +417,7 @@ EFI_STATUS tee_read_device_state_tpm2(UINT8 *state)
 	return ret;
 }
 
-EFI_STATUS tee_write_device_state_tpm2(UINT8 state)
+EFI_STATUS tee_tpm2_write_device_state(UINT8 state)
 {
 	EFI_STATUS ret;
 
@@ -434,7 +432,7 @@ EFI_STATUS tee_write_device_state_tpm2(UINT8 state)
 	return ret;
 }
 
-EFI_STATUS tee_read_rollback_index_tpm2(size_t rollback_index_slot, uint64_t *out_rollback_index)
+EFI_STATUS tee_tpm2_read_rollback_index(size_t rollback_index_slot, uint64_t *out_rollback_index)
 {
 	EFI_STATUS ret;
 	UINT16 data_size = sizeof(uint64_t);
@@ -461,7 +459,7 @@ EFI_STATUS tee_read_rollback_index_tpm2(size_t rollback_index_slot, uint64_t *ou
 
 }
 
-EFI_STATUS tee_write_rollback_index_tpm2(size_t rollback_index_slot, uint64_t rollback_index)
+EFI_STATUS tee_tpm2_write_rollback_index(size_t rollback_index_slot, uint64_t rollback_index)
 {
 	EFI_STATUS ret;
 
@@ -499,3 +497,66 @@ BOOLEAN tee_tpm2_bootloader_need_init(void)
 	return FALSE;
 }
 
+// Triggered by: fastboot oem fuse lock-tpm2-owner
+EFI_STATUS tee_tpm2_fuse_lock_owner(void)
+{
+	TPMS_AUTH_COMMAND session_data = {0};
+	TPM2B_AUTH owner_auth;
+	EFI_STATUS ret;
+	TPMA_PERMANENT per;
+	UINT8 state;
+
+	ret = tpm2_get_cap_permanent(&per);
+	if (EFI_ERROR(ret)) {
+		EMSG("Check TPM cap permanent for lock owner failed(%lx).", ret);
+		return ret;
+	}
+
+	if (per.ownerAuthSet) {
+		EMSG("TPM owner is already locked");
+		return EFI_SUCCESS;
+	}
+
+	/* Check can read the bootloader NV index */
+	ret = tee_tpm2_read_device_state(&state);
+	if (EFI_ERROR(ret)) {
+		EMSG("Read device state failed, should not lock the owner!");
+		return ret;
+	}
+
+	session_data.sessionHandle = TPM_RS_PW;
+	session_data.nonce.size = 0;
+	session_data.hmac.size = 0;
+	*((UINT8 *)((void *)&session_data.sessionAttributes)) = 0;
+
+	ret = Tpm2GetRandom(DIGEST_SIZE, &owner_auth);
+	if (EFI_ERROR(ret)) {
+		EMSG("failed(%lx) to get random", ret);
+		goto out;
+	}
+
+	ret = Tpm2HierarchyChangeAuth(TPM_RH_OWNER, &session_data, &owner_auth);
+	if (EFI_ERROR(ret)) {
+		EMSG("failed(%lx) to Tpm2HierarchyChangeAuth", ret);
+		goto out;
+	}
+
+	ret = tpm2_get_cap_permanent(&per);
+	if (EFI_ERROR(ret)) {
+		EMSG("Check TPM cap permanent after take owner failed(%lx)", ret);
+		goto out;
+	}
+
+	if (!per.ownerAuthSet) {
+		EMSG("Try to lock TPM owner, success call Tpm2HierarchyChangeAuth, but ownerAuthSet is not set!");
+		ret = EFI_SECURITY_VIOLATION;
+		goto out;
+	}
+
+	IMSG("Success lock TPM owner");
+
+out:
+	mbedtls_platform_zeroize(owner_auth.buffer, DIGEST_SIZE);
+
+	return ret;
+}

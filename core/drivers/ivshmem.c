@@ -162,15 +162,15 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	UINT8 *rd_state = req->payload;
 
 	//TEE_TPM2_WRITE_DEVICE_STATE:
-        UINT8 wr_state = *(UINT8*)(req->payload);
+	UINT8 wr_state = *(UINT8*)(req->payload);
 
 	//TEE_TPM2_READ_ROLLBACK_INDEX
-        size_t rd_rollback_index_slot = *(size_t*)(req->payload);
-        uint64_t *rd_out_rollback_index = req->payload + sizeof(rd_rollback_index_slot);
+	size_t rd_rollback_index_slot = *(size_t*)(req->payload);
+	uint64_t *rd_out_rollback_index = req->payload + sizeof(rd_rollback_index_slot);
 
 	//TEE_TPM2_WRITE_ROLLBACK_INDEX:
-        size_t wr_rollback_index_slot = *(size_t*)(req->payload);
-        uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
+	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
+	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
 
 	switch(req->cmd)
 	{
@@ -181,22 +181,22 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 		ret = tee_tpm2_end();
 		break;
 	case TEE_TPM2_READ_DEVICE_STATE:
-		ret = tee_read_device_state_tpm2(rd_state);
+		ret = tee_tpm2_read_device_state(rd_state);
 		break;
 	case TEE_TPM2_WRITE_DEVICE_STATE:
-		ret = tee_write_device_state_tpm2(wr_state);
+		ret = tee_tpm2_write_device_state(wr_state);
 		break;
 	case TEE_TPM2_READ_ROLLBACK_INDEX:
-		ret = tee_read_rollback_index_tpm2(rd_rollback_index_slot, rd_out_rollback_index);
+		ret = tee_tpm2_read_rollback_index(rd_rollback_index_slot, rd_out_rollback_index);
 		break;
 	case TEE_TPM2_WRITE_ROLLBACK_INDEX:
-		ret = tee_write_rollback_index_tpm2(wr_rollback_index_slot, wr_rollback_index);
+		ret = tee_tpm2_write_rollback_index(wr_rollback_index_slot, wr_rollback_index);
 		break;
 	case TEE_TPM2_BOOTLOADER_NEED_INIT:
 		ret = tee_tpm2_bootloader_need_init();
 		break;
 	case TEE_TPM2_FUSE_LOCK_OWNER:
-		ret = EFI_NOT_READY;
+		ret = tee_tpm2_fuse_lock_owner();
 		break;
 	case TEE_TPM2_FUSE_PROVISION_SEED:
 		ret = EFI_NOT_READY;
