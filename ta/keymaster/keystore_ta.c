@@ -235,6 +235,7 @@ err:
 static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_size,
 			keymaster_blob_t* client_id, keymaster_blob_t* app_data)
 {
+	keymaster_blob_t rot = EMPTY_BLOB;
 	keymaster_error_t res = KM_ERROR_OK;
 	size_t buf_size = 0;
 	bool oob = false; /* out of bounds flag */
@@ -254,8 +255,7 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 	uint8_t* out_end = tmp + buf_size;
 
 	/* copy client_id to hidden */
-	out += TA_serialize_blob_akms(out, out_end,
-				client_id, &oob);
+	out += TA_serialize_blob_akms(out, out_end, client_id, &oob);
 	if (oob) {
 		EMSG("Out of output buffer space");
 		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
@@ -263,8 +263,7 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 	}
 
 	/* copy app_data to hidden */
-	out += TA_serialize_blob_akms(out, out_end,
-				app_data, &oob);
+	out += TA_serialize_blob_akms(out, out_end, app_data, &oob);
 	if (oob) {
 		EMSG("Out of output buffer space");
 		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
@@ -281,17 +280,33 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 		optee_km_context.rot_info_set = true;
 	}
 
-	/* copy rot data to hidden */
-	if (TA_is_out_of_bounds(out, out_end, sizeof(struct rot_data_t))) {
+	/* copy rot.deviceLocked to hidden */
+	rot.data = (uint8_t*)&optee_km_context.rot.deviceLocked;
+	rot.data_length = sizeof(optee_km_context.rot.deviceLocked);
+	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
+	if (oob) {
 		EMSG("Out of output buffer space");
-		oob = true;
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
 		goto err;
 	}
-	TEE_MemMove(out, &optee_km_context.rot, sizeof(struct rot_data_t));
-	out += sizeof(struct rot_data_t);
 
-	if (out != out_end) {
-		EMSG("Out buffer mismatch");
+	/* copy rot.verifiedBootState to hidden */
+	rot.data = (uint8_t*)&optee_km_context.rot.verifiedBootState;
+	rot.data_length = sizeof(optee_km_context.rot.verifiedBootState);
+	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto err;
+	}
+
+	/* copy rot.keyHash256 to hidden */
+	rot.data = (uint8_t*)optee_km_context.rot.keyHash256;
+	rot.data_length = optee_km_context.rot.keySize;
+	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
 		goto err;
 	}
 
