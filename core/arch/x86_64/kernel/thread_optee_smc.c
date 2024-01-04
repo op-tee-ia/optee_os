@@ -741,6 +741,7 @@ void __noreturn sm_sched_nonsecure(void)
 			//If no more requests, just halt
 			x86_sti();
 			x86_hlt();
+			__asm__ __volatile__("pause"); //keep interrupt window
 			x86_cli();
 		}
 
