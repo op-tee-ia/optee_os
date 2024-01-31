@@ -14,8 +14,8 @@ More details on all of these points may be found in the sections below.
 
 Coding Standards
 ----------------
-- We would ask that contributions conform to [our coding standards](https://mbed-tls.readthedocs.io/en/latest/kb/development/mbedtls-coding-standards/), and that contributions are fully tested before submission, as mentioned in the [Tests](#tests) and [Continuous Integration](#continuous-integration-tests) sections.
-- The code should be written in a clean and readable style.
+- Contributions should include tests, as mentioned in the [Tests](#tests) and [Continuous Integration](#continuous-integration-tests) sections. Please check that your contribution passes basic tests before submission, and check the CI results after making a pull request.
+- The code should be written in a clean and readable style, and must follow [our coding standards](https://mbed-tls.readthedocs.io/en/latest/kb/development/mbedtls-coding-standards/).
 - The code should be written in a portable generic way, that will benefit the whole community, and not only your own needs.
 - The code should be secure, and will be reviewed from a security point of view as well.
 
@@ -24,7 +24,7 @@ Making a Contribution
 1. [Check for open issues](https://github.com/Mbed-TLS/mbedtls/issues) or [start a discussion](https://lists.trustedfirmware.org/mailman3/lists/mbed-tls.lists.trustedfirmware.org) around a feature idea or a bug.
 1. Fork the [Mbed TLS repository on GitHub](https://github.com/Mbed-TLS/mbedtls) to start making your changes. As a general rule, you should use the ["development" branch](https://github.com/Mbed-TLS/mbedtls/tree/development) as a basis.
 1. Write a test which shows that the bug was fixed or that the feature works as expected.
-1. Send a pull request (PR) and work with us until it gets merged and published. Contributions may need some modifications, so a few rounds of review and fixing may be necessary. We will include your name in the ChangeLog :)
+1. Send a pull request (PR) and work with us until it gets merged and published. Contributions may need some modifications, so a few rounds of review and fixing may be necessary. See our [review process guidelines](https://mbed-tls.readthedocs.io/en/latest/reviews/review-for-contributors/).
 1. For quick merging, the contribution should be short, and concentrated on a single feature or topic. The larger the contribution is, the longer it would take to review it and merge it.
 
 Backwards Compatibility
@@ -32,13 +32,9 @@ Backwards Compatibility
 
 The project aims to minimise the impact on users upgrading to newer versions of the library and it should not be necessary for a user to make any changes to their own code to work with a newer version of the library. Unless the user has made an active decision to use newer features, a newer generation of the library or a change has been necessary due to a security issue or other significant software defect, no modifications to their own code should be necessary. To achieve this, API compatibility is maintained between different versions of Mbed TLS on the main development branch and in LTS (Long Term Support) branches, as described in [BRANCHES.md](BRANCHES.md).
 
-To minimise such disruption to users, where a change to the interface is required, all changes to the ABI or API, even on the main development branch where new features are added, need to be justifiable by either being a significant enhancement, new feature or bug fix which is best resolved by an interface change. If there is an API change, the contribution, if accepted, will be merged only when there will be a major release.
+To minimise such disruption to users, where a change to the interface is required, all changes to the ABI or API, even on the main development branch where new features are added, need to be justifiable by either being a significant enhancement, new feature or bug fix which is best resolved by an interface change. If there is an API change, the contribution, if accepted, will be merged only when there is a major release.
 
-Where changes to an existing interface are necessary, functions in the public interface which need to be changed, are marked as 'deprecated'. This is done with the preprocessor symbols `MBEDTLS_DEPRECATED_WARNING` and `MBEDTLS_DEPRECATED_REMOVED`. Then, a new function with a new name but similar if not identical behaviour to the original function containing the necessary changes should be created alongside the existing deprecated function.
-
-When a build is made with the deprecation preprocessor symbols defined, a compiler warning will be generated to warn a user that the function will be removed at some point in the future, notifying users that they should change from the older deprecated function to the newer function at their own convenience.
-
-Therefore, no changes are permitted to the definition of functions in the public interface which will change the API. Instead the interface can only be changed by its extension. As described above, if a function needs to be changed, a new function needs to be created alongside it, with a new name, and whatever change is necessary, such as a new parameter or the addition of a return value.
+No changes are permitted to the definition of functions in the public interface which will change the API. Instead the interface can only be changed by its extension. Where changes to an existing interface are necessary, functions in the public interface which need to be changed are marked as 'deprecated'. If there is a strong reason to replace an existing function with one that has a slightly different interface (different prototype, or different documented behavior), create a new function with a new name with the desired interface. Keep the old function, but mark it as deprecated.
 
 Periodically, the library will remove deprecated functions from the library which will be a breaking change in the API, but such changes will be made only in a planned, structured way that gives sufficient notice to users of the library.
 
@@ -88,8 +84,14 @@ Mbed TLS is well documented, but if you think documentation is needed, speak out
 License and Copyright
 ---------------------
 
-All new files should include the [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) standard license header where possible. For licensing details, please see the [License section of the README](README.md#License).
+Unless specifically indicated otherwise in a file, Mbed TLS files are provided under a dual [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) OR [GPL-2.0-or-later](https://spdx.org/licenses/GPL-2.0-or-later.html) license. See the [LICENSE](LICENSE) file for the full text of these licenses. This means that users may choose which of these licenses they take the code under.
+
+Contributors must accept that their contributions are made under both the Apache-2.0 AND [GPL-2.0-or-later](https://spdx.org/licenses/GPL-2.0-or-later.html) licenses. This enables LTS (Long Term Support) branches of the software to be provided under either the Apache-2.0 or GPL-2.0-or-later licenses.
+
+All new files should include the standard SPDX license identifier where possible, i.e. "SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later".
 
 The copyright on contributions is retained by the original authors of the code. Where possible for new files, this should be noted in a comment at the top of the file in the form: "Copyright The Mbed TLS Contributors".
 
-When contributing code to us, the committer and all authors are required to make the submission under the terms of the [Developer Certificate of Origin](dco.txt), confirming that the code submitted can (legally) become part of the project, and be subject to the same Apache 2.0 license. This is done by including the standard Git `Signed-off-by:` line in every commit message. If more than one person contributed to the commit, they should also add their own `Signed-off-by:` line.
+When contributing code to us, the committer and all authors are required to make the submission under the terms of the [Developer Certificate of Origin](dco.txt), confirming that the code submitted can (legally) become part of the project, and is submitted under both the Apache-2.0 AND GPL-2.0-or-later licenses.
+
+This is done by including the standard Git `Signed-off-by:` line in every commit message. If more than one person contributed to the commit, they should also add their own `Signed-off-by:` line.
