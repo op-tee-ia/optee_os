@@ -1845,11 +1845,6 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
         return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
     }
 
-    W = mempool_alloc(mbedtls_mpi_mempool,
-                      sizeof( mbedtls_mpi ) * array_size_W);
-    if (W == NULL)
-        return MBEDTLS_ERR_MPI_ALLOC_FAILED;
-
     /*
      * Init temps and window size
      */
@@ -1857,8 +1852,6 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
     mbedtls_mpi_init_mempool(&RR); mbedtls_mpi_init(&T);
     mbedtls_mpi_init_mempool(&Apos);
     mbedtls_mpi_init_mempool(&WW);
-    for( i = 0; i < array_size_W; i++ )
-        mbedtls_mpi_init_mempool(W + i);
 
     i = mbedtls_mpi_bitlen(E);
 
@@ -1873,6 +1866,14 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
 
     const size_t w_table_used_size = (size_t) 1 << window_bitsize;
 
+    W = mempool_alloc(mbedtls_mpi_mempool,
+                      sizeof( mbedtls_mpi ) * array_size_W);
+    if (W == NULL) {
+        ret = MBEDTLS_ERR_MPI_ALLOC_FAILED;
+        goto cleanup;
+    }
+    for (i = 0; i < array_size_W; i++)
+        mbedtls_mpi_init_mempool(W + i);
     /*
      * This function is not constant-trace: its memory accesses depend on the
      * exponent value. To defend against timing attacks, callers (such as RSA
@@ -1904,7 +1905,7 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
      * data, which is defeated by randomized blinding.
      */
     const size_t x_index = 0;
-    mbedtls_mpi_init(&W[x_index]);
+    mbedtls_mpi_copy(&W[x_index], X);
 
     j = N->n + 1;
     /* All W[i] including the accumulator must have at least N->n limbs for
@@ -1914,7 +1915,7 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
      * this function!
      */
     MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&W[x_index], j));
-    MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&W[1],  j));
+
     MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&T, j * 2));
 
     /*
@@ -1941,6 +1942,8 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
     } else {
         memcpy(&RR, prec_RR, sizeof(mbedtls_mpi));
     }
+
+    MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&W[1],  j));
 
     /*
      * W[1] = A * R^2 * R^-1 mod N = A * R mod N
@@ -2096,8 +2099,9 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
 
 cleanup:
 
-    for( i = 0; i < array_size_W; i++ )
-        mbedtls_mpi_free(W + i);
+    if (W)
+        for (i = 0; i < array_size_W; i++)
+            mbedtls_mpi_free(W + i);
     mempool_free(mbedtls_mpi_mempool , W);
 
     mbedtls_mpi_free(&T);
