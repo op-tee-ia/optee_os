@@ -226,6 +226,8 @@ typedef struct mbedtls_mpi {
 
     /** Total number of limbs in \c p.  */
     unsigned short MBEDTLS_PRIVATE(n);
+
+    short use_mempool;
     /* Make sure that MBEDTLS_MPI_MAX_LIMBS fits in n.
      * Use the same limit value on all platforms so that we don't have to
      * think about different behavior on the rare platforms where
@@ -238,6 +240,8 @@ typedef struct mbedtls_mpi {
 }
 mbedtls_mpi;
 
+extern void *mbedtls_mpi_mempool;
+
 /**
  * \brief           Initialize an MPI context.
  *
@@ -247,6 +251,7 @@ mbedtls_mpi;
  * \param X         The MPI context to initialize. This must not be \c NULL.
  */
 void mbedtls_mpi_init(mbedtls_mpi *X);
+void mbedtls_mpi_init_mempool(mbedtls_mpi *X);
 
 /**
  * \brief          This function frees the components of an MPI context.
