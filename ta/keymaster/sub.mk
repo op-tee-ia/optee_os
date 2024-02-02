@@ -15,3 +15,4 @@ srcs-y += shift.c
 srcs-y += crypto_ec.c
 srcs-y += attestation.c
 srcs-y += mbedtls_proxy.c
+cppflags-mbedtls_proxy.c-y += -DMBEDTLS_ALLOW_PRIVATE_ACCESS

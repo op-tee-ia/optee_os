@@ -428,7 +428,7 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 
 	mbedtls_pk_init(&pk);
 	int mbedtls_ret = mbedtls_pk_parse_key(&pk, key_data.data,
-				       key_data.data_length, NULL, 0);
+				       key_data.data_length, NULL, 0, f_rng, NULL);
 	if (mbedtls_ret != 0) {
 		EMSG("Failed to parse pkcs8 key");
 		return KM_ERROR_INVALID_KEY_BLOB;
@@ -731,7 +731,7 @@ static TEE_Result mbedTLS_import_rsa_pk(mbedtls_pk_context *pk,
 
 	rsa = pk->pk_ctx;
 
-	mbedtls_rsa_init(rsa, MBEDTLS_RSA_PKCS_V15, 0);
+	mbedtls_rsa_init(rsa);
 
 	/* check if we work with persistent object, as transient API differs */
 	if (obj_info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
