@@ -136,6 +136,7 @@ srcs-$(_CFG_CORE_LTC_SM2_KEP) += sm2-kep.c
 
 ifeq ($(_CFG_CORE_LTC_ACIPHER),y)
 srcs-y += mpi_desc.c
+cppflags-mpi_desc.c-y += -DMBEDTLS_ALLOW_PRIVATE_ACCESS
 endif
 
 srcs-y += tomcrypt.c
