@@ -14,7 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#include <mbedtls/platform_util.h>
+#include <mbedtls/constant_time.h>
 #include "auth.h"
 
 /*
@@ -59,7 +60,7 @@ TEE_Result TA_InitializeAuthTokenKey(void)
 				sizeof(auth_token_key));
 
 		/* erase auth_token_key from memory */
-		TEE_MemFill(auth_token_key, 0, sizeof(auth_token_key));
+		mbedtls_platform_zeroize(auth_token_key, sizeof(auth_token_key));
 
 		if (res != TEE_SUCCESS) {
 			EMSG("Failed to write auth_token key secret, res=%x", res);
@@ -366,7 +367,7 @@ static TEE_Result TA_ValidateTokenSignature(const hw_auth_token_t *token)
 		goto close_obj;
 	}
 
-	if (memcmp(token->hmac, computed_hmac, computed_hmac_length) != 0) {
+	if (mbedtls_ct_memcmp(token->hmac, computed_hmac, computed_hmac_length) != 0) {
 		res = TEE_ERROR_MAC_INVALID;
 		EMSG("auth_token has invallid HMAC");
 		goto close_obj;

@@ -13,6 +13,7 @@
 
 #include <string.h>
 #include <trace.h>
+#include <mbedtls/platform_util.h>
 
 #include "tpm2_ops.h"
 
@@ -132,6 +133,8 @@ EFI_STATUS tpm2_read_nvindex(TPMI_RH_NV_INDEX nv_index,
 	}
 	memcpy(data, nv_read_data.buffer, nv_read_data.size);
 
+	mbedtls_platform_zeroize(nv_read_data.buffer, nv_read_data.size);
+
 	return EFI_SUCCESS;
 }
 
@@ -172,6 +175,7 @@ EFI_STATUS tpm2_write_nvindex(TPMI_RH_NV_INDEX nv_index,
 						nv_index, nv_write_data.size, ret);
 	}
 
+	mbedtls_platform_zeroize(nv_write_data.buffer, nv_write_data.size);
 	return ret;
 }
 

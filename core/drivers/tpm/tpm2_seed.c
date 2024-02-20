@@ -18,6 +18,7 @@
 #include <types_ext.h>
 #include <kernel/tee_common_otp.h>
 #include <mbedtls/platform_util.h>
+#include <mbedtls/constant_time.h>
 #include "tpm2_ops.h"
 #include <drivers/tpm2_seed.h>
 
@@ -146,7 +147,7 @@ static EFI_STATUS tpm2_fuse_optee_seed(void)
 		EMSG("Read optee seed back failed(%lx) just after write it", ret);
 		goto out;
 	}
-	if (memcmp(optee_seed.buffer, read_seed, sizeof(read_seed))) {
+	if (mbedtls_ct_memcmp(optee_seed.buffer, read_seed, sizeof(read_seed))) {
 		EMSG("Security error! Read optee seed back but verify failed!");
 		ret = EFI_SECURITY_VIOLATION;
 		goto out;
@@ -301,7 +302,7 @@ static EFI_STATUS tpm2_fuse_bootloader(void)
 		return ret;
 	}
 
-	if (memcmp(data, data_read, sizeof(data))) {
+	if (mbedtls_ct_memcmp(data, data_read, sizeof(data))) {
 		EMSG("Security error! Read bootloader NV index back but verify failed!");
 		return EFI_SECURITY_VIOLATION;
 	}

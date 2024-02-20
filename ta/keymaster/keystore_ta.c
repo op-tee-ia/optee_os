@@ -25,6 +25,7 @@
 #include "keystore_ta.h"
 #include "attestation.h"
 #include <pta_system.h>
+#include <mbedtls/platform_util.h>
 
 static TEE_TASessionHandle session_rngSTA = TEE_HANDLE_NULL;
 
@@ -498,8 +499,10 @@ out:
 		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
 	}
 	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
-	if (data)
+	if (data) {
+		mbedtls_platform_zeroize(data, data_length);
 		TEE_Free(data);
+	}
 
 	DMSG("rsp out buf:");
 	DHEXDUMP(params[1].memref.buffer, params[1].memref.size);

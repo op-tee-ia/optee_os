@@ -164,6 +164,7 @@ TEE_Result TA_create_secret_key(void)
 			EMSG("Failed to write key data, res = %x", res);
 			goto error;
 		}
+		mbedtls_platform_zeroize(keyData, sizeof(keyData));
 
 		res = TEE_WriteObjectData(object, (void *)iv, sizeof(iv));
 		if (res != TEE_SUCCESS) {
