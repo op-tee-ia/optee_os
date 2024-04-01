@@ -425,7 +425,12 @@ TEE_Result crypto_acipher_rsaes_decrypt(uint32_t algo, struct rsa_keypair *key,
 		res = get_tee_result(lmd_res);
 		return res;
 	}
+
 	rsa = (mbedtls_rsa_context *)pk.pk_ctx;
+	if (!rsa) {
+		res = TEE_ERROR_NOT_SUPPORTED;
+		return res;
+	}
 
 	res = rsa_init_and_complete_from_key_pair(rsa, key);
 	if (res)
@@ -527,7 +532,12 @@ TEE_Result crypto_acipher_rsaes_encrypt(uint32_t algo,
 		res = get_tee_result(lmd_res);
 		return res;
 	}
+
 	rsa = (mbedtls_rsa_context *)pk.pk_ctx;
+	if (!rsa) {
+		res = TEE_ERROR_NOT_SUPPORTED;
+		return res;
+	}
 
 	rsa->E = *(mbedtls_mpi *)key->e;
 	rsa->N = *(mbedtls_mpi *)key->n;
@@ -605,7 +615,12 @@ TEE_Result crypto_acipher_rsassa_sign(uint32_t algo, struct rsa_keypair *key,
 		res = get_tee_result(lmd_res);
 		return res;
 	}
+	
 	rsa = (mbedtls_rsa_context *)pk.pk_ctx;
+	if (!rsa) {
+		res = TEE_ERROR_NOT_SUPPORTED;
+		return res;
+	}
 
 	res = rsa_init_and_complete_from_key_pair(rsa, key);
 	if (res)
@@ -704,7 +719,12 @@ TEE_Result crypto_acipher_rsassa_verify(uint32_t algo,
 		res = get_tee_result(lmd_res);
 		return res;
 	}
+
 	rsa = (mbedtls_rsa_context *)pk.pk_ctx;
+	if (!rsa) {
+		res = TEE_ERROR_NOT_SUPPORTED;
+		return res;
+	}
 
 	rsa->E = *(mbedtls_mpi *)key->e;
 	rsa->N = *(mbedtls_mpi *)key->n;
