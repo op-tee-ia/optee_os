@@ -152,11 +152,9 @@ struct tpm2_int_req {
 
 static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
 {
-	// offset 0x1000 is reserved for seed rot to use.
-	vaddr_t *req_addr = g_ivshmem_devs[0].rot_addr + 0x1000;
-
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
-	struct tpm2_int_req *req = req_addr;
+	// offset 0x1000 is reserved for seed rot to use.
+	struct tpm2_int_req *req = (struct tpm2_int_req *)(g_ivshmem_devs[0].rot_addr + 0x1000);
 
 	//TEE_TPM2_READ_DEVICE_STATE
 	UINT8 *rd_state = req->payload;

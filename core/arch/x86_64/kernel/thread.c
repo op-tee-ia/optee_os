@@ -86,12 +86,24 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 #define STACK_CHECK_EXTRA	0
 #endif
 
+#define DO_PRAGMA(x) _Pragma (#x)
+
+#ifdef __clang__
+#define DECLARE_STACK(name, num_stacks, stack_size, linkage) \
+DO_PRAGMA (clang section bss=".nozi_stack." #name) \
+linkage uint32_t name[num_stacks] \
+		[ROUNDUP(stack_size + STACK_CANARY_SIZE + STACK_CHECK_EXTRA, \
+			 STACK_ALIGNMENT) / sizeof(uint32_t)] \
+		__attribute__((aligned(STACK_ALIGNMENT))); \
+DO_PRAGMA(clang section bss="")
+#else
 #define DECLARE_STACK(name, num_stacks, stack_size, linkage) \
 linkage uint32_t name[num_stacks] \
 		[ROUNDUP(stack_size + STACK_CANARY_SIZE + STACK_CHECK_EXTRA, \
 			 STACK_ALIGNMENT) / sizeof(uint32_t)] \
 		__attribute__((section(".nozi_stack." # name), \
 			       aligned(STACK_ALIGNMENT)))
+#endif
 
 #define STACK_SIZE(stack) (sizeof(stack) - STACK_CANARY_SIZE / 2)
 #define GET_STACK(stack) ((vaddr_t)(stack) + STACK_SIZE(stack))

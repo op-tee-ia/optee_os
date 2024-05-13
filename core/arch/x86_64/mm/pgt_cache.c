@@ -104,8 +104,18 @@ void pgt_init(void)
 	 * has a large alignment, while .bss has a small alignment. The current
 	 * link script is optimized for small alignment in .bss
 	 */
+#ifdef __clang__
+#pragma clang section bss=".nozi.mmu.l2"
+#endif
 	static uint8_t pgt_tables[PGT_CACHE_SIZE][PGT_SIZE]
-			__aligned(PGT_SIZE) __section(".nozi.pgt_cache");
+			__aligned(PGT_SIZE)
+#ifndef __clang__
+			__section(".nozi.pgt_cache")
+#endif
+			;
+#ifdef __clang__
+#pragma clang section bss=""
+#endif
 	size_t n;
 
 	for (n = 0; n < ARRAY_SIZE(pgt_tables); n++) {
