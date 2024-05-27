@@ -307,9 +307,38 @@ typedef struct {
 } keymaster_key_param_t;
 
 typedef struct {
+	keymaster_blob_t seed;
+	uint8_t nonce[32];
+} hmac_sharing_parameters_t;
+
+typedef struct {
 	keymaster_key_param_t* params; /* may be NULL if length == 0 */
 	size_t length;
 } keymaster_key_param_set_t;
+
+typedef struct {
+	uint8_t major_ver;
+	uint8_t minor_ver;
+	uint8_t subminor_ver;
+} keymaster_version_t;
+
+enum KmVersion {
+	KEYMASTER_1 = 10,
+	KEYMASTER_1_1 = 11,
+	KEYMASTER_2 = 20,
+	KEYMASTER_3 = 30,
+	KEYMASTER_4 = 40,
+	KEYMASTER_4_1 = 41,
+	KEYMINT_1 = 100,
+	KEYMINT_2 = 200,
+	KEYMINT_3 = 300,
+};
+
+typedef struct {
+	uint32_t max_message_version;
+	enum KmVersion km_version;
+	uint32_t km_date;
+} keymaster_version2_t;
 
 /**
  * Parameters that define a key's characteristics, including authorized modes of usage and access
@@ -332,6 +361,12 @@ typedef struct {
 	keymaster_blob_t* entries;
 	size_t entry_count;
 } keymaster_cert_chain_t;
+
+typedef enum {
+	KM_SECURITY_LEVEL_SOFTWARE = 0,
+	KM_SECURITY_LEVEL_TRUSTED_ENVIRONMENT = 1,
+	KM_SECURITY_LEVEL_STRONGBOX = 2,
+} keymaster_security_level_t;
 
 /**
  * Formats for key import and export.

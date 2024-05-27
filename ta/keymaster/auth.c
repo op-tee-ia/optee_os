@@ -330,25 +330,22 @@ exit:
 }
 
 /*
- * Check that authintication token @token has valid HMAC value.
+ * Compute HMAC of @token and save it in @hmac
  *
  * @return TEE_SUCCESS on success
  */
-static TEE_Result TA_ValidateTokenSignature(const hw_auth_token_t *token)
+TEE_Result TA_computeTokenHmac(const hw_auth_token_t *auth_token, uint8_t *hmac,
+			       uint32_t hmac_length)
 {
+	TEE_ObjectHandle auth_token_key_obj = TEE_HANDLE_NULL;
 	TEE_Result res = TEE_SUCCESS;
 
 	// Signature covers entire token except HMAC field.
-	const uint8_t *token_data = (const uint8_t *)token;
-	const uint32_t token_data_length = (const uint8_t *)token->hmac - token_data;
+	const uint8_t *token_data = (const uint8_t *)auth_token;
+	const uint32_t token_data_length = (const uint8_t *)auth_token->hmac - token_data;
 
-	const uint32_t computed_hmac_length = sizeof(token->hmac);
-	uint8_t computed_hmac[computed_hmac_length];
-
-	TEE_ObjectHandle auth_token_key_obj = TEE_HANDLE_NULL;
-
-	res = TEE_AllocateTransientObject(TEE_TYPE_HMAC_SHA256,
-			HMAC_SHA256_KEY_SIZE_BIT, &auth_token_key_obj);
+	res = TEE_AllocateTransientObject(TEE_TYPE_HMAC_SHA256, HMAC_SHA256_KEY_SIZE_BIT,
+					  &auth_token_key_obj);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to allocate auth_token_key_obj, res=%x", res);
 		goto exit;
@@ -360,22 +357,42 @@ static TEE_Result TA_ValidateTokenSignature(const hw_auth_token_t *token)
 		goto close_obj;
 	}
 
-	res = TA_ComputeSignature(computed_hmac, computed_hmac_length, auth_token_key_obj,
-			token_data, token_data_length);
+	res = TA_ComputeSignature(hmac, hmac_length, auth_token_key_obj,
+				  token_data, token_data_length);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to compute auth_token signature, res=%x", res);
-		goto close_obj;
-	}
-
-	if (mbedtls_ct_memcmp(token->hmac, computed_hmac, computed_hmac_length) != 0) {
-		res = TEE_ERROR_MAC_INVALID;
-		EMSG("auth_token has invallid HMAC");
 		goto close_obj;
 	}
 
 close_obj:
 	TEE_CloseObject(auth_token_key_obj);
 exit:
+	return res;
+}
+
+/*
+ * Check that authintication token @token has valid HMAC value.
+ *
+ * @return TEE_SUCCESS on success
+ */
+static TEE_Result TA_ValidateTokenSignature(const hw_auth_token_t *token)
+{
+	const uint32_t computed_hmac_length = sizeof(token->hmac);
+	uint8_t computed_hmac[computed_hmac_length];
+	TEE_Result res = TEE_SUCCESS;
+
+	res = TA_computeTokenHmac(token, computed_hmac, computed_hmac_length);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to compute HMAC of token");
+		return res;
+	}
+
+	if (mbedtls_ct_memcmp(token->hmac, computed_hmac, computed_hmac_length) != 0) {
+		res = TEE_ERROR_MAC_INVALID;
+		EMSG("auth_token has invallid HMAC");
+		return TEE_ERROR_MAC_INVALID;
+	}
+
 	return res;
 }
 

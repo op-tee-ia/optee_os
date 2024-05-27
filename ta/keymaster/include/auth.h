@@ -31,6 +31,9 @@ TEE_Result TA_InitializeAuthTokenKey(void);
 
 keymaster_error_t TA_GetAuthTokenKey(TEE_Param params[TEE_NUM_PARAMS]);
 
+TEE_Result TA_computeTokenHmac(const hw_auth_token_t *auth_token, uint8_t *hmac,
+					uint32_t hmac_length);
+
 keymaster_error_t TA_check_auth_token(const uint64_t *suid,
 					const uint32_t suid_count,
 					const hw_authenticator_type_t auth_type,
