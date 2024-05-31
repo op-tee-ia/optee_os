@@ -5,7 +5,9 @@
 #include <drivers/io_mem.h>
 #include <drivers/ivshmem.h>
 #include <drivers/pci.h>
+#ifdef CFG_EDK2_TPM
 #include <drivers/tpm2_seed.h>
+#endif
 #include <kernel/interrupt.h>
 #include <kernel/panic.h>
 #include <kernel/thread.h>
@@ -42,6 +44,7 @@
 
 #define IVSHMEM_MSIX_ENTRY_NUM		3
 
+#ifdef CFG_EDK2_TPM
 #define TEE_TPM2_INIT                   0x00000001
 #define TEE_TPM2_END                    0x00000002
 #define TEE_TPM2_READ_DEVICE_STATE      0x00000003
@@ -53,6 +56,7 @@
 #define TEE_TPM2_FUSE_PROVISION_SEED    0x00000009
 #define TEE_TPM2_SHOW_INDEX             0x0000000A
 #define TEE_TPM2_DELETE_INDEX           0x0000000B
+#endif
 
 struct ivshmem_device {
 	uint8_t dev;
@@ -143,15 +147,18 @@ static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 	return ITRR_HANDLED;
 }
 
+#ifdef CFG_EDK2_TPM
 struct tpm2_int_req {
         uint32_t cmd;
         volatile int32_t ret;
         uint32_t size;
         uint8_t  payload[0];
 };
+#endif
 
 static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
 {
+#ifdef CFG_EDK2_TPM
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
 	// offset 0x1000 is reserved for seed rot to use.
 	struct tpm2_int_req *req = (struct tpm2_int_req *)(g_ivshmem_devs[0].rot_addr + 0x1000);
@@ -211,6 +218,7 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	}
 
 	req->ret = ret;
+#endif
 
 	return ITRR_HANDLED;
 }
