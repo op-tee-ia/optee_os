@@ -2235,6 +2235,11 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
 
+	if (cmd_id == KM_GET_AUTHTOKEN_KEY) {
+		DMSG("KM_GET_AUTHTOKEN_KEY");
+		return TA_GetAuthTokenKey(params);
+	}
+
 	error = TA_checkParams(params);
 	if (error != KM_ERROR_OK)
 		return TA_errorRsp(params, error);
@@ -2363,12 +2368,6 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 		error = TA_unimplementedOperation(params);
 		break;
 #endif
-	/* Gatekeeper commands */
-	case KM_GET_AUTHTOKEN_KEY:
-		DMSG("KM_GET_AUTHTOKEN_KEY");
-		error = TA_GetAuthTokenKey(params);
-		break;
-
 	default:
 		EMSG("Unknown command %d", cmd_id);
 		error = KM_ERROR_INVALID_ARGUMENT;
