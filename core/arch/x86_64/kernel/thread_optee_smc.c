@@ -276,25 +276,26 @@ out:
 
 bool thread_enable_prealloc_rpc_cache(void)
 {
-	bool rv;
 	size_t n;
 	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
 
 	thread_lock_global();
 
+	//Clean related states in case REE is recovering from reboot
 	for (n = 0; n < CFG_NUM_THREADS; n++) {
-		if (threads[n].state != THREAD_STATE_FREE) {
-			rv = false;
-			goto out;
+		threads[n].state = THREAD_STATE_FREE;
+		if (threads[n].rpc_arg) {
+			mobj_put(threads[n].rpc_mobj);
+			threads[n].rpc_arg = NULL;
 		}
 	}
+	IMSG("All of threads are initilized to free state");
 
-	rv = true;
 	thread_prealloc_rpc_cache = true;
-out:
+
 	thread_unlock_global();
 	thread_unmask_exceptions(exceptions);
-	return rv;
+	return true;
 }
 
 static struct mobj *rpc_shm_mobj_alloc(paddr_t pa, size_t sz, uint64_t cookie)
