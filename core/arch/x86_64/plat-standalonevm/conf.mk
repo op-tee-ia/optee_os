@@ -28,7 +28,7 @@ CFG_CRYPTOLIB_NAME ?= mbedtls
 CFG_CRYPTOLIB_DIR ?= lib/libmbedtls
 
 # use libgnuefi
-CFG_EDK2_TPM ?= n
+CFG_EDK2_TPM ?= y
 CFG_USE_TPM_EARLY ?= y
 
 # use x86 random generator

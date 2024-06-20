@@ -382,10 +382,8 @@ uint32_t get_cpu_freq(void)
 VOID MicroSecondDelay(UINTN microseconds)
 {
         UINT64 total_tick;
-        if (microseconds > 10 * 1000000)
-                microseconds = 10 * 1000000;
 
-        total_tick = rdtsc() + get_cpu_freq() * microseconds;
+        total_tick = rdtsc() + (uint64_t)get_cpu_freq() * microseconds;
         while (rdtsc() < total_tick) {
                 asm volatile ("pause");
         }

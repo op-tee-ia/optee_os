@@ -25,6 +25,9 @@
 uint64_t g_tpm_base_vaddr = 0;
 
 static bool g_huk_initialized = false;
+// TODO: Expand to array for multiple Android support.
+bool g_tpm_nv_bootloader_lock = false;
+
 static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
 
 #define DIGEST_SIZE 32
@@ -185,7 +188,7 @@ static EFI_STATUS tpm2_check_optee_secret_index(UINT16 type)
 		return EFI_INVALID_PARAMETER;
 	}
 
-	ret = Tpm2NvReadPublic(NV_INDEX_UDS, &NvPublic, &NvName);
+	ret = Tpm2NvReadPublic(config_table[type].nv_index, &NvPublic, &NvName);
 	if (EFI_ERROR(ret)) {
 		if (ret != EFI_NOT_FOUND) {
 			EMSG("Read optee secret NV index failed(%lx)", ret);
@@ -440,20 +443,23 @@ EFI_STATUS tee_tpm2_init(void)
 
 EFI_STATUS tee_tpm2_end(void)
 {
-	EFI_STATUS ret1 = tpm2_read_lock_nvindex(NV_INDEX_BOOTLOADER);
-	EFI_STATUS ret2 = tpm2_write_lock_nvindex(NV_INDEX_BOOTLOADER);
-	EFI_STATUS ret3 = Tpm2Shutdown(TPM_SU_CLEAR);
+	/* NV_INDEX_BOOTLOADER is not rd/wr locked upon TPM
+	 * due to TPM access failure after Android VM reboots.
+	 * Tha cause is TPM is not in a new power cycle.
+	 * Current solution is:
+	 * TEE stop serving any TPM requests from Android after
+	 * this tee_tpm2_end(). If Android gets rebooting,
+	 * TEE requests a trusted source to notify the event
+	 * and then enable TPM serving.
+	 */
+	g_tpm_nv_bootloader_lock = true;
+	IMSG("g_tpm_nv_bootloader_lock is changed to LOCKED...");
 
-	if (EFI_ERROR(ret3))
-		EMSG("Failed(%lx) to shutdown TPM.", ret3);
+	EFI_STATUS ret = Tpm2Shutdown(TPM_SU_CLEAR);
+	if (EFI_ERROR(ret))
+		EMSG("Failed(%lx) to shutdown TPM.", ret);
 
-	if (ret1 == EFI_SUCCESS && ret2 == EFI_SUCCESS)
-		return EFI_SUCCESS;
-
-	EMSG("Read lock TPM result:(%lx).", ret1);
-	EMSG("Write lock TPM result: (%lx).", ret2);
-
-	return EFI_LOAD_ERROR;
+	return ret;
 }
 
 EFI_STATUS tee_tpm2_read_device_state(UINT8 *state)

@@ -19,6 +19,8 @@
 #include <IndustryStandard/Tpm2Acpi.h>
 #include <IoLib.h>
 #include <RegisterFilterLib.h>
+#include <trace.h>
+#include <string.h>
 
 typedef enum {
   PtpInterfaceTis,
@@ -93,6 +95,8 @@ PtpCrbWaitRegisterBits (
 
     MicroSecondDelay (100);
   }
+
+  EMSG("PtpCrbWaitRegisterBits timeout......WaitTime is %d.", WaitTime);
   return EFI_TIMEOUT;
 }
 
