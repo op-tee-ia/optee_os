@@ -118,6 +118,7 @@ static struct rot_data_t g_rot_data;
 static bool g_rot_already_set = false;
 
 extern paddr_t tee_shmem_start;
+extern bool g_tpm_nv_bootloader_lock;
 
 struct thread_smc_args *g_smc_args = NULL;
 struct optee_smc_ring *smc_avail_ring = NULL;
@@ -156,6 +157,41 @@ struct tpm2_int_req {
 };
 #endif
 
+static inline uint8_t asm_in8(uint16_t port)
+{
+	uint8_t val8;
+
+	__asm__ __volatile__ (
+	"inb %1, %0"
+	: "=a" (val8)
+	: "d" (port));
+	return val8;
+}
+
+static inline void asm_out8(uint16_t port, uint8_t val8)
+{
+	__asm__ __volatile__ (
+	"outb %1, %0"
+	:
+	: "d" (port), "a" (val8));
+}
+
+static bool check_if_vm_reset(uint8_t vmid)
+{
+	if (!g_tpm_nv_bootloader_lock)
+		return true;
+
+	asm_out8(0x600U, vmid);
+	uint8_t val = asm_in8(0x600U);
+	if (val == 1) {
+		g_tpm_nv_bootloader_lock = false;
+		IMSG("g_tpm_nv_bootloader_lock is changed to UNLOCKED due to Android reset.");
+	} else
+		EMSG("g_tpm_nv_bootloader_lock(id:%d, val:%d) is still LOCKED! BLOCK TPM access!!!", vmid, val);
+
+	return !g_tpm_nv_bootloader_lock;
+}
+
 static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
 {
 #ifdef CFG_EDK2_TPM
@@ -176,6 +212,13 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	//TEE_TPM2_WRITE_ROLLBACK_INDEX:
 	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
 	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
+
+	uint8_t vmid = 2; /* Hardcoded Android VMID*/
+	if (!check_if_vm_reset(vmid)) {
+		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
+		req->ret = EFI_DEVICE_ERROR;
+		return ITRR_HANDLED;
+	}
 
 	switch(req->cmd)
 	{
