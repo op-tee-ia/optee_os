@@ -353,6 +353,7 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_DIGEST:
 		case KM_TAG_OS_VERSION:
 		case KM_TAG_OS_PATCHLEVEL:
+		case KM_TAG_UNLOCKED_DEVICE_REQUIRED:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->hw_enforced.length)
 				return KM_ERROR_INVALID_KEY_BLOB;

@@ -196,6 +196,7 @@ static inline const char *TA_tag_to_str (keymaster_tag_t tag) {
 	TAG_TO_STR(KM_TAG_INCLUDE_UNIQUE_ID)
 	TAG_TO_STR(KM_TAG_EXPORTABLE)
 	TAG_TO_STR(KM_TAG_ATTESTATION_APPLICATION_ID)
+	TAG_TO_STR(KM_TAG_UNLOCKED_DEVICE_REQUIRED)
 	default: return "Unknown tag";
 	}
 }

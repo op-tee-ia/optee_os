@@ -118,6 +118,8 @@ typedef enum {
 	KM_TAG_ALLOW_WHILE_ON_BODY = KM_BOOL | 506, /* Allow key to be used after authentication timeout
 												 * if device is still on-body (requires secure
 												 * on-body sensor. */
+	KM_TAG_UNLOCKED_DEVICE_REQUIRED = KM_BOOL | 509, /* Require the device screen to be unlocked if the
+													  * key is used. */
 
 	/* Application access control */
 	KM_TAG_ALL_APPLICATIONS = KM_BOOL | 600, /* Specified to indicate key is usable by all
