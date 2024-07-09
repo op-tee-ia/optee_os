@@ -69,7 +69,8 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 				const uint32_t key_size,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
-				const uint64_t rsa_public_exponent);
+				const uint64_t rsa_public_exponent,
+				TEE_ObjectHandle *obj_h);
 
 keymaster_error_t TA_restore_key(uint8_t *key_material,
 				const keymaster_key_blob_t *key_blob,

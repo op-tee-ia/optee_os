@@ -148,13 +148,17 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				uint32_t *key_size,
 				uint64_t *key_rsa_public_exponent,
 				keymaster_digest_t *key_digest,
+				bool *attest_purpose,
+				keymaster_blob_t **challenge,
 				const bool import)
 {
 	bool check_min_mac_length = false;
 	uint32_t min_mac_length = UNDEFINED;
 	uint32_t digest_count = 0;
+	uint32_t purpose_count = 0;
 	bool is_ec_curve = false;
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
+	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
 
 	DMSG("%s %d", __func__, __LINE__);
@@ -195,6 +199,25 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			ec_curve = (keymaster_ec_curve_t)
 					(params_t.params + i)->
 						key_param.enumerated;
+			break;
+		case KM_TAG_PURPOSE:
+			key_purpose = (keymaster_purpose_t)
+					(params_t.params + i)->
+						key_param.enumerated;
+			DMSG("key_purpose is %d", key_purpose);
+			if (key_purpose == KM_PURPOSE_ATTEST_KEY ||
+					key_purpose == KM_PURPOSE_SIGN) {
+				*attest_purpose = true;
+				purpose_count++;
+			}
+			break;
+		case KM_TAG_ATTESTATION_CHALLENGE:
+			*challenge = &(params_t.params + i)->key_param.blob;
+			if (*challenge == NULL) {
+				EMSG("Attestation challenge is missing");
+				return KM_ERROR_ATTESTATION_CHALLENGE_MISSING;
+			}
+			DMSG("challenge is not NULL");
 			break;
 		default:
 			DMSG("Unused parameter with TAG = %x",
@@ -271,6 +294,21 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			return KM_ERROR_IMPORT_PARAMETER_MISMATCH;
 		}
 	}
+
+	if (*attest_purpose == true || *challenge != NULL) {
+		if (*key_algorithm != KM_ALGORITHM_RSA &&
+				*key_algorithm != KM_ALGORITHM_EC) {
+			EMSG("Key attestation supports only asymmetric key pairs, "
+		     			"alg=%x", *key_algorithm);
+			return KM_ERROR_INCOMPATIBLE_ALGORITHM;
+		}
+	}
+
+	if (purpose_count > 1) {
+		EMSG("ATTEST_KEY cannot be combined with any other purpose.");
+		return KM_ERROR_INCOMPATIBLE_PURPOSE;
+	}
+
 	return KM_ERROR_OK;
 }
 

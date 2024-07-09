@@ -3,6 +3,7 @@
 
 #include <attestation.h>
 #include <generator.h>
+#include <rot.h>
 
 #include <mbedtls/aes.h>
 #include <mbedtls/base64.h>
@@ -78,6 +79,8 @@ const uint32_t cert_version = 2;	/* x509 version of cert. v3 used. */
 const uint32_t cert_version_tag;	/* tag value for version field. */
 const uint32_t cert_serial_number = 1;	/* serialNumber of cert. */
 
+extern tee_km_context_t optee_km_context;
+
 enum SecurityLevel {
 	Software = 0,
 	TrustedEnvironment,
@@ -89,14 +92,6 @@ enum BootState {
 	Unverified,
 	Failed
 };
-
-/* Stubs for hash values used in RottOfTrust */
-//TODO: calculate real values
-static uint8_t key_stub [32] = {
-        0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
-        0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
-        0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
-        0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa };
 
 static uint8_t unique_id_stub[16] = {
         0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb,
@@ -1004,16 +999,199 @@ static TEE_Result mbedTLS_gen_root_cert(mbedtls_pk_context *issuer_key,
 	DMSG("Generated certificate: \n");
 	DHEXDUMP(buf + blen - ret, ret);
 
-	if (root_cert->data_length < (uint32_t)ret)
+	if ((root_cert->data_length < (uint32_t)ret)  && (!root_cert->data))
 	{
 		res = TEE_ERROR_SHORT_BUFFER;
 		root_cert->data_length = ret;
 		goto out;
 	}
+
+	if ((root_cert->data_length < (uint32_t)ret) && (root_cert->data))
+	{
+		TEE_Free(root_cert->data);
+		root_cert->data = NULL;
+		root_cert->data = TEE_Malloc(ret, TEE_MALLOC_FILL_ZERO);
+		if (root_cert->data == NULL)
+		{
+			res = TEE_ERROR_OUT_OF_MEMORY;
+			goto out;
+		}
+	}
+
 	root_cert->data_length = ret;
-	TEE_MemMove(root_cert->data, buf + blen - ret,
-			ret);
-	// TODO: check root_cert->data
+	TEE_MemMove(root_cert->data, buf + blen - ret, ret);
+
+out:
+	mbedtls_mpi_free(&serial);
+	mbedtls_x509write_crt_free(&crt);
+
+	return res;
+}
+
+static TEE_Result mbedTLS_gen_fake_cert(mbedtls_pk_context *issuer_key,
+					keymaster_blob_t *root_cert,
+					const char *cert_subject)
+{
+	unsigned char buf[CERT_ROOT_MAX_SIZE];
+	unsigned char dfl_not_before[TIME_STRLEN] = { 0 };
+	unsigned char dfl_not_after[TIME_STRLEN] = { 0 };
+	int blen = CERT_ROOT_MAX_SIZE;
+	int ret;
+	TEE_Result res = TEE_SUCCESS;
+	TEE_Time sys_t = { 0 };
+
+	mbedtls_mpi serial;
+	mbedtls_x509write_cert crt;
+
+	DMSG("%s %d", __func__, __LINE__);
+	mbedtls_mpi_init(&serial);
+	mbedtls_x509write_crt_init(&crt);
+
+	ret = mbedtls_mpi_lset(&serial, 1);
+	if (ret) {
+		EMSG("mbedtls_mpi_read_string: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_subject_name(&crt, cert_subject);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_subject_name: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_issuer_name(&crt, cert_subject);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_issuer_name: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	mbedtls_x509write_crt_set_version( &crt, MBEDTLS_X509_CRT_VERSION_3 );
+	mbedtls_x509write_crt_set_md_alg(&crt,  MBEDTLS_MD_SHA256);
+	mbedtls_x509write_crt_set_subject_key(&crt, issuer_key);
+	mbedtls_x509write_crt_set_issuer_key(&crt, issuer_key);
+
+	ret = mbedtls_x509write_crt_set_serial(&crt, &serial);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_serial: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	IMSG("########################################################");
+	IMSG("# CAUTION:");
+	IMSG("# REE time used for root cert generation!");
+	IMSG("# This is for development and testing ONLY!");
+	IMSG("# Platforms should define CFG_ATTESTATION_PROVISIONING");
+	IMSG("# and invoke the KM_SET_ATTESTATION_KEY and");
+	IMSG("# KM_APPEND_ATTESTATION_CERT_CHAIN commands to send a");
+	IMSG("# verified cert (chain) to secure persistent storage");
+	IMSG("# during provisioning!");
+	IMSG("########################################################");
+	TEE_GetREETime(&sys_t);
+	ret = convert_epoch_to_date_str(sys_t.seconds, dfl_not_before,
+					sizeof(dfl_not_before));
+	if (ret) {
+		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	/*
+	 * a cert is usually valid for 2 years (63072000 seconds)
+	 */
+	ret = convert_epoch_to_date_str(sys_t.seconds + 63072000,
+					dfl_not_after, sizeof(dfl_not_after));
+	if (ret) {
+		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_validity(&crt,
+						 (const char *)dfl_not_before,
+						 (const char *)dfl_not_after);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_validity: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_basic_constraints(&crt, 1, -1);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_validity: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_subject_key_identifier(&crt);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_subject_key_identifier: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_authority_key_identifier(&crt);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_authority_key_identifier: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_key_usage(&crt,
+					    MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+					    MBEDTLS_X509_KU_KEY_CERT_SIGN);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	/*
+	 * from https://tls.mbed.org/api/x509__crt_8h.html:
+	 * Write a built up certificate to a X509 DER structure Note: data is
+	 * written at the end of the buffer! Use the return value to determine
+	 * where you should start using the buffer.
+	 */
+	ret = mbedtls_x509write_crt_der(&crt, buf, blen, f_rng, NULL);
+	if (ret < 0) {
+		EMSG("mbedtls_x509write_crt_der: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	DMSG("Generated certificate: \n");
+	DHEXDUMP(buf + blen - ret, ret);
+
+	if ((root_cert->data_length < (uint32_t)ret)  && (!root_cert->data))
+	{
+		res = TEE_ERROR_SHORT_BUFFER;
+		root_cert->data_length = ret;
+		goto out;
+	}
+
+	if ((root_cert->data_length < (uint32_t)ret) && (root_cert->data))
+	{
+		TEE_Free(root_cert->data);
+		root_cert->data = NULL;
+		root_cert->data = TEE_Malloc(ret, TEE_MALLOC_FILL_ZERO);
+		if (root_cert->data == NULL)
+		{
+			res = TEE_ERROR_OUT_OF_MEMORY;
+			goto out;
+		}
+	}
+
+	root_cert->data_length = ret;
+	TEE_MemMove(root_cert->data, buf + blen - ret, ret);
 
 out:
 	mbedtls_mpi_free(&serial);
@@ -1024,7 +1202,8 @@ out:
 
 keymaster_error_t mbedTLS_encode_key(keymaster_blob_t *export_data,
                                      const uint32_t type,
-                                     const TEE_ObjectHandle *obj_h) {
+                                     const TEE_ObjectHandle *obj_h)
+{
 	mbedtls_pk_context pk;
 	uint8_t buf[RSA_MAX_BYTES > EC_MAX_BYTES ? RSA_MAX_BYTES :
 						   EC_MAX_BYTES];
@@ -1094,6 +1273,46 @@ TEE_Result mbedTLS_gen_root_cert_rsa(TEE_ObjectHandle rsa_root_key,
 	if (res != TEE_SUCCESS ) {
 		EMSG("mbedTLS_gen_root_cert: failed: %#x", res);
 		TEE_Free(rsa_root_cert->data);
+		rsa_root_cert->data = NULL;
+		goto out;
+	}
+out:
+	mbedtls_pk_free(&issuer_key);
+
+	return res;
+}
+
+
+TEE_Result mbedTLS_gen_fake_cert_rsa(TEE_ObjectHandle rsa_key,
+				     keymaster_blob_t *rsa_fake_cert)
+{
+	TEE_Result res = TEE_SUCCESS;
+	mbedtls_pk_context issuer_key;
+
+	DMSG("%s %d", __func__, __LINE__);
+	res = mbedTLS_import_rsa_pk(&issuer_key, rsa_key);
+	if (res) {
+		EMSG("mbedTLS_import_rsa_pk: failed: %#x", res);
+		return res;
+	}
+
+	res = mbedTLS_gen_fake_cert(&issuer_key, rsa_fake_cert, cert_root_subject_rsa);
+	if (res != TEE_ERROR_SHORT_BUFFER)
+	{
+		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		goto out;
+	}
+	rsa_fake_cert->data = TEE_Malloc(rsa_fake_cert->data_length, TEE_MALLOC_FILL_ZERO);
+	if (rsa_fake_cert->data == NULL)
+	{
+		res = TEE_ERROR_OUT_OF_MEMORY;
+		goto out;
+	}
+	res = mbedTLS_gen_fake_cert(&issuer_key, rsa_fake_cert, cert_root_subject_rsa);
+	if (res != TEE_SUCCESS ) {
+		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		TEE_Free(rsa_fake_cert->data);
+		rsa_fake_cert->data = NULL;
 		goto out;
 	}
 out:
@@ -1132,6 +1351,45 @@ TEE_Result mbedTLS_gen_root_cert_ecc(TEE_ObjectHandle ecc_root_key,
 	if (res != TEE_SUCCESS ) {
 		EMSG("mbedTLS_gen_root_cert: failed: %#x", res);
 		TEE_Free(ecc_root_cert->data);
+		ecc_root_cert->data = NULL;
+		goto out;
+	}
+out:
+	mbedtls_pk_free(&issuer_key);
+
+	return res;
+}
+
+TEE_Result mbedTLS_gen_fake_cert_ecc(TEE_ObjectHandle ecc_key,
+				     keymaster_blob_t *ecc_fake_cert)
+{
+	TEE_Result res = TEE_SUCCESS;
+	mbedtls_pk_context issuer_key;
+
+	DMSG("%s %d", __func__, __LINE__);
+	res = mbedTLS_import_ecc_pk(&issuer_key, ecc_key);
+	if (res) {
+		EMSG("mbedTLS_import_ecc_pk: failed: %#x", res);
+		return res;
+	}
+
+	res = mbedTLS_gen_fake_cert(&issuer_key, ecc_fake_cert, cert_root_subject_ecc);
+	if (res != TEE_ERROR_SHORT_BUFFER)
+	{
+		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		goto out;
+	}
+	ecc_fake_cert->data = TEE_Malloc(ecc_fake_cert->data_length, TEE_MALLOC_FILL_ZERO);
+	if (ecc_fake_cert->data == NULL)
+	{
+		res = TEE_ERROR_OUT_OF_MEMORY;
+		goto out;
+	}
+	res = mbedTLS_gen_fake_cert(&issuer_key, ecc_fake_cert, cert_root_subject_ecc);
+	if (res != TEE_SUCCESS ) {
+		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		TEE_Free(ecc_fake_cert->data);
+		ecc_fake_cert->data = NULL;
 		goto out;
 	}
 out:
@@ -1318,6 +1576,7 @@ out:
 
 TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
 				       TEE_ObjectHandle attest_key,
+				       keymaster_algorithm_t root_alg,
 				       keymaster_algorithm_t alg,
 				       unsigned int key_usage,
 				       keymaster_cert_chain_t *cert_chain,
@@ -1358,7 +1617,7 @@ TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
 		goto out;
 	}
 
-	res = (alg == KM_ALGORITHM_RSA) ?
+	res = (root_alg == KM_ALGORITHM_RSA) ?
 		mbedTLS_import_rsa_pk(&issuer_key, root_key) :
 		mbedTLS_import_ecc_pk(&issuer_key, root_key);
 	if (res) {
@@ -1536,25 +1795,28 @@ err:
  *
  * \return          0 on success, -1 on failure.
  */
-static int asn1_write_rot (uint8_t verified_boot, unsigned char **p,
-                           size_t *len) {
+static int asn1_write_rot (unsigned char **p, size_t *len)
+{
 	int len_ret = 0, ret;
 	unsigned char buf[ASN1_BUF_LEN_DEFAULT];
 	unsigned char *ptr = buf + sizeof(buf);
 	unsigned char *start = buf;
-	//TODO: insert real device lock_state
-	int lock_state = 0;
 
-	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_enum(&ptr, start,
-	                                                      verified_boot));
-
-	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_bool(&ptr, start,
-	                                                      lock_state));
+	//TODO: insert real vbmeta digest, 32bytes or 64 bytes?
+	//sizeof(optee_km_context.rot.vbmetaDigest)
+	MBEDTLS_ASN1_CHK_ADD(len_ret,
+		mbedtls_asn1_write_octet_string(&ptr, start, optee_km_context.rot.vbmetaDigest,
+                                    32));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
-	                     mbedtls_asn1_write_octet_string(&ptr, start,
-	                                                     key_stub,
-	                                                     sizeof(key_stub)));
+		mbedtls_asn1_write_enum(&ptr, start, optee_km_context.rot.verifiedBootState));
+
+	MBEDTLS_ASN1_CHK_ADD(len_ret,
+		mbedtls_asn1_write_bool(&ptr, start, optee_km_context.rot.deviceLocked));
+
+	MBEDTLS_ASN1_CHK_ADD(len_ret,
+		mbedtls_asn1_write_octet_string(&ptr, start, optee_km_context.rot.keyHash256,
+	                                sizeof(optee_km_context.rot.keyHash256)));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_len(&ptr, start,
 	                                                     (size_t)len_ret));
@@ -1654,22 +1916,39 @@ static struct attestation_tags {
 	keymaster_tag_t tag;
 	int context;
 } auth_tag_list[] = {
+        { KM_TAG_ATTESTATION_ID_SECOND_IMEI, 723 },
+        { KM_TAG_IDENTITY_CREDENTIAL_KEY, 721 },
+        { KM_TAG_DEVICE_UNIQUE_ATTESTATION, 720 },
+        { KM_TAG_BOOT_PATCHLEVEL, 719 },
+        { KM_TAG_VENDOR_PATCHLEVEL, 718 },
+        { KM_TAG_ATTESTATION_ID_MODEL, 717 },
+        { KM_TAG_ATTESTATION_ID_MANUFACTURER, 716 },
+        { KM_TAG_ATTESTATION_ID_MEID, 715 },
+        { KM_TAG_ATTESTATION_ID_IMEI, 714 },
+        { KM_TAG_ATTESTATION_ID_SERIAL, 713 },
+        { KM_TAG_ATTESTATION_ID_PRODUCT, 712 },
+        { KM_TAG_ATTESTATION_ID_DEVICE, 711 },
+        { KM_TAG_ATTESTATION_ID_BRAND, 710 },
         { KM_TAG_ATTESTATION_APPLICATION_ID, 709 },
         { KM_TAG_OS_PATCHLEVEL, 706 },
         { KM_TAG_OS_VERSION, 705 },
         { KM_TAG_ROOT_OF_TRUST, 704 },
-        { KM_TAG_ROLLBACK_RESISTANT, 703 },
         { KM_TAG_ORIGIN, 702 },
         { KM_TAG_CREATION_DATETIME, 701 },
-        { KM_TAG_APPLICATION_ID, 601 },
-        { KM_TAG_ALL_APPLICATIONS, 600 },
+        { KM_TAG_UNLOCKED_DEVICE_REQUIRED, 509 },
+        { KM_TAG_TRUSTED_CONFIRMATION_REQUIRED, 508 },
+        { KM_TAG_TRUSTED_USER_PRESENCE_REQUIRED, 507 },
         { KM_TAG_ALLOW_WHILE_ON_BODY, 506 },
         { KM_TAG_AUTH_TIMEOUT, 505 },
         { KM_TAG_USER_AUTH_TYPE, 504 },
         { KM_TAG_NO_AUTH_REQUIRED, 503 },
+        { KM_TAG_USAGE_COUNT_LIMIT, 405 },
         { KM_TAG_USAGE_EXPIRE_DATETIME, 402 },
         { KM_TAG_ORIGINATION_EXPIRE_DATETIME, 401 },
         { KM_TAG_ACTIVE_DATETIME, 400 },
+        { KM_TAG_EARLY_BOOT_ONLY, 305 },
+        { KM_TAG_ROLLBACK_RESISTANCE, 303 },
+        { KM_TAG_RSA_OAEP_MGF_DIGEST, 203 },
         { KM_TAG_RSA_PUBLIC_EXPONENT, 200 },
         { KM_TAG_EC_CURVE, 10 },
         { KM_TAG_PADDING, 6 },
@@ -2073,8 +2352,8 @@ static int write_asn1_sequence(unsigned char**p, unsigned char *start,
 
 static int write_authorization_lists(keymaster_key_characteristics_t *chr,
                                      keymaster_key_param_set_t *attest_params,
-                                     uint8_t verified_boot, unsigned char**p,
-                                     unsigned char *start) {
+                                     unsigned char**p, unsigned char *start)
+{
 	size_t i = 0;
 	asn1_sequence *sw_auth_seq = NULL, *hw_auth_seq = NULL;
 	bool is_hw = true;
@@ -2102,8 +2381,7 @@ static int write_authorization_lists(keymaster_key_characteristics_t *chr,
 
 		if (auth_tag_list[i].tag == KM_TAG_ROOT_OF_TRUST) {
 			keymaster_blob_t rot = EMPTY_BLOB;
-			if (asn1_write_rot(verified_boot,
-			                   &rot.data, &rot.data_length)) {
+			if (asn1_write_rot(&rot.data, &rot.data_length)) {
 			        EMSG("Failed to write RootOfTrust.");
 			        /* Continue the loop. ROT will be skipped. */
 				continue;
@@ -2200,7 +2478,6 @@ out:
 
 static keymaster_error_t mbedTLS_gen_att_extension(keymaster_key_characteristics_t *chr,
                                                    keymaster_key_param_set_t *attest_params,
-                                                   uint8_t verified_boot,
                                                    bool includeUniqueID,
                                                    keymaster_blob_t *ext) {
 	int ret = 0;
@@ -2212,8 +2489,7 @@ static keymaster_error_t mbedTLS_gen_att_extension(keymaster_key_characteristics
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 	                     write_authorization_lists(chr, attest_params,
-	                                               verified_boot, &p,
-	                                               start));
+	                                               &p, start));
 
 	if (includeUniqueID)
 	{
@@ -2242,14 +2518,14 @@ static keymaster_error_t mbedTLS_gen_att_extension(keymaster_key_characteristics
 	                                                 TrustedEnvironment));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_int(&p, start,
-	                                                     KEYMASTER_VERSION));
+	                                                     KEYMINT_3));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 	                     mbedtls_asn1_write_enum(&p, start,
 	                                                 TrustedEnvironment));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_int(&p, start,
-	                                                     ATTESTATION_VERSION));
+	                                                     KEYMINT_3));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_len(&p, start,
 	                                                     (uint32_t)len_ret));
@@ -2276,8 +2552,8 @@ static keymaster_error_t mbedTLS_gen_att_extension(keymaster_key_characteristics
 TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
                               keymaster_key_param_set_t *attest_params,
                               keymaster_key_characteristics_t *key_chr,
-                              uint8_t verified_boot,
                               bool includeUniqueID,
+                              keymaster_algorithm_t root_alg,
                               keymaster_algorithm_t alg,
                               keymaster_cert_chain_t *cert_chain)
 {
@@ -2292,15 +2568,15 @@ TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
 	key_usage = add_key_usage(&key_chr->hw_enforced);
 
 	//Serialize root EC/RSA attestation key (for sign)
-	res = alg == KM_ALGORITHM_EC ? TA_open_ec_attest_key(&rootAttKey) :
+	res = root_alg == KM_ALGORITHM_EC ? TA_open_ec_attest_key(&rootAttKey) :
 	                               TA_open_rsa_attest_key(&rootAttKey);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to open root EC attestation key, res=%x", res);
 		goto error_1;
 	}
 
-	if (mbedTLS_gen_att_extension(key_chr, attest_params, verified_boot,
-	                              includeUniqueID, &attest_ext)) {
+	if (mbedTLS_gen_att_extension(key_chr, attest_params, includeUniqueID,
+									&attest_ext)) {
 		res = TEE_ERROR_GENERIC;
 		EMSG("Failed to generate attestation extension");
 		goto error_1;
@@ -2322,6 +2598,7 @@ TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
 
 	res = mbedTLS_gen_attest_key_cert(rootAttKey,
 	                                  attestedKey,
+	                                  root_alg,
 	                                  alg,
 	                                  key_usage,
 	                                  cert_chain,
@@ -2337,6 +2614,69 @@ TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
 
 error_1:
 	TA_close_attest_obj(rootAttKey);
+	TEE_Free(attest_ext.data);
+
+	return res;
+}
+
+TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
+                              TEE_ObjectHandle attested_key,
+                              keymaster_key_param_set_t *attested_params,
+                              keymaster_key_characteristics_t *key_chr,
+                              bool includeUniqueID,
+                              keymaster_algorithm_t root_alg,
+                              keymaster_algorithm_t alg,
+                              keymaster_cert_chain_t *cert_chain)
+{
+	TEE_Result res = TEE_SUCCESS;
+	keymaster_blob_t attest_ext = EMPTY_BLOB;
+	keymaster_blob_t *root_cert = &cert_chain->entries[ROOT_ATT_CERT_INDEX];
+	unsigned int key_usage = 0;
+
+	//Output certificate
+	uint32_t output_certificate_size = ATTEST_CERT_BUFFER_SIZE;
+
+	key_usage = add_key_usage(&key_chr->hw_enforced);
+
+	if (mbedTLS_gen_att_extension(key_chr, attested_params, includeUniqueID,
+									&attest_ext)) {
+		res = TEE_ERROR_GENERIC;
+		EMSG("Failed to generate attestation extension");
+		goto error_1;
+	}
+	else
+		res = TEE_SUCCESS;
+
+	DMSG("attestation extension: \n");
+	DHEXDUMP(attest_ext.data,
+	         attest_ext.data_length);
+
+	res = TA_gen_root_cert(root_alg, root_key, root_cert);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to generate root cert");
+		goto error_1;
+	}
+
+	cert_chain->entries[KEY_ATT_CERT_INDEX].data_length = output_certificate_size;
+	cert_chain->entries[KEY_ATT_CERT_INDEX].data = TEE_Malloc(output_certificate_size, TEE_MALLOC_FILL_ZERO);
+	if (cert_chain->entries[KEY_ATT_CERT_INDEX].data == NULL) {
+		res = TEE_ERROR_OUT_OF_MEMORY;
+		EMSG("Failed to allocate memory for attest certificate output");
+		goto error_1;
+	}
+
+	res = mbedTLS_gen_attest_key_cert(root_key, attested_key, root_alg, alg,
+	                                  key_usage, cert_chain, &attest_ext);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to generate key attestation, res=%x", res);
+		goto error_1;
+	}
+
+	DMSG("mbedTLS certificate: \n");
+	DHEXDUMP(cert_chain->entries[KEY_ATT_CERT_INDEX].data,
+	         cert_chain->entries[KEY_ATT_CERT_INDEX].data_length);
+
+error_1:
 	TEE_Free(attest_ext.data);
 
 	return res;

@@ -306,9 +306,9 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 					const uint32_t key_size,
 					uint8_t *key_material,
 					const keymaster_digest_t digest,
-					const uint64_t rsa_public_exponent)
+					const uint64_t rsa_public_exponent,
+					TEE_ObjectHandle *obj_h)
 {
-	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
 	TEE_Result res = TEE_SUCCESS;
 	uint32_t padding = 0;
 	uint32_t *attributes = NULL;
@@ -323,6 +323,9 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 	uint64_t be_pe = 0;
 	TEE_Attribute *attrs_in = NULL;
 	uint32_t attrs_in_count = 0;
+
+	if (obj_h == NULL)
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
 
 	switch (algorithm) {
 	case KM_ALGORITHM_AES:
@@ -407,7 +410,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 	default:
 		return KM_ERROR_UNSUPPORTED_ALGORITHM;
 	}
-	res = TEE_AllocateTransientObject(type, key_size, &obj_h);
+	res = TEE_AllocateTransientObject(type, key_size, obj_h);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to allocate transient object, res=%x", res);
 		/* Convert error code to Android style */
@@ -419,7 +422,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 	}
 	DMSG("key_size = %u, sizeof(attrs_in) = %zu, attrs_in_count = %u",
 			key_size, sizeof(attrs_in), attrs_in_count);
-	res = TEE_GenerateKey(obj_h, key_size, attrs_in, attrs_in_count);
+	res = TEE_GenerateKey(*obj_h, key_size, attrs_in, attrs_in_count);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to generate key via TEE_GenerateKey, res = %x", res);
 		/* Convert error code to Android style */
@@ -442,7 +445,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 		DMSG("i = %u padding = %u", i, padding);
 		if (is_attr_value(attributes[i])) {
 			/* value */
-			res = TEE_GetObjectValueAttribute(obj_h,
+			res = TEE_GetObjectValueAttribute(*obj_h,
 						attributes[i], &a, &b);
 			if (res != TEE_SUCCESS) {
 				EMSG("Failed to get value attribute, res = %x", res);
@@ -456,7 +459,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 			DMSG("i = %u padding = %u b = %u", i, padding, b);
 		} else {
 			/* buffer */
-			res = TEE_GetObjectBufferAttribute(obj_h,
+			res = TEE_GetObjectBufferAttribute(*obj_h,
 					attributes[i], buffer, &attr_size);
 			if (res != TEE_SUCCESS) {
 				EMSG("Failed to get buffer attribute %x, res = %x",
@@ -473,8 +476,6 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 		}
 	}
 gk_out:
-	if (obj_h != TEE_HANDLE_NULL)
-		TEE_FreeTransientObject(obj_h);
 	free_attrs(attrs_in, attrs_in_count);
 
 	return res;

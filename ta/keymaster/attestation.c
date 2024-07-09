@@ -770,27 +770,98 @@ error:
 	}
 }
 
-TEE_Result TA_gen_key_attest_cert(uint32_t type,
-				  TEE_ObjectHandle attestedKey,
+TEE_Result TA_gen_root_cert(keymaster_algorithm_t alg,
+				  TEE_ObjectHandle root_key,
+				  keymaster_blob_t *root_cert)
+{
+	TEE_Result res = TEE_SUCCESS;
+
+	if (root_cert == NULL)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	//Call ASN1 TA to generate root certificate
+	if (alg == KM_ALGORITHM_RSA) {
+		res = mbedTLS_gen_root_cert_rsa(root_key, root_cert);
+	} else if (alg == KM_ALGORITHM_EC) {
+		res = mbedTLS_gen_root_cert_ecc(root_key, root_cert);
+	} else {
+		res = TEE_ERROR_BAD_PARAMETERS;
+	}
+
+	return res;
+}
+
+TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
+				  TEE_ObjectHandle asymmetric_key,
+				  keymaster_blob_t *fake_cert)
+{
+	TEE_Result res = TEE_SUCCESS;
+
+	if (fake_cert == NULL)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	//Call ASN1 TA to generate fake certificate
+	if (alg == KM_ALGORITHM_RSA) {
+		res = mbedTLS_gen_fake_cert_rsa(asymmetric_key, fake_cert);
+	} else if (alg == KM_ALGORITHM_EC) {
+		res = mbedTLS_gen_fake_cert_ecc(asymmetric_key, fake_cert);
+	} else {
+		res = TEE_ERROR_BAD_PARAMETERS;
+	}
+
+	return res;
+}
+
+TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
+				  keymaster_algorithm_t alg,
+				  TEE_ObjectHandle root_key,
+				  TEE_ObjectHandle attested_key,
 				  keymaster_key_param_set_t *attest_params,
 				  keymaster_key_characteristics_t *key_chr,
 				  keymaster_cert_chain_t *cert_chain,
-				  uint8_t verified_boot,
 				  bool includeUniqueID)
 {
 	TEE_Result res = TEE_SUCCESS;
 
+	if (alg != KM_ALGORITHM_RSA && alg != KM_ALGORITHM_EC)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = TA_gen_attest_cert_with_rootkey(root_key, attested_key,
+		                        attest_params, key_chr,
+		                        includeUniqueID,
+		                        root_alg, alg,
+		                        cert_chain);
+
+	return res;
+}
+
+TEE_Result TA_gen_key_attest_cert(uint32_t root_type, uint32_t type,
+				  TEE_ObjectHandle attestedKey,
+				  keymaster_key_param_set_t *attest_params,
+				  keymaster_key_characteristics_t *key_chr,
+				  keymaster_cert_chain_t *cert_chain,
+				  bool includeUniqueID)
+{
+	TEE_Result res = TEE_SUCCESS;
+	keymaster_algorithm_t root_alg = KM_ALGORITHM_RSA;
+
+	if (root_type == TEE_TYPE_RSA_KEYPAIR) {
+		root_alg = KM_ALGORITHM_RSA;
+	} else {
+		root_alg = KM_ALGORITHM_EC;
+	}
+
 	if (type == TEE_TYPE_RSA_KEYPAIR) {
 		res = TA_gen_attest_cert(attestedKey,
 		                         attest_params, key_chr,
-		                         verified_boot, includeUniqueID,
-		                         KM_ALGORITHM_RSA,
+		                         includeUniqueID,
+		                         root_alg, KM_ALGORITHM_RSA,
 		                         cert_chain);
 	} else if (type == TEE_TYPE_ECDSA_KEYPAIR) {
 		res = TA_gen_attest_cert(attestedKey,
 		                         attest_params, key_chr,
-		                         verified_boot, includeUniqueID,
-		                         KM_ALGORITHM_EC,
+		                         includeUniqueID,
+		                         root_alg, KM_ALGORITHM_EC,
 		                         cert_chain);
 	} else {
 		res = TEE_ERROR_BAD_PARAMETERS;

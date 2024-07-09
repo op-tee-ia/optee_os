@@ -652,3 +652,12 @@ CFG_COMPAT_GP10_DES ?= y
 
 # Defines a limit for many levels TAs may call each others.
 CFG_CORE_MAX_SYSCALL_RECURSION ?= 4
+
+# CFG_RSA_PUB_EXPONENT_3, when enabled, allows RSA public exponents in the
+# range 3 <= e < 2^256. This is needed to pass AOSP KeyMint VTS tests:
+#    Link to tests: https://android.googlesource.com/platform/hardware/interfaces/+/refs/heads/main/security/keymint/aidl/vts/functional/KeyMintTest.cpp
+#    Module: VtsAidlKeyMintTargetTest
+#    Testcases: - PerInstance/EncryptionOperationsTest.RsaNoPaddingSuccess
+# When CFG_RSA_PUB_EXPONENT_3 is disabled, RSA public exponents must conform
+# to NIST SP800-56B recommendation and be in the range 65537 <= e < 2^256.
+CFG_RSA_PUB_EXPONENT_3 ?= n

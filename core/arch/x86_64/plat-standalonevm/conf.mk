@@ -21,6 +21,8 @@ CFG_CORE_DYN_SHM ?= n
 
 CFG_IVSHMEM ?= y
 
+CFG_RSA_PUB_EXPONENT_3 ?= y
+
 # use mbedtls lib
 CFG_CRYPTOLIB_NAME ?= mbedtls
 CFG_CRYPTOLIB_DIR ?= lib/libmbedtls
