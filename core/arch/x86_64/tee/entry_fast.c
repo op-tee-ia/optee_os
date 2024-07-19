@@ -5,6 +5,7 @@
  */
 
 #include <tee/entry_fast.h>
+#include <tee/entry_std.h>
 #include <optee_msg.h>
 #include <sm/optee_smc.h>
 #include <kernel/boot.h>
@@ -116,6 +117,12 @@ static void tee_entry_get_thread_count(struct thread_smc_args *args)
 	args->a1 = CFG_NUM_THREADS;
 }
 
+static void tee_entry_get_opened_session(struct thread_smc_args *args)
+{
+	args->a0 = OPTEE_SMC_RETURN_OK;
+	args->a1 = tee_get_opened_session();
+}
+
 #if defined(CFG_VIRTUALIZATION)
 static void tee_entry_vm_created(struct thread_smc_args *args)
 {
@@ -198,6 +205,9 @@ void __tee_entry_fast(struct thread_smc_args *args)
 		break;
 	case OPTEE_SMC_GET_THREAD_COUNT:
 		tee_entry_get_thread_count(args);
+		break;
+	case OPTEE_SMC_GET_OPENED_SESSION:
+		tee_entry_get_opened_session(args);
 		break;
 
 #if defined(CFG_VIRTUALIZATION)

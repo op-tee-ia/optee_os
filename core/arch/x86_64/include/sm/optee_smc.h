@@ -451,6 +451,27 @@
 	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_GET_THREAD_COUNT)
 
 /*
+ * Query OP-TEE about opened sessions info
+ *
+ * Call requests usage:
+ * a0	SMC Function ID, OPTEE_SMC_GET_OPENED_SESSION
+ * a1-6 Not used
+ * a7	Hypervisor Client ID register
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1	opened session id
+ * a2-7 Preserved
+ *
+ * Error return:
+ * a0	OPTEE_SMC_RETURN_UNKNOWN_FUNCTION   Requested call is not implemented
+ * a1-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_GET_OPENED_SESSION	16
+#define OPTEE_SMC_GET_OPENED_SESSION \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_GET_OPENED_SESSION)
+
+/*
  * Resume from RPC (for example after processing a foreign interrupt)
  *
  * Call register usage:

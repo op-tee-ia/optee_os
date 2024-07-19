@@ -487,6 +487,18 @@ out:
 	arg->ret_origin = err_orig;
 }
 
+uint32_t tee_get_opened_session(void)
+{
+	struct tee_ta_session *s = NULL;
+
+	TAILQ_FOREACH(s, &tee_open_sessions, link) {
+		IMSG("Get opened session %u", s->id);
+		return s->id;
+	}
+
+	return 0;
+}
+
 #ifndef CFG_CORE_FFA
 #ifdef CFG_CORE_DYN_SHM
 static void register_shm(struct optee_msg_arg *arg, uint32_t num_params)
