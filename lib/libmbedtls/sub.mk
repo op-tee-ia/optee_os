@@ -145,6 +145,7 @@ cflags-lib-y += -Wno-redundant-decls
 cflags-lib-y += -Wno-switch-default
 cflags-lib-y += -Wno-declaration-after-statement
 cflags-lib-y += -Wno-unused-function
+cflags-lib-y += -maes -mpclmul
 
 ifeq ($(CFG_CRYPTOLIB_NAME_mbedtls),y)
 subdirs-$(sm-core) += core
