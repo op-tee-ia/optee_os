@@ -276,6 +276,18 @@ static uint32_t tee_get_os_patchlevel(void)
 	return optee_km_context.os_patchlevel;
 }
 
+static uint32_t tee_get_vendor_patchlevel(void)
+{
+	return optee_km_context.vendor_patchlevel;
+}
+
+static uint32_t tee_get_boot_patchlevel(void)
+{
+	//TODO: use os_patchlevel for now, should passed from bootloader
+	optee_km_context.boot_patchlevel = optee_km_context.os_patchlevel * 100 + 1;
+	return optee_km_context.boot_patchlevel;
+}
+
 static keymaster_error_t TA_getHmacSharingParameters(TEE_Param params[TEE_NUM_PARAMS])
 {
 	static hmac_sharing_parameters_t *hmac_saved_parameters = NULL;
@@ -624,13 +636,54 @@ static keymaster_error_t TA_configure(TEE_Param params[TEE_NUM_PARAMS])
 		 * by the bootloader.  This is to ensure that system-only
 		 * updates can be done, to avoid breaking Project Treble.
 		 */
-		memcpy(&optee_km_context.os_version, in,
+		TEE_MemMove(&optee_km_context.os_version, in,
 		       sizeof(optee_km_context.os_version));
 		in += 4;
-		memcpy(&optee_km_context.os_patchlevel, in,
+		TEE_MemMove(&optee_km_context.os_patchlevel, in,
 		       sizeof(optee_km_context.os_patchlevel));
 		in += 4;
 		optee_km_context.version_info_set = true;
+	}
+
+out:
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+
+	return res;
+}
+
+static keymaster_error_t TA_configure_vendor_patchlevel(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	size_t  in_size = 0;
+	uint8_t *out = NULL;
+	keymaster_error_t res = KM_ERROR_OK;
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_size = (size_t)params[0].memref.size;
+	in_end = in + in_size;
+	out = (uint8_t *)params[1].memref.buffer;
+	out += sizeof(keymaster_error_t);
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	if (TA_is_out_of_bounds(in, in_end,
+				sizeof(optee_km_context.vendor_patchlevel))) {
+		EMSG("Out of input array bounds on deserialization");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto out;
+	}
+
+	/* parse parameters */
+	if (!optee_km_context.vendor_patchlevel_set) {
+		/*
+		 * Note that version info is now set by Configure, rather than
+		 * by the bootloader.  This is to ensure that system-only
+		 * updates can be done, to avoid breaking Project Treble.
+		 */
+		TEE_MemMove(&optee_km_context.vendor_patchlevel, in,
+		       sizeof(optee_km_context.vendor_patchlevel));
+		optee_km_context.vendor_patchlevel_set = true;
 	}
 
 out:
@@ -998,6 +1051,8 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint64_t key_rsa_public_exponent = UNDEFINED;
 	uint32_t os_version = 0xFFFFFFFF;
 	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
 	bool oob = false; /* out of bounds flag */
 	bool attest_purpose = false;
 	bool asymmetric_alg = false;
@@ -1031,11 +1086,13 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	 */
 	os_version = tee_get_os_version();
 	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
 
 	/* Add additional parameters */
 	TA_add_origin(&params_t, KM_ORIGIN_GENERATED, true);
-	TA_add_creation_datetime(&params_t, false);
-	TA_add_os_version_patchlevel(&params_t, os_version, os_patchlevel);
+	TA_add_version_patchlevel(&params_t, os_version, os_patchlevel,
+				vendor_patchlevel, boot_patchlevel);
 
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
@@ -2365,6 +2422,8 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint64_t key_rsa_public_exponent = UNDEFINED;
 	uint32_t os_version = 0xFFFFFFFF;
 	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
 	bool test_mode = false;
 	bool oob = false; /* out of bounds flag */
 	bool attest_purpose = false;
@@ -2437,11 +2496,14 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 	 */
 	os_version = tee_get_os_version();
 	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
 
 	/* Add additional parameters */
 	TA_add_origin(&params_t, KM_ORIGIN_GENERATED, true);
 	TA_add_creation_datetime(&params_t, true);
-	TA_add_os_version_patchlevel(&params_t, os_version, os_patchlevel);
+	TA_add_version_patchlevel(&params_t, os_version, os_patchlevel,
+				vendor_patchlevel, boot_patchlevel);
 
 	/* Parse mandatory and optional parameters */
 	error = TA_parse_params(params_t, &key_algorithm, &key_size,
@@ -2911,7 +2973,8 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 		break;
 	case KM_CONFIGURE_VENDOR_PATCHLEVEL:
 		DMSG("KM_CONFIGURE_VENDOR_PATCHLEVEL");
-		return TA_stubOperation(params);
+		error = TA_configure_vendor_patchlevel(params);
+		break;
 	case KM_GET_SUPPORTED_ALGORITHMS:
 	case KM_GET_SUPPORTED_BLOCK_MODES:
 	case KM_GET_SUPPORTED_PADDING_MODES:

@@ -32,6 +32,8 @@ void TA_init_km_context(void)
 {
 	memset(&optee_km_context, 0, sizeof(tee_km_context_t));
 	optee_km_context.version_info_set = false;
+	optee_km_context.vendor_patchlevel_set = false;
+	optee_km_context.boot_patchlevel_set = false;
 	optee_km_context.rot_info_set = false;
 	memset(&optee_dice_context, 0, sizeof(tee_dice_context_t));
 	optee_dice_context.cdi_set = false;

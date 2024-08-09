@@ -391,6 +391,8 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_DIGEST:
 		case KM_TAG_OS_VERSION:
 		case KM_TAG_OS_PATCHLEVEL:
+		case KM_TAG_VENDOR_PATCHLEVEL:
+		case KM_TAG_BOOT_PATCHLEVEL:
 		case KM_TAG_UNLOCKED_DEVICE_REQUIRED:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->hw_enforced.length)
@@ -564,9 +566,9 @@ void TA_add_creation_datetime(keymaster_key_param_set_t *params_t, bool replace)
 	}
 }
 
-void TA_add_os_version_patchlevel(keymaster_key_param_set_t *params_t,
-				  uint32_t os_version,
-				  uint32_t os_patchlevel)
+void TA_add_version_patchlevel(keymaster_key_param_set_t *params_t,
+				  uint32_t os_version, uint32_t os_patchlevel,
+				  uint32_t vendor_patchlevel, uint32_t boot_patchlevel)
 {
 	size_t i;
 	DMSG("%s %d", __func__, __LINE__);
@@ -594,6 +596,32 @@ void TA_add_os_version_patchlevel(keymaster_key_param_set_t *params_t,
 		(params_t->params + params_t->length)->tag = KM_TAG_OS_PATCHLEVEL;
 		(params_t->params + params_t->length)->
 						key_param.integer = os_patchlevel;
+		params_t->length++;
+	}
+
+	for (i = 0; i < params_t->length; i++) {
+		if (params_t->params[i].tag == KM_TAG_VENDOR_PATCHLEVEL) {
+			params_t->params[i].key_param.integer = vendor_patchlevel;
+			break;
+		}
+	}
+	if (i == params_t->length) {
+		(params_t->params + params_t->length)->tag = KM_TAG_VENDOR_PATCHLEVEL;
+		(params_t->params + params_t->length)->
+						key_param.integer = vendor_patchlevel;
+		params_t->length++;
+	}
+
+	for (i = 0; i < params_t->length; i++) {
+		if (params_t->params[i].tag == KM_TAG_BOOT_PATCHLEVEL) {
+			params_t->params[i].key_param.integer = boot_patchlevel;
+			break;
+		}
+	}
+	if (i == params_t->length) {
+		(params_t->params + params_t->length)->tag = KM_TAG_BOOT_PATCHLEVEL;
+		(params_t->params + params_t->length)->
+						key_param.integer = boot_patchlevel;
 		params_t->length++;
 	}
 }

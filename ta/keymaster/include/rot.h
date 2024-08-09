@@ -57,8 +57,12 @@ struct rot_data_t{
 typedef struct tee_km_context {
 	bool version_info_set;
 	bool rot_info_set;
+	bool vendor_patchlevel_set;
+	bool boot_patchlevel_set;
 	uint32_t os_version;
 	uint32_t os_patchlevel;
+	uint32_t vendor_patchlevel;
+	uint32_t boot_patchlevel;
 	struct rot_data_t rot;
 } tee_km_context_t;
 

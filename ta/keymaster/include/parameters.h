@@ -94,9 +94,9 @@ void TA_add_origin(keymaster_key_param_set_t *params_t,
 
 void TA_add_creation_datetime(keymaster_key_param_set_t *params_t, bool replace);
 
-void TA_add_os_version_patchlevel(keymaster_key_param_set_t *params_t,
-				  uint32_t os_version,
-				  uint32_t os_patchlevel);
+void TA_add_version_patchlevel(keymaster_key_param_set_t *params_t,
+				  uint32_t os_version, uint32_t os_patchlevel,
+				  uint32_t vendor_patchlevel, uint32_t boot_patchlevel);
 
 void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size);
 

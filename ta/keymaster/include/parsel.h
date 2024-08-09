@@ -26,12 +26,12 @@
 #include "ta_ca_defs.h"
 
 #define MAX_OCTET_COUNT 10
-#define ADDITIONAL_TAGS 6 /*
+#define ADDITIONAL_TAGS 8 /*
 			   * Number of tags that can be added
 			   * (KM_TAG_ORIGIN, KM_TAG_CREATION_DATETIME,
 			   * KM_TAG_OS_VERSION, KM_TAG_OS_PATCHLEVEL,
-			   * KM_TAG_KEY_SIZE,
-			   * KM_TAG_RSA_PUBLIC_EXPONENT)
+			   * KM_TAG_KEY_SIZE, KM_TAG_RSA_PUBLIC_EXPONENT,
+			   * KM_TAG_VENDOR_PATCHLEVEL, KM_TAG_BOOT_PATCHLEVEL)
 			   */
 
 bool TA_is_out_of_bounds(uint8_t *in, uint8_t *in_end, size_t size);
