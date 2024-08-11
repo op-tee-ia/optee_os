@@ -242,36 +242,6 @@ void mbedtls_cipher_free(mbedtls_cipher_context_t *ctx)
     mbedtls_platform_zeroize(ctx, sizeof(mbedtls_cipher_context_t));
 }
 
-int mbedtls_cipher_clone(mbedtls_cipher_context_t *dst,
-                         const mbedtls_cipher_context_t *src)
-{
-    if (dst == NULL || dst->cipher_info == NULL ||
-        src == NULL || src->cipher_info == NULL) {
-        return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
-    }
-
-    dst->cipher_info = src->cipher_info;
-    dst->key_bitlen = src->key_bitlen;
-    dst->operation = src->operation;
-#if defined(MBEDTLS_CIPHER_MODE_WITH_PADDING)
-    dst->add_padding = src->add_padding;
-    dst->get_padding = src->get_padding;
-#endif
-    memcpy(dst->unprocessed_data, src->unprocessed_data, MBEDTLS_MAX_BLOCK_LENGTH);
-    dst->unprocessed_len = src->unprocessed_len;
-    memcpy(dst->iv, src->iv, MBEDTLS_MAX_IV_LENGTH);
-    dst->iv_size = src->iv_size;
-    if (mbedtls_cipher_get_base(dst->cipher_info)->ctx_clone_func)
-        mbedtls_cipher_get_base(dst->cipher_info)->ctx_clone_func(dst->cipher_ctx,
-            src->cipher_ctx);
-
-#if defined(MBEDTLS_CMAC_C)
-    if (dst->cmac_ctx != NULL && src->cmac_ctx != NULL)
-        memcpy(dst->cmac_ctx, src->cmac_ctx, sizeof(mbedtls_cmac_context_t));
-#endif
-    return 0;
-}
-
 int mbedtls_cipher_setup(mbedtls_cipher_context_t *ctx,
                          const mbedtls_cipher_info_t *cipher_info)
 {
@@ -281,8 +251,11 @@ int mbedtls_cipher_setup(mbedtls_cipher_context_t *ctx,
 
     memset(ctx, 0, sizeof(mbedtls_cipher_context_t));
 
-    if (NULL == (ctx->cipher_ctx = mbedtls_cipher_get_base(cipher_info)->ctx_alloc_func())) {
-        return MBEDTLS_ERR_CIPHER_ALLOC_FAILED;
+    if (mbedtls_cipher_get_base(cipher_info)->ctx_alloc_func != NULL) {
+        ctx->cipher_ctx = mbedtls_cipher_get_base(cipher_info)->ctx_alloc_func();
+        if (ctx->cipher_ctx == NULL) {
+            return MBEDTLS_ERR_CIPHER_ALLOC_FAILED;
+        }
     }
 
     ctx->cipher_info = cipher_info;
@@ -326,16 +299,6 @@ int mbedtls_cipher_setup_psa(mbedtls_cipher_context_t *ctx,
 }
 #endif /* MBEDTLS_USE_PSA_CRYPTO && !MBEDTLS_DEPRECATED_REMOVED */
 
-int mbedtls_cipher_setup_info(mbedtls_cipher_context_t *ctx,
-                              const mbedtls_cipher_info_t *cipher_info )
-{
-    if (NULL == cipher_info || NULL == ctx)
-        return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
-
-    ctx->cipher_info = cipher_info;
-    return 0;
-}
-
 int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx,
                           const unsigned char *key,
                           int key_bitlen,
@@ -347,6 +310,12 @@ int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx,
     if (ctx->cipher_info == NULL) {
         return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
     }
+#if defined(MBEDTLS_BLOCK_CIPHER_NO_DECRYPT)
+    if (MBEDTLS_MODE_ECB == ((mbedtls_cipher_mode_t) ctx->cipher_info->mode) &&
+        MBEDTLS_DECRYPT == operation) {
+        return MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE;
+    }
+#endif
 
 #if defined(MBEDTLS_USE_PSA_CRYPTO) && !defined(MBEDTLS_DEPRECATED_REMOVED)
     if (ctx->psa_enabled == 1) {
@@ -414,6 +383,7 @@ int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx,
     ctx->key_bitlen = key_bitlen;
     ctx->operation = operation;
 
+#if !defined(MBEDTLS_BLOCK_CIPHER_NO_DECRYPT)
     /*
      * For OFB, CFB and CTR mode always use the encryption key schedule
      */
@@ -429,6 +399,12 @@ int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx,
         return mbedtls_cipher_get_base(ctx->cipher_info)->setkey_dec_func(ctx->cipher_ctx, key,
                                                                           ctx->key_bitlen);
     }
+#else
+    if (operation == MBEDTLS_ENCRYPT || operation == MBEDTLS_DECRYPT) {
+        return mbedtls_cipher_get_base(ctx->cipher_info)->setkey_enc_func(ctx->cipher_ctx, key,
+                                                                          ctx->key_bitlen);
+    }
+#endif
 
     return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
 }

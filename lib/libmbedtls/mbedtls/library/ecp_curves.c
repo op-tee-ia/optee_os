@@ -23,12 +23,6 @@
 
 #if !defined(MBEDTLS_ECP_ALT)
 
-/* Parameter validation macros based on platform_util.h */
-#define ECP_VALIDATE_RET(cond)    \
-    MBEDTLS_INTERNAL_VALIDATE_RET(cond, MBEDTLS_ERR_ECP_BAD_INPUT_DATA)
-#define ECP_VALIDATE(cond)        \
-    MBEDTLS_INTERNAL_VALIDATE(cond)
-
 #define ECP_MPI_INIT(_p, _n) { .p = (mbedtls_mpi_uint *) (_p), .s = 1, .n = (_n) }
 
 #define ECP_MPI_INIT_ARRAY(x)   \
@@ -52,7 +46,7 @@
     defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 /* For these curves, we build the group parameters dynamically. */
 #define ECP_LOAD_GROUP
-static mbedtls_mpi_uint mpi_one[] = { 1 };
+static const mbedtls_mpi_uint mpi_one[] = { 1 };
 #endif
 
 /*
@@ -3748,49 +3742,6 @@ static const mbedtls_ecp_point brainpoolP384r1_T[32] = {
 #endif /* MBEDTLS_ECP_DP_BP384R1_ENABLED */
 
 /*
- * Domain parameters for SM2 (GM/T 0003 Part 5)
- */
-#if defined(MBEDTLS_ECP_DP_SM2_ENABLED)
-static const mbedtls_mpi_uint sm2_p[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF ),
-};
-static const mbedtls_mpi_uint sm2_a[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF ),
-};
-static const mbedtls_mpi_uint sm2_b[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x93, 0x0E, 0x94, 0x4D, 0x41, 0xBD, 0xBC, 0xDD ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x92, 0x8F, 0xAB, 0x15, 0xF5, 0x89, 0x97, 0xF3 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xA7, 0x09, 0x65, 0xCF, 0x4B, 0x9E, 0x5A, 0x4D ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x34, 0x5E, 0x9F, 0x9D, 0x9E, 0xFA, 0xE9, 0x28 ),
-};
-static const mbedtls_mpi_uint sm2_gx[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xC7, 0x74, 0x4C, 0x33, 0x89, 0x45, 0x5A, 0x71 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xE1, 0x0B, 0x66, 0xF2, 0xBF, 0x0B, 0xE3, 0x8F ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x94, 0xC9, 0x39, 0x6A, 0x46, 0x04, 0x99, 0x5F ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x19, 0x81, 0x19, 0x1F, 0x2C, 0xAE, 0xC4, 0x32 ),
-};
-static const mbedtls_mpi_uint sm2_gy[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xA0, 0xF0, 0x39, 0x21, 0xE5, 0x32, 0xDF, 0x02 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x40, 0x47, 0x2A, 0xC6, 0x7C, 0x87, 0xA9, 0xD0 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x53, 0x21, 0x69, 0x6B, 0xE3, 0xCE, 0xBD, 0x59 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x9C, 0x77, 0xF6, 0xF4, 0xA2, 0x36, 0x37, 0xBC ),
-};
-static const mbedtls_mpi_uint sm2_n[] = {
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x23, 0x41, 0xD5, 0x39, 0x09, 0xF4, 0xBB, 0x53 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0x2B, 0x05, 0xC6, 0x21, 0x6B, 0xDF, 0x03, 0x72 ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ),
-    MBEDTLS_BYTES_TO_T_UINT_8( 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF ),
-};
-#define sm2_T NULL
-#endif /* MBEDTLS_ECP_DP_SM2_ENABLED */
-
-/*
  * Domain parameters for brainpoolP512r1 (RFC 5639 3.7)
  */
 #if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
@@ -4554,7 +4505,7 @@ static inline void ecp_mpi_set1(mbedtls_mpi *X)
 {
     X->s = 1;
     X->n = 1;
-    X->p = mpi_one;
+    X->p = (mbedtls_mpi_uint *) mpi_one; /* X->p will not be modified so the cast is safe */
 }
 
 /*
@@ -4765,7 +4716,6 @@ cleanup:
  */
 int mbedtls_ecp_group_load(mbedtls_ecp_group *grp, mbedtls_ecp_group_id id)
 {
-    ECP_VALIDATE_RET(grp != NULL);
     mbedtls_ecp_group_free(grp);
 
     mbedtls_ecp_group_init(grp);
@@ -4830,11 +4780,6 @@ int mbedtls_ecp_group_load(mbedtls_ecp_group *grp, mbedtls_ecp_group_id id)
         case MBEDTLS_ECP_DP_BP384R1:
             return LOAD_GROUP_A(brainpoolP384r1);
 #endif /* MBEDTLS_ECP_DP_BP384R1_ENABLED */
-
-#if defined(MBEDTLS_ECP_DP_SM2_ENABLED)
-        case MBEDTLS_ECP_DP_SM2:
-            return( LOAD_GROUP_A( sm2 ) );
-#endif /* MBEDTLS_ECP_DP_SM2_ENABLED */
 
 #if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
         case MBEDTLS_ECP_DP_BP512R1:
@@ -5366,7 +5311,7 @@ cleanup:
  */
 #define P_KOBLITZ_MAX   (256 / 8 / sizeof(mbedtls_mpi_uint))      // Max limbs in P
 #define P_KOBLITZ_R     (8 / sizeof(mbedtls_mpi_uint))            // Limbs in R
-static inline int ecp_mod_koblitz(mbedtls_mpi *N, mbedtls_mpi_uint *Rp, size_t p_limbs,
+static inline int ecp_mod_koblitz(mbedtls_mpi *N, const mbedtls_mpi_uint *Rp, size_t p_limbs,
                                   size_t adjust, size_t shift, mbedtls_mpi_uint mask)
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
@@ -5380,7 +5325,7 @@ static inline int ecp_mod_koblitz(mbedtls_mpi *N, mbedtls_mpi_uint *Rp, size_t p
 
     /* Init R */
     R.s = 1;
-    R.p = Rp;
+    R.p = (mbedtls_mpi_uint *) Rp; /* R.p will not be modified so the cast is safe */
     R.n = P_KOBLITZ_R;
 
     /* Common setup for M */
@@ -5451,7 +5396,7 @@ cleanup:
  */
 static int ecp_mod_p192k1(mbedtls_mpi *N)
 {
-    static mbedtls_mpi_uint Rp[] = {
+    static const mbedtls_mpi_uint Rp[] = {
         MBEDTLS_BYTES_TO_T_UINT_8(0xC9, 0x11, 0x00, 0x00, 0x01, 0x00, 0x00,
                                   0x00)
     };
@@ -5468,7 +5413,7 @@ static int ecp_mod_p192k1(mbedtls_mpi *N)
  */
 static int ecp_mod_p224k1(mbedtls_mpi *N)
 {
-    static mbedtls_mpi_uint Rp[] = {
+    static const mbedtls_mpi_uint Rp[] = {
         MBEDTLS_BYTES_TO_T_UINT_8(0x93, 0x1A, 0x00, 0x00, 0x01, 0x00, 0x00,
                                   0x00)
     };
@@ -5490,7 +5435,7 @@ static int ecp_mod_p224k1(mbedtls_mpi *N)
  */
 static int ecp_mod_p256k1(mbedtls_mpi *N)
 {
-    static mbedtls_mpi_uint Rp[] = {
+    static const mbedtls_mpi_uint Rp[] = {
         MBEDTLS_BYTES_TO_T_UINT_8(0xD1, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00,
                                   0x00)
     };
