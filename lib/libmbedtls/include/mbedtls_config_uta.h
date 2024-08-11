@@ -69,6 +69,4 @@
 /* To comply with current xtest cases*/
 #define MBEDTLS_RSA_GEN_KEY_MIN_BITS 256
 
-#include <mbedtls/check_config.h>
-
 #endif /* __MBEDTLS_CONFIG_UTA_H */

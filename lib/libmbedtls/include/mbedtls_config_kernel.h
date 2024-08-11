@@ -153,6 +153,4 @@
 #define MBEDTLS_PEM_PARSE_C
 #define MBEDTLS_PEM_WRITE_C
 
-#include <mbedtls/check_config.h>
-
 #endif /* __MBEDTLS_CONFIG_KERNEL_H */
