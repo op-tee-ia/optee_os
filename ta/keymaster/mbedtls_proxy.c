@@ -1040,9 +1040,11 @@ out:
 	return res;
 }
 
-static TEE_Result mbedTLS_gen_fake_cert(mbedtls_pk_context *issuer_key,
+static TEE_Result mbedTLS_gen_self_signed_cert(mbedtls_pk_context *issuer_key,
 					keymaster_blob_t *root_cert,
-					const char *cert_subject)
+					const char *cert_subject,
+					uint64_t not_before_val,
+					uint64_t not_after_val)
 {
 	unsigned char buf[CERT_ROOT_MAX_SIZE];
 	unsigned char dfl_not_before[TIME_STRLEN] = { 0 };
@@ -1050,7 +1052,6 @@ static TEE_Result mbedTLS_gen_fake_cert(mbedtls_pk_context *issuer_key,
 	int blen = CERT_ROOT_MAX_SIZE;
 	int ret;
 	TEE_Result res = TEE_SUCCESS;
-	TEE_Time sys_t = { 0 };
 
 	mbedtls_mpi serial;
 	mbedtls_x509write_cert crt;
@@ -1094,18 +1095,7 @@ static TEE_Result mbedTLS_gen_fake_cert(mbedtls_pk_context *issuer_key,
 		goto out;
 	}
 
-	IMSG("########################################################");
-	IMSG("# CAUTION:");
-	IMSG("# REE time used for root cert generation!");
-	IMSG("# This is for development and testing ONLY!");
-	IMSG("# Platforms should define CFG_ATTESTATION_PROVISIONING");
-	IMSG("# and invoke the KM_SET_ATTESTATION_KEY and");
-	IMSG("# KM_APPEND_ATTESTATION_CERT_CHAIN commands to send a");
-	IMSG("# verified cert (chain) to secure persistent storage");
-	IMSG("# during provisioning!");
-	IMSG("########################################################");
-	TEE_GetREETime(&sys_t);
-	ret = convert_epoch_to_date_str(sys_t.seconds, dfl_not_before,
+	ret = convert_epoch_to_date_str(not_before_val, dfl_not_before,
 					sizeof(dfl_not_before));
 	if (ret) {
 		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
@@ -1113,10 +1103,7 @@ static TEE_Result mbedTLS_gen_fake_cert(mbedtls_pk_context *issuer_key,
 		goto out;
 	}
 
-	/*
-	 * a cert is usually valid for 2 years (63072000 seconds)
-	 */
-	ret = convert_epoch_to_date_str(sys_t.seconds + 63072000,
+	ret = convert_epoch_to_date_str(not_after_val,
 					dfl_not_after, sizeof(dfl_not_after));
 	if (ret) {
 		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
@@ -1294,37 +1281,39 @@ out:
 	return res;
 }
 
-
-TEE_Result mbedTLS_gen_fake_cert_rsa(TEE_ObjectHandle rsa_key,
-				     keymaster_blob_t *rsa_fake_cert)
+TEE_Result mbedTLS_gen_self_signed_cert_rsa(TEE_ObjectHandle rsa_root_key,
+				     keymaster_blob_t *rsa_root_cert,
+				     uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 	mbedtls_pk_context issuer_key;
 
 	DMSG("%s %d", __func__, __LINE__);
-	res = mbedTLS_import_rsa_pk(&issuer_key, rsa_key);
+	res = mbedTLS_import_rsa_pk(&issuer_key, rsa_root_key);
 	if (res) {
 		EMSG("mbedTLS_import_rsa_pk: failed: %#x", res);
 		return res;
 	}
 
-	res = mbedTLS_gen_fake_cert(&issuer_key, rsa_fake_cert, cert_root_subject_rsa);
+	res = mbedTLS_gen_self_signed_cert(&issuer_key, rsa_root_cert, cert_root_subject_rsa,
+				not_before_val, not_after_val);
 	if (res != TEE_ERROR_SHORT_BUFFER)
 	{
-		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		EMSG("mbedTLS_gen_self_signed_cert: failed: %#x", res);
 		goto out;
 	}
-	rsa_fake_cert->data = TEE_Malloc(rsa_fake_cert->data_length, TEE_MALLOC_FILL_ZERO);
-	if (rsa_fake_cert->data == NULL)
+	rsa_root_cert->data = TEE_Malloc(rsa_root_cert->data_length, TEE_MALLOC_FILL_ZERO);
+	if (rsa_root_cert->data == NULL)
 	{
 		res = TEE_ERROR_OUT_OF_MEMORY;
 		goto out;
 	}
-	res = mbedTLS_gen_fake_cert(&issuer_key, rsa_fake_cert, cert_root_subject_rsa);
+	res = mbedTLS_gen_self_signed_cert(&issuer_key, rsa_root_cert, cert_root_subject_rsa,
+				not_before_val, not_after_val);
 	if (res != TEE_SUCCESS ) {
-		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
-		TEE_Free(rsa_fake_cert->data);
-		rsa_fake_cert->data = NULL;
+		EMSG("mbedTLS_gen_self_signed_cert: failed: %#x", res);
+		TEE_Free(rsa_root_cert->data);
+		rsa_root_cert->data = NULL;
 		goto out;
 	}
 out:
@@ -1332,7 +1321,6 @@ out:
 
 	return res;
 }
-
 
 TEE_Result mbedTLS_gen_root_cert_ecc(TEE_ObjectHandle ecc_root_key,
 				     keymaster_blob_t *ecc_root_cert)
@@ -1372,42 +1360,288 @@ out:
 	return res;
 }
 
-TEE_Result mbedTLS_gen_fake_cert_ecc(TEE_ObjectHandle ecc_key,
-				     keymaster_blob_t *ecc_fake_cert)
+TEE_Result mbedTLS_gen_self_signed_cert_ecc(TEE_ObjectHandle ecc_root_key,
+				     keymaster_blob_t *ecc_root_cert,
+				     uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 	mbedtls_pk_context issuer_key;
 
 	DMSG("%s %d", __func__, __LINE__);
-	res = mbedTLS_import_ecc_pk(&issuer_key, ecc_key);
+	res = mbedTLS_import_ecc_pk(&issuer_key, ecc_root_key);
 	if (res) {
 		EMSG("mbedTLS_import_ecc_pk: failed: %#x", res);
 		return res;
 	}
 
-	res = mbedTLS_gen_fake_cert(&issuer_key, ecc_fake_cert, cert_root_subject_ecc);
+	res = mbedTLS_gen_self_signed_cert(&issuer_key, ecc_root_cert, cert_root_subject_ecc,
+			not_before_val, not_after_val);
 	if (res != TEE_ERROR_SHORT_BUFFER)
 	{
-		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
+		EMSG("mbedTLS_gen_self_signed_cert: failed: %#x", res);
 		goto out;
 	}
-	ecc_fake_cert->data = TEE_Malloc(ecc_fake_cert->data_length, TEE_MALLOC_FILL_ZERO);
-	if (ecc_fake_cert->data == NULL)
+	ecc_root_cert->data = TEE_Malloc(ecc_root_cert->data_length, TEE_MALLOC_FILL_ZERO);
+	if (ecc_root_cert->data == NULL)
 	{
 		res = TEE_ERROR_OUT_OF_MEMORY;
 		goto out;
 	}
-	res = mbedTLS_gen_fake_cert(&issuer_key, ecc_fake_cert, cert_root_subject_ecc);
+	res = mbedTLS_gen_self_signed_cert(&issuer_key, ecc_root_cert, cert_root_subject_ecc,
+			not_before_val, not_after_val);
 	if (res != TEE_SUCCESS ) {
-		EMSG("mbedTLS_gen_fake_cert: failed: %#x", res);
-		TEE_Free(ecc_fake_cert->data);
-		ecc_fake_cert->data = NULL;
+		EMSG("mbedTLS_gen_self_signed_cert: failed: %#x", res);
+		TEE_Free(ecc_root_cert->data);
+		ecc_root_cert->data = NULL;
 		goto out;
 	}
 out:
 	mbedtls_pk_free(&issuer_key);
 
 	return res;
+}
+
+static TEE_Result mbedTLS_attest_key_cert_with_rootkey(mbedtls_pk_context *issuer_key,
+					  mbedtls_pk_context *subject_key,
+					  unsigned int key_usage,
+					  keymaster_blob_t *attest_cert,
+					  keymaster_blob_t *attest_ext,
+					  char *cert_issuer,
+					  uint64_t not_before_val,
+					  uint64_t not_after_val)
+{
+	unsigned char buf[CERT_ROOT_MAX_SIZE];
+	unsigned char dfl_not_before[TIME_STRLEN] = { 0 };
+	unsigned char dfl_not_after[TIME_STRLEN] = { 0 };
+
+	int blen = CERT_ROOT_MAX_SIZE;
+	int ret;
+	TEE_Result res = TEE_SUCCESS;
+
+	mbedtls_mpi serial;
+	mbedtls_x509write_cert crt;
+	const char *attestation_oid = MBEDTLS_OID_ATTESTATION;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	mbedtls_mpi_init(&serial);
+	mbedtls_x509write_crt_init(&crt);
+
+	ret = mbedtls_mpi_lset(&serial, 1);
+	if (ret) {
+		EMSG("mbedtls_mpi_read_string: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_subject_name(&crt,
+						     cert_attest_key_subject);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_subject_name: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_issuer_name(&crt, cert_issuer);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_issuer_name: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	mbedtls_x509write_crt_set_version( &crt, MBEDTLS_X509_CRT_VERSION_3 );
+	mbedtls_x509write_crt_set_md_alg(&crt,  MBEDTLS_MD_SHA256);
+	mbedtls_x509write_crt_set_subject_key(&crt, subject_key);
+	mbedtls_x509write_crt_set_issuer_key(&crt, issuer_key);
+
+	ret = mbedtls_x509write_crt_set_serial(&crt, &serial);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_serial: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = convert_epoch_to_date_str(not_before_val, dfl_not_before,
+					sizeof(dfl_not_before));
+	if (ret) {
+		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = convert_epoch_to_date_str(not_after_val,
+					dfl_not_after, sizeof(dfl_not_after));
+	if (ret) {
+		EMSG("convert_epoch_to_date_str: failed: %#x", ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_validity(&crt,
+						 (const char *)dfl_not_before,
+						 (const char *)dfl_not_after);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_validity: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	/* cA to false cause key_usage do not contain MBEDTLS_X509_KU_KEY_CERT_SIGN */
+	ret = mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_basic_constraints: failed: -%#x", -ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_subject_key_identifier(&crt);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_subject_key_identifier: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_authority_key_identifier(&crt);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_authority_key_identifier: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	ret = mbedtls_x509write_crt_set_key_usage(&crt,
+					    key_usage);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	/* add attestation OID */
+	ret =  mbedtls_x509write_crt_set_extension(&crt, attestation_oid,
+						   MBEDTLS_OID_SIZE(MBEDTLS_OID_ATTESTATION),
+			                           1, attest_ext->data, attest_ext->data_length);
+	if (ret) {
+		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+	/*
+	 * from https://tls.mbed.org/api/x509__crt_8h.html:
+	 * Write a built up certificate to a X509 DER structure Note: data is
+	 * written at the end of the buffer! Use the return value to determine
+	 * where you should start using the buffer.
+	 */
+	ret = mbedtls_x509write_crt_der(&crt, buf, blen, f_rng, NULL);
+	if (ret < 0) {
+		EMSG("mbedtls_x509write_crt_der: failed: -%#x",
+				-ret);
+		res = TEE_ERROR_BAD_FORMAT;
+		goto out;
+	}
+
+	if (attest_cert->data_length < (uint32_t)ret)
+	{
+		res = TEE_ERROR_SHORT_BUFFER;
+		attest_cert->data_length = ret;
+		goto out;
+	}
+	attest_cert->data_length = ret;
+
+	TEE_MemMove(attest_cert->data, buf + blen - ret,
+			ret);
+	// TODO: check attest_cert->data
+
+out:
+	mbedtls_mpi_free(&serial);
+	mbedtls_x509write_crt_free(&crt);
+
+	return res;
+}
+
+TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(TEE_ObjectHandle root_key,
+				       TEE_ObjectHandle attest_key,
+				       keymaster_algorithm_t root_alg,
+				       keymaster_algorithm_t alg,
+				       unsigned int key_usage,
+				       keymaster_cert_chain_t *cert_chain,
+				       keymaster_blob_t *attest_ext,
+				       uint64_t not_before_val,
+				       uint64_t not_after_val)
+{
+	int ret;
+	TEE_Result res = TEE_SUCCESS;
+	keymaster_blob_t *attest_cert = &cert_chain->entries[KEY_ATT_CERT_INDEX];
+	mbedtls_x509_crt *cert = NULL;
+	mbedtls_pk_context issuer_key = {NULL,NULL};
+	mbedtls_pk_context subject_key = {NULL,NULL};
+	char cert_subject[1024];
+	const unsigned char *p = (unsigned char*)cert_chain->entries[ROOT_ATT_CERT_INDEX].data;
+	size_t cert_len = cert_chain->entries[ROOT_ATT_CERT_INDEX].data_length;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	cert = (mbedtls_x509_crt*)TEE_Malloc(sizeof(mbedtls_x509_crt),
+					     TEE_MALLOC_FILL_ZERO);
+	if( cert == NULL )
+		return TEE_ERROR_OUT_OF_MEMORY;
+
+	mbedtls_x509_crt_init(cert);
+
+	DMSG("root certificate: \n");
+	DHEXDUMP(p,cert_len);
+
+	if ((mbedtls_x509_crt_parse_der(cert, p, cert_len)) != 0) {
+		EMSG("mbedtls_x509_crt_parse_der: failed");
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto out;
+	}
+
+	ret = mbedtls_x509_dn_gets(cert_subject, sizeof(cert_subject) - 1,
+				   &cert->subject);
+	if (ret < 0) {
+		EMSG("mbedtls_x509_dn_gets: failed: -%#x", -ret);
+		res = TEE_ERROR_SHORT_BUFFER;
+		goto out;
+	}
+
+	res = (root_alg == KM_ALGORITHM_RSA) ?
+		mbedTLS_import_rsa_pk(&issuer_key, root_key) :
+		mbedTLS_import_ecc_pk(&issuer_key, root_key);
+	if (res) {
+		EMSG("mbedTLS_import_pk for alg %d: failed: %#x", alg, res);
+		goto out;
+	}
+
+	res = (alg == KM_ALGORITHM_RSA) ?
+		mbedTLS_import_rsa_pk(&subject_key, attest_key) :
+		mbedTLS_import_ecc_pk(&subject_key, attest_key);
+	if (res) {
+		EMSG("mbedTLS_import_pk for alg %d: failed: %#x", alg, res);
+		goto out;
+	}
+
+	res = mbedTLS_attest_key_cert_with_rootkey(&issuer_key, &subject_key,
+				      key_usage, attest_cert,
+				      attest_ext, cert_subject, not_before_val, not_after_val);
+	if (res) {
+		EMSG("mbedTLS_attest_key_cert_with_rootkey: failed: %#x", res);
+		goto out;
+	}
+out:
+
+	mbedtls_pk_free(&issuer_key);
+	mbedtls_pk_free(&subject_key);
+	mbedtls_x509_crt_free(cert);
+	TEE_Free( cert );
+
+	return res;
+
 }
 
 static TEE_Result mbedTLS_attest_key_cert(mbedtls_pk_context *issuer_key,
@@ -1588,7 +1822,6 @@ out:
 
 TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
 				       TEE_ObjectHandle attest_key,
-				       keymaster_algorithm_t root_alg,
 				       keymaster_algorithm_t alg,
 				       unsigned int key_usage,
 				       keymaster_cert_chain_t *cert_chain,
@@ -1629,7 +1862,7 @@ TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
 		goto out;
 	}
 
-	res = (root_alg == KM_ALGORITHM_RSA) ?
+	res = (alg == KM_ALGORITHM_RSA) ?
 		mbedTLS_import_rsa_pk(&issuer_key, root_key) :
 		mbedTLS_import_ecc_pk(&issuer_key, root_key);
 	if (res) {
@@ -3062,7 +3295,6 @@ TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
 
 	res = mbedTLS_gen_attest_key_cert(rootAttKey,
 	                                  attestedKey,
-	                                  root_alg,
 	                                  alg,
 	                                  key_usage,
 	                                  cert_chain,
@@ -3090,7 +3322,9 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
                               bool includeUniqueID,
                               keymaster_algorithm_t root_alg,
                               keymaster_algorithm_t alg,
-                              keymaster_cert_chain_t *cert_chain)
+                              keymaster_cert_chain_t *cert_chain,
+                              uint64_t not_before_val,
+                              uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 	keymaster_blob_t attest_ext = EMPTY_BLOB;
@@ -3115,7 +3349,8 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
 	DHEXDUMP(attest_ext.data,
 	         attest_ext.data_length);
 
-	res = TA_gen_root_cert(root_alg, root_key, root_cert);
+	res = TA_gen_self_signed_cert(root_alg, root_key, root_cert,
+			not_before_val, not_after_val);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to generate root cert");
 		goto error_1;
@@ -3129,8 +3364,9 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
 		goto error_1;
 	}
 
-	res = mbedTLS_gen_attest_key_cert(root_key, attested_key, root_alg, alg,
-	                                  key_usage, cert_chain, &attest_ext);
+	res = mbedTLS_gen_attest_key_cert_with_rootkey(root_key, attested_key, root_alg, alg,
+	                                  key_usage, cert_chain, &attest_ext,
+									  not_before_val, not_after_val);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to generate key attestation, res=%x", res);
 		goto error_1;

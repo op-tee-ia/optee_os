@@ -605,6 +605,43 @@ err:
 	return res;
 }
 
+static keymaster_error_t TA_get_validity_info(
+				const keymaster_key_param_set_t *input_set,
+				uint64_t *not_before_val, uint64_t *not_after_val)
+{
+	bool not_before = false;
+	bool not_after = false;
+	size_t i = 0;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	for (i = 0; i < input_set->length; i++) {
+		if (input_set->params[i].tag == KM_TAG_CERTIFICATE_NOT_BEFORE) {
+			not_before = true;
+			*not_before_val = input_set->params[i].key_param.date_time / 1000;
+			DMSG("not_before %ld", *not_before_val);
+			break;
+		}
+	}
+
+	for (i = 0; i < input_set->length; i++) {
+		if (input_set->params[i].tag == KM_TAG_CERTIFICATE_NOT_AFTER) {
+			not_after = true;
+			*not_after_val = input_set->params[i].key_param.date_time / 1000;
+			DMSG("not_after %ld", *not_after_val);
+			break;
+		}
+	}
+
+	if (not_before == false)
+		return KM_ERROR_MISSING_NOT_BEFORE;
+
+	if (not_after == false)
+		return KM_ERROR_MISSING_NOT_AFTER;
+
+	return KM_ERROR_OK;
+}
+
 static keymaster_error_t TA_configure(TEE_Param params[TEE_NUM_PARAMS])
 {
 	uint8_t *in = NULL;
@@ -848,7 +885,8 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 				TEE_ObjectHandle attested_key,
 				keymaster_key_param_set_t *attest_params,
 				keymaster_key_characteristics_t *attest_key_chr,
-				keymaster_cert_chain_t *cert_chain)
+				keymaster_cert_chain_t *cert_chain,
+				uint64_t not_before_val, uint64_t not_after_val)
 {
 	keymaster_key_blob_t root_key_blob = EMPTY_KEY_BLOB; /* IN */
 	keymaster_key_param_set_t root_params = EMPTY_PARAM_SET; /* IN */
@@ -996,7 +1034,7 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	/* Generate key attestation certificate (using STA ASN.1) */
 	result = TA_gen_key_attest_cert_with_rootkey(root_algorithm, alg, root_key,
 					attested_key, attest_params, attest_key_chr, cert_chain,
-					includeUniqueID);
+					includeUniqueID, not_before_val, not_after_val);
 	if (result != TEE_SUCCESS) {
 		EMSG("Failed to gen key att cert, res=%x", result);
 		res = KM_ERROR_UNKNOWN_ERROR;
@@ -1049,6 +1087,8 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t characts_size = 0;
 	uint32_t key_size = UNDEFINED;
 	uint64_t key_rsa_public_exponent = UNDEFINED;
+	uint64_t not_before_val = UNDEFINED;
+	uint64_t not_after_val = UNDEFINED;
 	uint32_t os_version = 0xFFFFFFFF;
 	uint32_t os_patchlevel = 0xFFFFFFFF;
 	uint32_t vendor_patchlevel = 0xFFFFFFFF;
@@ -1197,9 +1237,15 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 			goto exit;
 		}
 
+		res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+		if (res != KM_ERROR_OK) {
+			EMSG("Failed to get validity info, res=%x", res);
+			goto exit;
+		}
+
 		DMSG("Generate Key to be Attested");
 		res = TA_attestKey(in, in_end, key_algorithm, key_obj_h,
-				&params_t, &characts, &cert_chain);
+				&params_t, &characts, &cert_chain, not_before_val, not_after_val);
 	} else if (attestation_key_blob_not_null(in, in_end)) {
 		EMSG("Attestation challenge missing!");
 		res = KM_ERROR_ATTESTATION_CHALLENGE_MISSING;
@@ -1220,14 +1266,23 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 
 			if (attest_purpose == true) {
 				DMSG("Generate self-signed cert for signing key");
-				result = TA_gen_root_cert(key_algorithm, key_obj_h, root_cert);
+
+				res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+				if (res != KM_ERROR_OK) {
+					EMSG("Failed to get validity info, res=%x", res);
+					goto exit;
+				}
+
+				result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
+							not_before_val, not_after_val);
 				if (result != TEE_SUCCESS) {
 					EMSG("Failed to generated root certificate, res=%x", res);
 					res = KM_ERROR_UNKNOWN_ERROR;
 				}
 			} else {
 				DMSG("Generate fake cert for non-signing asymmetric key");
-				result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert);
+				result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+							not_before_val, not_after_val);
 				if (result != TEE_SUCCESS) {
 					EMSG("Failed to generated fake certificate, res=%x", res);
 					res = KM_ERROR_UNKNOWN_ERROR;

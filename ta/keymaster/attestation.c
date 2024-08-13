@@ -770,20 +770,23 @@ error:
 	}
 }
 
-TEE_Result TA_gen_root_cert(keymaster_algorithm_t alg,
+TEE_Result TA_gen_self_signed_cert(keymaster_algorithm_t alg,
 				  TEE_ObjectHandle root_key,
-				  keymaster_blob_t *root_cert)
+				  keymaster_blob_t *root_cert,
+				  uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 
 	if (root_cert == NULL)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	//Call ASN1 TA to generate root certificate
+	//Call ASN1 TA to generate self-signed certificate
 	if (alg == KM_ALGORITHM_RSA) {
-		res = mbedTLS_gen_root_cert_rsa(root_key, root_cert);
+		res = mbedTLS_gen_self_signed_cert_rsa(root_key, root_cert,
+				not_before_val, not_after_val);
 	} else if (alg == KM_ALGORITHM_EC) {
-		res = mbedTLS_gen_root_cert_ecc(root_key, root_cert);
+		res = mbedTLS_gen_self_signed_cert_ecc(root_key, root_cert,
+				not_before_val, not_after_val);
 	} else {
 		res = TEE_ERROR_BAD_PARAMETERS;
 	}
@@ -793,7 +796,8 @@ TEE_Result TA_gen_root_cert(keymaster_algorithm_t alg,
 
 TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
 				  TEE_ObjectHandle asymmetric_key,
-				  keymaster_blob_t *fake_cert)
+				  keymaster_blob_t *fake_cert,
+				  uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 
@@ -802,9 +806,11 @@ TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
 
 	//Call ASN1 TA to generate fake certificate
 	if (alg == KM_ALGORITHM_RSA) {
-		res = mbedTLS_gen_fake_cert_rsa(asymmetric_key, fake_cert);
+		res = mbedTLS_gen_self_signed_cert_rsa(asymmetric_key, fake_cert,
+				not_before_val, not_after_val);
 	} else if (alg == KM_ALGORITHM_EC) {
-		res = mbedTLS_gen_fake_cert_ecc(asymmetric_key, fake_cert);
+		res = mbedTLS_gen_self_signed_cert_ecc(asymmetric_key, fake_cert,
+				not_before_val, not_after_val);
 	} else {
 		res = TEE_ERROR_BAD_PARAMETERS;
 	}
@@ -819,7 +825,9 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 				  keymaster_key_param_set_t *attest_params,
 				  keymaster_key_characteristics_t *key_chr,
 				  keymaster_cert_chain_t *cert_chain,
-				  bool includeUniqueID)
+				  bool includeUniqueID,
+				  uint64_t not_before_val,
+				  uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
 
@@ -830,7 +838,7 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 		                        attest_params, key_chr,
 		                        includeUniqueID,
 		                        root_alg, alg,
-		                        cert_chain);
+		                        cert_chain, not_before_val, not_after_val);
 
 	return res;
 }
