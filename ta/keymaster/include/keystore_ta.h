@@ -73,25 +73,12 @@
 			.first = true,				\
 			.last_block = EMPTY_BLOB}
 
-uint64_t identifier_rsa[] = {1, 2, 840, 113549, 1, 1, 1};
-/* RSAPrivateKey ::= SEQUENCE {
- *    version Version,
- *    modulus INTEGER, -- n
- *    publicExponent INTEGER, -- e
- *    privateExponent INTEGER, -- d
- *    prime1 INTEGER, -- p
- *    prime2 INTEGER, -- q
- *    exponent1 INTEGER, -- d mod (p-1)
- *    exponent2 INTEGER, -- d mod (q-1)
- *    coefficient INTEGER -- (inverse of q) mod p }
- */
-
-uint64_t identifier_ec[] = {1, 2, 840, 10045, 2, 1};
-/* ECPrivateKey ::= SEQUNCE {
- *    version Version,
- *    secretValue OCTET_STRING,
- *    publicValue CONSTRUCTED {
- *        XYValue BIT_STRING } }
- */
+typedef struct tee_km_rkp_hwinfo {
+	uint32_t version;
+	const char *rpc_author_name;
+	uint32_t supported_eek_curve;
+	const char *unique_id;
+	uint32_t supported_num_keys_in_csr;
+} tee_km_rkp_hwinfo_t;
 
 #endif  /* ANDROID_OPTEE_KEYSTORE_TA_H */

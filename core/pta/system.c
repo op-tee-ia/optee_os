@@ -32,8 +32,12 @@
 #include <tee/tee_supp_plugin_rpc.h>
 #include <tee/uuid.h>
 #include <util.h>
+#include <dice/dice.h>
+#include <string.h>
+#include <trace.h>
 
 static unsigned int system_pnum;
+extern uint8_t g_uds[32];
 
 static TEE_Result system_rng_reseed(uint32_t param_types,
 				    TEE_Param params[TEE_NUM_PARAMS])
@@ -154,8 +158,41 @@ static TEE_Result system_get_rot(struct user_mode_ctx *uctx,
 
 	return res;
 }
-
 #endif
+
+static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
+				  uint32_t param_types,
+				  TEE_Param params[TEE_NUM_PARAMS])
+{
+	TEE_Result res = TEE_SUCCESS;
+	uint8_t next_cdi_seal[DICE_CDI_SIZE] = { 0 };
+	DiceInputValues input_values = { 0 };
+
+	int32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					  TEE_PARAM_TYPE_VALUE_OUTPUT,
+					  TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					  TEE_PARAM_TYPE_NONE);
+
+	if (exp_pt != param_types)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	DiceResult ret = DiceMainFlow(NULL,
+				      g_uds,
+				      g_uds,
+				      &input_values,
+				      params[2].memref.size,
+				      params[2].memref.buffer,
+				      &params[1].value.a,
+				      params[0].memref.buffer,
+				      next_cdi_seal);
+
+	if (ret != kDiceResultOk) {
+		EMSG("Generate DICE certificate and CDI attestation failed");
+		res = TEE_ERROR_GENERIC;
+	}
+
+	return res;
+}
 
 static TEE_Result system_map_zi(struct user_mode_ctx *uctx,
 				uint32_t param_types,
@@ -397,6 +434,8 @@ static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
 	case PTA_SYSTEM_GET_ROT:
 		return system_get_rot(uctx, param_types, params);
 #endif
+	case PTA_SYSTEM_GET_DICE:
+		return system_get_dice(uctx, param_types, params);
 	default:
 		break;
 	}

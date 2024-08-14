@@ -69,6 +69,8 @@ endif
 libdirs += $(ta-dev-kit-dir$(sm))/lib
 libnames += utils
 libdeps += $(ta-dev-kit-dir$(sm))/lib/libutils.a
+libnames += cbor
+libdeps += $(ta-dev-kit-dir$(sm))/lib/libcbor.a
 libnames += utee
 libdeps += $(ta-dev-kit-dir$(sm))/lib/libutee.a
 ifeq ($(CFG_TA_MBEDTLS),y)

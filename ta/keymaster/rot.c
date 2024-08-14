@@ -9,6 +9,7 @@
 #include "rot.h"
 
 tee_km_context_t optee_km_context;
+tee_dice_context_t optee_dice_context;
 
 //getprop ro.boot.vbmeta.digest
 //14df041d403d990b
@@ -32,6 +33,8 @@ void TA_init_km_context(void)
 	memset(&optee_km_context, 0, sizeof(tee_km_context_t));
 	optee_km_context.version_info_set = false;
 	optee_km_context.rot_info_set = false;
+	memset(&optee_dice_context, 0, sizeof(tee_dice_context_t));
+	optee_dice_context.cdi_set = false;
 }
 
 keymaster_error_t TA_set_rot_data(void)
@@ -66,7 +69,7 @@ keymaster_error_t TA_set_rot_data(void)
 				  PTA_SYSTEM_GET_ROT,
 				  param_types, params, &ret_orig);
 	if (res) {
-		EMSG("Failed(%d) to open PTA session", res);
+		EMSG("Failed(%d) to invoke PTA command", res);
 		res = KM_ERROR_UNKNOWN_ERROR;
 		goto out;
 	}

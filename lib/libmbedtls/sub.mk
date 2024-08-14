@@ -70,6 +70,7 @@ SRCS_CRYPTO += aes.c
 SRCS_CRYPTO += aesni.c
 SRCS_CRYPTO += asn1parse.c
 SRCS_CRYPTO += asn1write.c
+SRCS_CRYPTO += base64.c
 SRCS_CRYPTO += bignum.c
 SRCS_CRYPTO += bignum_core.c
 SRCS_CRYPTO += bignum_mod_raw.c
@@ -84,11 +85,17 @@ SRCS_CRYPTO += ecdh.c
 SRCS_CRYPTO += ecdsa.c
 SRCS_CRYPTO += ecp.c
 SRCS_CRYPTO += ecp_curves.c
+SRCS_CRYPTO += entropy.c
+SRCS_CRYPTO += entropy_poll.c
+SRCS_CRYPTO += hkdf.c
+SRCS_CRYPTO += hmac_drbg.c
 SRCS_CRYPTO += md.c
 SRCS_CRYPTO += md5.c
 SRCS_CRYPTO += oid.c
+SRCS_CRYPTO += pem.c
 SRCS_CRYPTO += pk.c
 SRCS_CRYPTO += pk_wrap.c
+SRCS_CRYPTO += pkwrite.c
 SRCS_CRYPTO += platform.c
 SRCS_CRYPTO += platform_util.c
 SRCS_CRYPTO += rsa.c
@@ -96,7 +103,6 @@ SRCS_CRYPTO += rsa_alt_helpers.c
 SRCS_CRYPTO += sha1.c
 SRCS_CRYPTO += sha256.c
 SRCS_CRYPTO += sha512.c
-SRCS_CRYPTO += hkdf.c
 endif
 
 # OBJS_X509
@@ -128,6 +134,8 @@ SRCS_TLS += ssl_tls13_generic.c
 SRCS_TLS += ssl_tls13_server.c
 
 srcs-y += $(addprefix mbedtls/library/, $(SRCS_CRYPTO))
+srcs-y += $(addprefix mbedtls/library/, $(SRCS_X509))
+
 srcs-$(sm-$(ta-target)) += $(addprefix mbedtls/library/, $(SRCS_X509))
 srcs-$(sm-$(ta-target)) += $(addprefix mbedtls/library/, $(SRCS_TLS))
 

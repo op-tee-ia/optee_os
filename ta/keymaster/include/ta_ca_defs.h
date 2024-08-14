@@ -197,7 +197,45 @@ typedef enum {
 	KM_TAG_RESET_SINCE_ID_ROTATION = KM_BOOL | 1004, /* Whether the device has beeen factory reset
 														since the last unique ID rotation.  Used for
 														key attestation. */
+	KM_TAG_CERTIFICATE_NOT_BEFORE = KM_DATE | 1008,  /* Epoch time in milliseconds of the start of
+							    the to be generated certificate's validity.
+							    The value should interpreted as too's
+							    complement signed integer. Negative values
+							    indicate dates before Jan 1970 */
+	KM_TAG_CERTIFICATE_NOT_AFTER = KM_DATE | 1009,  /*  Epoch time in milliseconds of the end of
+							    the to be generated certificate's validity.
+							    The value should interpreted as too's
+							    complement signed integer. Negative values
+							    indicate dates before Jan 1970 */
 } keymaster_tag_t;
+
+typedef enum {
+    /*
+     * Full chain of trust extending from the bootloader to verified partitions,
+     * including the bootloader, boot partition, and all verified partitions.
+     */
+    KM_VERIFIED_BOOT_VERIFIED = 0,
+    /*
+     * The boot partition has been verified using the embedded certificate, and
+     * the signature is valid. The bootloader displays a warning and the
+     * fingerprint of the public key before allowing the boot process to
+     * continue.
+     */
+    KM_VERIFIED_BOOT_SELF_SIGNED = 1,
+    /*
+     * The device may be freely modified. Device integrity is left to the user
+     * to verify out-of-band. The bootloader displays a warning to the user
+     * before allowing the boot process to continue
+     */
+    KM_VERIFIED_BOOT_UNVERIFIED = 2,
+    /*
+     * The device failed verification. The bootloader displays a warning and
+     * stops the boot process, so no keymaster implementation should ever
+     * actually return this value, since it should not run.  Included here only
+     * for completeness.
+     */
+    KM_VERIFIED_BOOT_FAILED = 3,
+} keymaster_verified_boot_t;
 
 /**
  * Algorithms that may be provided by keymaster implementations.  Those that must be provided by all

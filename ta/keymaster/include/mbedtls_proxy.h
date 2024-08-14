@@ -24,6 +24,7 @@
 
 #include "ta_ca_defs.h"
 #include "generator.h"
+#include <mbedtls/pk.h>
 
 #define CMD_ASN1_DECODE 0
 #define CMD_ASN1_ENCODE_PUBKEY 1
@@ -35,6 +36,8 @@
 #define CMD_ASN1_GEN_ATT_EC_CERT 7
 #define CMD_ASN1_GEN_ATT_EXTENSION 8
 
+#define K_MAX_CHALLENGE_SIZE_V2 64
+#define K_P256_AFFINE_POINT_SIZE 32
 
 keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 				       TEE_Attribute **attrs,
@@ -83,6 +86,29 @@ keymaster_error_t mbedTLS_encode_ec_sign(uint8_t *out, uint32_t *out_l);
 
 keymaster_error_t mbedTLS_decode_ec_sign(keymaster_blob_t *sig,
 					 uint32_t key_size);
+
+keymaster_error_t mbedTLS_get_ecdsa256_key_from_cert(const keymaster_blob_t *km_cert,
+						     uint8_t *x_coord,
+						     size_t x_length,
+						     uint8_t *y_coord,
+						     size_t y_length);
+
+keymaster_error_t mbedTLS_gen_ecdsa_p256_key_pair(mbedtls_pk_context *context,
+                                                  uint8_t *cdi_attest,
+                                                  size_t cdi_attest_size);
+
+keymaster_error_t mbedTLS_export_ecdsa_p256_public_key(mbedtls_pk_context *context,
+                                                       uint8_t *x_coord,
+                                                       size_t x_length,
+                                                       uint8_t *y_coord,
+                                                       size_t y_length);
+
+keymaster_error_t mbedTLS_sign_data_with_ecdsa_p256(mbedtls_pk_context *context,
+                                                    uint8_t *signed_data,
+                                                    size_t signed_data_length,
+                                                    uint8_t *signature,
+                                                    size_t signature_buffer_length,
+                                                    size_t *actual_signature_length);
 
 TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
                               keymaster_key_param_set_t *attest_params,

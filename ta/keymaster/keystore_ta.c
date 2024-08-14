@@ -27,10 +27,63 @@
 #include "rot.h"
 #include <pta_system.h>
 #include <mbedtls/platform_util.h>
+#include <hmac.h>
+#include <cbor.h>
+#include <cose.h>
+
+uint64_t identifier_rsa[] = {1, 2, 840, 113549, 1, 1, 1};
+/* RSAPrivateKey ::= SEQUENCE {
+ *    version Version,
+ *    modulus INTEGER, -- n
+ *    publicExponent INTEGER, -- e
+ *    privateExponent INTEGER, -- d
+ *    prime1 INTEGER, -- p
+ *    prime2 INTEGER, -- q
+ *    exponent1 INTEGER, -- d mod (p-1)
+ *    exponent2 INTEGER, -- d mod (q-1)
+ *    coefficient INTEGER -- (inverse of q) mod p }
+ */
+
+uint64_t identifier_ec[] = {1, 2, 840, 10045, 2, 1};
+/* ECPrivateKey ::= SEQUNCE {
+ *    version Version,
+ *    secretValue OCTET_STRING,
+ *    publicValue CONSTRUCTED {
+ *        XYValue BIT_STRING } }
+ */
 
 static TEE_TASessionHandle session_rngSTA = TEE_HANDLE_NULL;
+static TEE_TASessionHandle session_diceSTA = TEE_HANDLE_NULL;
 
 extern tee_km_context_t optee_km_context;
+extern tee_dice_context_t optee_dice_context;
+
+static const uint32_t k_rkp_version = 3;
+static const tee_km_rkp_hwinfo_t optee_km_rpk_hwinfo = {
+	.version = k_rkp_version,
+	.rpc_author_name = "Intel",
+	.supported_eek_curve = k_rkp_version >= 3 ? 0 : 2,
+	.unique_id = "Intel Optee Implementation",
+	.supported_num_keys_in_csr = 20,
+};
+
+static const keymaster_key_param_t ecdsap256_params[8] = {
+	{.tag = KM_TAG_PURPOSE, .key_param.enumerated = KM_PURPOSE_ATTEST_KEY},
+	{.tag = KM_TAG_ALGORITHM, .key_param.enumerated = KM_ALGORITHM_EC},
+	{.tag = KM_TAG_KEY_SIZE, .key_param.integer = 256},
+	{.tag = KM_TAG_DIGEST, .key_param.enumerated = KM_DIGEST_SHA_2_256},
+	{.tag = KM_TAG_EC_CURVE, .key_param.enumerated = KM_EC_CURVE_P_256},
+	{.tag = KM_TAG_NO_AUTH_REQUIRED, .key_param.boolean = false},
+	{.tag = KM_TAG_CERTIFICATE_NOT_BEFORE, .key_param.date_time = 0},
+	{.tag = KM_TAG_CERTIFICATE_NOT_AFTER, .key_param.date_time = 0},
+};
+
+static const keymaster_key_param_set_t ecdsap256_key_param_set = {
+	.params = (keymaster_key_param_t *)ecdsap256_params,
+	.length = 8
+};
+
+static const size_t k_rkp_version_without_super_encryption = 3;
 
 static keymaster_error_t TA_checkParams(TEE_Param params[TEE_NUM_PARAMS])
 {
@@ -103,6 +156,7 @@ TEE_Result TA_CreateEntryPoint(void)
 {
 	TEE_Result res = TEE_SUCCESS;
 	TEE_Param params[TEE_NUM_PARAMS];
+	uint32_t ret_orig = 0;
 
 	const TEE_UUID rng_entropy_uuid = PTA_SYSTEM_UUID /*RNG_ENTROPY_UUID*/;
 
@@ -122,6 +176,12 @@ TEE_Result TA_CreateEntryPoint(void)
 		goto exit;
 	}
 
+	res = TA_create_hmac_key();
+	if (res != TEE_SUCCESS) {
+		EMSG("Something wrong with HMAC key create (%x)", res);
+		goto exit;
+	}
+
 	res = TA_InitializeAuthTokenKey();
 	if (res != TEE_SUCCESS) {
 		EMSG("Something wrong with authorization token (%x)", res);
@@ -136,6 +196,14 @@ TEE_Result TA_CreateEntryPoint(void)
 		goto exit;
 	}
 
+        res = TEE_OpenTASession(&(const TEE_UUID)PTA_SYSTEM_UUID,
+                                TEE_TIMEOUT_INFINITE, 0, NULL, &session_diceSTA,
+                                &ret_orig);
+        if (res != TEE_SUCCESS) {
+                EMSG("Failed to creat session with DICE static TA (%x)", res);
+                goto exit;
+        }
+
 exit:
 	return res;
 }
@@ -144,8 +212,11 @@ void TA_DestroyEntryPoint(void)
 {
 	DMSG("%s %d", __func__, __LINE__);
 	TA_free_master_key();
+	TA_free_hmac_key();
 	TEE_CloseTASession(session_rngSTA);
 	session_rngSTA = TEE_HANDLE_NULL;
+	TEE_CloseTASession(session_diceSTA);
+	session_diceSTA = TEE_HANDLE_NULL;
 }
 
 TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
@@ -346,6 +417,46 @@ exit:
 	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
 
 	return error;
+}
+
+static keymaster_error_t TA_get_dice_data(void)
+{
+	TEE_Param params[TEE_NUM_PARAMS] = { };
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	uint32_t ret_orig = 0;
+	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					       TEE_PARAM_TYPE_VALUE_OUTPUT,
+					       TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					       TEE_PARAM_TYPE_NONE);
+
+	if (session_diceSTA == TEE_HANDLE_NULL) {
+		EMSG("Session with DICE static TA is not opened");
+		res = KM_ERROR_SECURE_HW_COMMUNICATION_FAILED;
+		goto out;
+	}
+
+	params[0].memref.buffer = optee_dice_context.attest_cdi;
+	params[0].memref.size = sizeof(optee_dice_context.attest_cdi);
+	params[1].value.a = 0;
+	params[1].value.b = 0;
+	params[2].memref.buffer = optee_dice_context.cdi_certificate;
+	params[2].memref.size = sizeof(optee_dice_context.cdi_certificate);
+
+	res = TEE_InvokeTACommand(session_diceSTA, TEE_TIMEOUT_INFINITE,
+				  PTA_SYSTEM_GET_DICE,
+				  param_types, params, &ret_orig);
+	if (res) {
+		EMSG("Failed(%d) to invoke PTA command", res);
+		res = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	DMSG("TA next_cdi_certificate_actual_size is %d", params[1].value.a);
+	optee_dice_context.cdi_certificate_actual_size = params[1].value.a;
+
+out:
+	return res;
 }
 
 static keymaster_error_t TA_get_client_info(
@@ -893,6 +1004,8 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint8_t* hidden = NULL;
 	size_t hidden_size = 0;
 	TEE_ObjectHandle key_obj_h = TEE_HANDLE_NULL;
+	TEE_Attribute *attrs_in = NULL;
+	uint32_t attrs_in_count = 1;
 	keymaster_blob_t client_id = EMPTY_BLOB;
 	keymaster_blob_t app_data = EMPTY_BLOB;
 	keymaster_blob_t *challenge = NULL;
@@ -978,7 +1091,8 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 	res = TA_generate_key(key_algorithm, key_size, key_material,
-			      key_digest, key_rsa_public_exponent, &key_obj_h);
+			      key_digest, key_rsa_public_exponent,
+			      false, &key_obj_h, &attrs_in);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to generate key, res=%x", res);
 		goto exit;
@@ -1110,6 +1224,7 @@ out:
 		TEE_Free(hidden);
 	if (key_obj_h != TEE_HANDLE_NULL)
 		TEE_FreeTransientObject(key_obj_h);
+	free_attrs(attrs_in, attrs_in_count);
 
 	return res;
 }
@@ -2230,6 +2345,472 @@ out:
 	return res;
 }
 
+static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	uint8_t *out = NULL;
+	uint8_t *out_end = NULL;
+	size_t out_size = 0;
+	uint8_t *key_material = NULL;
+	keymaster_key_param_set_t params_t = EMPTY_PARAM_SET; /* IN */
+	keymaster_key_blob_t key_blob = EMPTY_KEY_BLOB; /* OUT */
+	keymaster_key_characteristics_t characts = EMPTY_CHARACTS; /* OUT */
+	keymaster_algorithm_t key_algorithm = UNDEFINED;
+	keymaster_error_t error = KM_ERROR_OK;
+	keymaster_digest_t key_digest = UNDEFINED;
+	uint32_t key_buffer_size = 0; /* For serialization of generated key */
+	uint32_t characts_size = 0;
+	uint32_t key_size = UNDEFINED;
+	uint64_t key_rsa_public_exponent = UNDEFINED;
+	uint32_t os_version = 0xFFFFFFFF;
+	uint32_t os_patchlevel = 0xFFFFFFFF;
+	bool test_mode = false;
+	bool oob = false; /* out of bounds flag */
+	bool attest_purpose = false;
+	size_t num_params = 0;
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
+	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
+	TEE_Attribute *attrs_in = NULL;
+	uint32_t attrs_in_count = 1;
+	keymaster_blob_t ec_cert = EMPTY_BLOB; //EC certificate
+	uint8_t *x_coordinate = NULL;
+	uint8_t *y_coordinate = NULL;
+	cbor_item_t *cose_public_key_map = NULL;
+	uint8_t *cose_public_key = NULL;
+	size_t cose_public_key_size = 0;
+	keymaster_blob_t maced_public_key = EMPTY_BLOB;
+	size_t serialize_size = 0;
+	bool result = false;
+	keymaster_blob_t *challenge = NULL;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_end = in + params[0].memref.size;
+	out = (uint8_t *)params[1].memref.buffer;
+	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
+	out_end = out + out_size;
+	out += sizeof(keymaster_error_t);
+
+	if (TA_is_out_of_bounds(in, in_end, sizeof(test_mode))) {
+		EMSG("Out of input array bounds on deserialization");
+		error = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto out;
+	}
+	TEE_MemMove(&test_mode, in, sizeof(test_mode));
+	in += sizeof(test_mode);
+	if (optee_km_rpk_hwinfo.version >= k_rkp_version_without_super_encryption && test_mode) {
+		EMSG("Key generation for test mode on version 3 is not supported");
+		error = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+		goto out;
+	}
+
+	/* Do +6 to params count to have memory for
+	 * adding KM_TAG_ORIGIN params and key size with RSA
+	 * public exponent on import
+	 */
+	if (MUL_OVERFLOW(sizeof(keymaster_key_param_t),
+		ecdsap256_key_param_set.length + ADDITIONAL_TAGS, &num_params)) {
+		EMSG("Overflow: too many key params! Abort!");
+		error = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+	params_t.params = TEE_Malloc(num_params, TEE_MALLOC_FILL_ZERO);
+	/* Freed when deserialized params set is destroyed by caller */
+	if (!params_t.params) {
+		EMSG("Failed to allocate memory for params");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto out;
+	}
+	for (size_t i = 0; i < ecdsap256_key_param_set.length; i++) {
+		TA_push_param(&params_t, &ecdsap256_key_param_set.params[i]);
+	}
+
+	/*
+	 * Need add os version and patchlevel to key_description,
+	 * attest_key will check thess sections.
+	 * optee add these values in hal and pass to ta.
+	 */
+	os_version = tee_get_os_version();
+	os_patchlevel = tee_get_os_patchlevel();
+
+	/* Add additional parameters */
+	TA_add_origin(&params_t, KM_ORIGIN_GENERATED, true);
+	TA_add_creation_datetime(&params_t, true);
+	TA_add_os_version_patchlevel(&params_t, os_version, os_patchlevel);
+
+	/* Parse mandatory and optional parameters */
+	error = TA_parse_params(params_t, &key_algorithm, &key_size,
+			        &key_rsa_public_exponent, &key_digest, &attest_purpose, &challenge, false);
+	if (error != KM_ERROR_OK)
+		goto exit;
+
+	if (key_size == UNDEFINED) {
+		EMSG("Key size must be specified");
+		error = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+		goto exit;
+	}
+
+	if (key_algorithm == KM_ALGORITHM_RSA && key_rsa_public_exponent == UNDEFINED) {
+		EMSG("RSA public exponent is missed");
+		error = KM_ERROR_INVALID_ARGUMENT;
+		goto exit;
+	}
+
+	if (key_algorithm == KM_ALGORITHM_EC) {
+		DMSG("key_algorithm == KM_ALGORITHM_EC");
+		TA_add_ec_curve(&params_t, key_size);
+	}
+
+	DMSG("key_algorithm=%d key_rsa_public_exponent=%lu", key_algorithm,
+	     key_rsa_public_exponent);
+
+	/*
+	 * Newly-generated key's characteristics divided appropriately
+	 * into hardware-enforced and software-enforced lists
+	 * (except APPLICATION_ID and APPLICATION_DATA)
+	 */
+	error = TA_fill_characteristics(&characts, &params_t, &characts_size);
+	if (error != KM_ERROR_OK)
+		goto exit;
+
+	key_buffer_size = TA_get_key_size(key_algorithm);
+
+	key_blob.key_material_size = characts_size + key_buffer_size + TAG_LENGTH;
+
+	key_material = TEE_Malloc(key_blob.key_material_size, TEE_MALLOC_FILL_ZERO);
+	if (!key_material) {
+		EMSG("Failed to allocate memory for key_material");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	error = TA_generate_key(key_algorithm, key_size, key_material, key_digest,
+				key_rsa_public_exponent, false, &obj_h, &attrs_in);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to generate key, error=%x", error);
+		goto exit;
+	}
+
+	error = mbedTLS_gen_root_cert_ecc(obj_h, &ec_cert);
+	if (error != TEE_SUCCESS) {
+		EMSG("Failed to generate EC certificate, error=%x", error);
+		goto exit;
+	}
+
+	TA_serialize_param_set(key_material + key_buffer_size,
+			       key_material + key_blob.key_material_size, &params_t, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		error = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	error = TA_get_client_info(&params_t, &client_id, &app_data);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", error);
+		goto exit;
+	}
+
+	error = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", error);
+		goto exit;
+	}
+
+	error = TA_encrypt(key_material, key_blob.key_material_size,
+			   hidden, hidden_size);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to encrypt key blob, error=%x", error);
+		goto exit;
+	}
+	key_blob.key_material = key_material;
+
+	x_coordinate = TEE_Malloc(K_P256_AFFINE_POINT_SIZE, TEE_MALLOC_FILL_ZERO);
+	y_coordinate = TEE_Malloc(K_P256_AFFINE_POINT_SIZE, TEE_MALLOC_FILL_ZERO);
+	if (!x_coordinate || !y_coordinate) {
+		EMSG("Failed to allocate memory for x_coordinate and y_coordinate");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+        error = mbedTLS_get_ecdsa256_key_from_cert(&ec_cert,
+						   x_coordinate,
+						   K_P256_AFFINE_POINT_SIZE,
+						   y_coordinate,
+						   K_P256_AFFINE_POINT_SIZE);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to get ecdsa256 key from certificate, error=%x", error);
+		goto exit;
+	}
+
+	cose_public_key_map = cbor_new_definite_map(5);
+	result = cbor_map_add(cose_public_key_map,
+			      (struct cbor_pair) {.key = cbor_move(cbor_build_uint8(KEY_TYPE)),
+						  .value = cbor_move(cbor_build_uint8(EC2))});
+	result &= cbor_map_add(cose_public_key_map,
+			       (struct cbor_pair) {.key = cbor_move(cbor_build_uint8(ALGORITHM)),
+						   .value = cbor_move(cbor_build_negint8(abs(ES256) - 1))});
+	result &= cbor_map_add(cose_public_key_map,
+			       (struct cbor_pair) {.key = cbor_move(cbor_build_negint8(abs(CURVE) - 1)),
+						   .value = cbor_move(cbor_build_uint8(P256))});
+	result &= cbor_map_add(cose_public_key_map,
+			       (struct cbor_pair) {.key = cbor_move(cbor_build_negint8(abs(PUBKEY_X) - 1)),
+						   .value = cbor_move(cbor_build_bytestring(x_coordinate, K_P256_AFFINE_POINT_SIZE))});
+	result &= cbor_map_add(cose_public_key_map,
+			       (struct cbor_pair) {.key = cbor_move(cbor_build_negint8(abs(PUBKEY_Y) - 1)),
+						   .value = cbor_move(cbor_build_bytestring(y_coordinate, K_P256_AFFINE_POINT_SIZE))});
+	if (!result) {
+		EMSG("Add ECDSA P256 parameters to cbor map failed, result=%x", result);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	serialize_size = cbor_serialize_alloc(cose_public_key_map, &cose_public_key, &cose_public_key_size);
+	if (serialize_size > 0) {
+		error = TA_construct_cose_mac0(NULL,
+					       0,
+					       cose_public_key,
+					       cose_public_key_size,
+					       &maced_public_key.data,
+					       &maced_public_key.data_length);
+		if (error != KM_ERROR_OK) {
+			EMSG("maced ECDSA P256 public key failed, error=%x", error);
+			goto out;
+		}
+	}
+
+exit:
+	if (error == KM_ERROR_OK) {
+		out += TA_serialize_key_blob_akms(out, out_end, &key_blob, &oob);
+		if (oob) {
+			EMSG("Out of output buffer space");
+			error = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+			goto out;
+		}
+		out += TA_serialize_blob_akms(out, out_end, &maced_public_key, &oob);
+		if (oob) {
+			EMSG("Out of output buffer space");
+			error = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+			goto out;
+		}
+	}
+out:
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+
+	if (ec_cert.data)
+		TEE_Free(ec_cert.data);
+	if (obj_h != TEE_HANDLE_NULL)
+		TEE_FreeTransientObject(obj_h);
+	free_attrs(attrs_in, attrs_in_count);
+
+	if (x_coordinate)
+		TEE_Free(x_coordinate);
+	if (y_coordinate)
+		TEE_Free(y_coordinate);
+
+	if (maced_public_key.data)
+		TEE_Free(maced_public_key.data);
+	if (cose_public_key)
+		free(cose_public_key);
+	if (cose_public_key_map)
+		cbor_decref(&cose_public_key_map);
+
+	if (key_material)
+		TEE_Free(key_material);
+	TA_free_params(&characts.sw_enforced);
+	TA_free_params(&characts.hw_enforced);
+	TA_free_params(&params_t);
+
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+	return error;
+}
+
+static keymaster_error_t TA_generateCsr(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *out = NULL;
+	keymaster_error_t res = K_STATUS_REMOVED;
+
+	out = (uint8_t *)params[1].memref.buffer;
+	out += sizeof(keymaster_error_t);
+
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+
+	return res;
+}
+
+static keymaster_error_t TA_getHwInfo(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *out = NULL;
+	uint8_t *out_end = NULL;
+	size_t out_size = 0;
+	keymaster_error_t res = KM_ERROR_OK;
+	uint32_t data_length = 0;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	out = (uint8_t *)params[1].memref.buffer;
+	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
+	out_end = out + out_size;
+	out += sizeof(keymaster_error_t);
+
+	data_length = sizeof(optee_km_rpk_hwinfo.version) +
+		      sizeof(data_length) +
+		      strlen(optee_km_rpk_hwinfo.rpc_author_name) +
+		      sizeof(optee_km_rpk_hwinfo.supported_eek_curve) +
+		      sizeof(data_length) +
+		      strlen(optee_km_rpk_hwinfo.unique_id) +
+		      sizeof(optee_km_rpk_hwinfo.supported_num_keys_in_csr);
+	if (TA_is_out_of_bounds(out, out_end, data_length)) {
+		EMSG("Out of output array bounds on serialization");
+		return KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+	}
+
+	TEE_MemMove(out, &optee_km_rpk_hwinfo.version, sizeof(optee_km_rpk_hwinfo.version));
+	out += sizeof(optee_km_rpk_hwinfo.version);
+
+	data_length = strlen(optee_km_rpk_hwinfo.rpc_author_name);
+	TEE_MemMove(out, &data_length, sizeof(data_length));
+	out += sizeof(data_length);
+	TEE_MemMove(out, optee_km_rpk_hwinfo.rpc_author_name, data_length);
+	out += data_length;
+
+	TEE_MemMove(out, &optee_km_rpk_hwinfo.supported_eek_curve,
+		    sizeof(optee_km_rpk_hwinfo.supported_eek_curve));
+	out += sizeof(optee_km_rpk_hwinfo.supported_eek_curve);
+
+	data_length = strlen(optee_km_rpk_hwinfo.unique_id);
+	TEE_MemMove(out, &data_length, sizeof(data_length));
+	out += sizeof(data_length);
+	TEE_MemMove(out, optee_km_rpk_hwinfo.unique_id, data_length);
+	out += data_length;
+
+	TEE_MemMove(out, &optee_km_rpk_hwinfo.supported_num_keys_in_csr,
+		    sizeof(optee_km_rpk_hwinfo.supported_num_keys_in_csr));
+	out += sizeof(optee_km_rpk_hwinfo.supported_num_keys_in_csr);
+
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+	DMSG("HW info: \n");
+	DHEXDUMP(params[1].memref.buffer, params[1].memref.size);\
+
+	return res;
+}
+
+static keymaster_error_t TA_generateCsrV2(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	uint8_t *out = NULL;
+	uint8_t *out_end = NULL;
+	size_t out_size = 0;
+	uint32_t num_keys = 0;
+	keymaster_blob_t *keys_to_sign_array = NULL;
+	keymaster_blob_t challenge = EMPTY_BLOB;
+	cbor_item_t *pubkeys = NULL;
+	keymaster_blob_t csr = EMPTY_BLOB;
+	keymaster_error_t res = KM_ERROR_OK;
+	bool oob = false; /* out of bounds flag */
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_end = in + params[0].memref.size;
+	out = (uint8_t *)params[1].memref.buffer;
+	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
+	out_end = out + out_size;
+	out += sizeof(keymaster_error_t);
+
+	/* Size of num_keys (uint32_t) */
+	if (TA_is_out_of_bounds(in, in_end, sizeof(num_keys))) {
+		EMSG("Out of input array bounds on deserialization");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto out;
+	}
+	TEE_MemMove(&num_keys, in, sizeof(num_keys));
+	in += SIZE_LENGTH_AKMS;
+
+	DMSG("num_keys: %d", num_keys);
+	if (num_keys > 0) {
+		keys_to_sign_array = TEE_Malloc(sizeof(keymaster_blob_t) * num_keys, TEE_MALLOC_FILL_ZERO);
+		if (!keys_to_sign_array) {
+			EMSG("Failed to allocate memory for keys_to_sign_array");
+			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+			goto out;
+		}
+
+		for (size_t i = 0; i < num_keys; i++) {
+			in += TA_deserialize_blob_akms(in, in_end, &keys_to_sign_array[i], false, &res, false);
+			if (res != KM_ERROR_OK)
+				goto out;
+		}
+	}
+	in += TA_deserialize_blob_akms(in, in_end, &challenge, false, &res, false);
+	if (res != KM_ERROR_OK)
+		goto out;
+
+	if (challenge.data_length > K_MAX_CHALLENGE_SIZE_V2) {
+		EMSG("Challenge is too large. %d expected. %zu actual.", K_MAX_CHALLENGE_SIZE_V2, challenge.data_length);
+		res = K_STATUS_FAILED;
+		goto out;
+	}
+
+	res = TA_validate_and_extract_pubkeys(false, num_keys, keys_to_sign_array, &pubkeys);
+	if (res != KM_ERROR_OK || !pubkeys) {
+		EMSG("Failed to validate and extract the public keys for the CSR");
+		goto out;
+	}
+
+	/* set rot data if not */
+	if (!optee_km_context.rot_info_set) {
+		res = TA_set_rot_data();
+		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
+			EMSG("Failed(%d) to get root of trust data", res);
+			goto out;
+		}
+		optee_km_context.rot_info_set = true;
+	}
+
+	/* set DICE CDI data if not */
+	res = TA_get_dice_data();
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed(%d) to get DICE certificate and CDI attestation data", res);
+		goto out;
+	}
+
+	res = TA_build_csr(&optee_km_context, &optee_dice_context, &challenge, pubkeys, &csr.data, &csr.data_length);
+	if (res != KM_ERROR_OK)
+		goto out;
+
+	if (res == KM_ERROR_OK) {
+		out += TA_serialize_blob_akms(out, out_end, &csr, &oob);
+		if (oob) {
+			EMSG("Out of output buffer space");
+			res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+			goto out;
+		}
+	}
+
+out:
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+
+	if (keys_to_sign_array)
+		TEE_Free(keys_to_sign_array);
+	if (pubkeys)
+		cbor_decref(&pubkeys);
+	if (csr.data)
+		TEE_Free(csr.data);
+
+	return res;
+}
+
 TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 				      uint32_t cmd_id, uint32_t param_types,
 				      TEE_Param params[TEE_NUM_PARAMS])
@@ -2341,12 +2922,24 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 	case KM_IMPORT_WRAPPED_KEY:
 	case KM_EARLY_BOOT_ENDED:
 	case KM_DEVICE_LOCKED:
-	case KM_GENERATE_RKP_KEY:
-	case KM_GENERATE_CSR:
 	case KM_GET_ROOT_OF_TRUST:
-	case KM_GET_HW_INFO:
-	case KM_GENERATE_CSR_V2:
 		error = TA_unimplementedOperation(params);
+		break;
+	case KM_GENERATE_RKP_KEY:
+		DMSG("KM_GENERATE_RKP_KEY");
+		error = TA_generateRkpKey(params);
+		break;
+	case KM_GENERATE_CSR:
+		DMSG("KM_GENERATE_CSR");
+		error = TA_generateCsr(params);
+		break;
+	case KM_GET_HW_INFO:
+		DMSG("KM_GET_HW_INFO");
+		error = TA_getHwInfo(params);
+		break;
+	case KM_GENERATE_CSR_V2:
+		DMSG("KM_GENERATE_CSR_V2");
+		error = TA_generateCsrV2(params);
 		break;
 
 #ifdef CFG_ATTESTATION_PROVISIONING

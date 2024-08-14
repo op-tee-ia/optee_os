@@ -47,3 +47,4 @@ subdirs-$(CFG_VIRTIO_TEE) += virtio
 srcs-$(CFG_IVSHMEM) += ivshmem.c
 srcs-$(CFG_X86_RNG) += x86_rng.c
 subdirs-$(CFG_EDK2_TPM) += tpm
+subdirs-y += dice

@@ -99,6 +99,10 @@ libname = utils
 libdir = lib/libutils
 include mk/lib.mk
 
+libname = cbor
+libdir = lib/libcbor
+include mk/lib.mk
+
 # CFG_CRYPTOLIB_NAME must not be changed beyond this line
 CFG_CRYPTOLIB_NAME_$(CFG_CRYPTOLIB_NAME) := y
 

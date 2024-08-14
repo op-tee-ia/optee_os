@@ -4,6 +4,7 @@
 #include <attestation.h>
 #include <generator.h>
 #include <rot.h>
+#include <keystore_ta.h>
 
 #include <mbedtls/aes.h>
 #include <mbedtls/base64.h>
@@ -21,7 +22,8 @@
 #include <mbedtls/x509.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/asn1write.h>
-
+#include <mbedtls/hmac_drbg.h>
+#include <mbedtls/hkdf.h>
 
 #define CERT_ROOT_ORG "Android"
 #define CERT_ROOT_ORG_UNIT_RSA "Attestation RSA root CA"
@@ -97,6 +99,16 @@ static uint8_t unique_id_stub[16] = {
         0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb,
         0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb
 };
+
+static const uint8_t k_asym_salt[] = {
+    0x63, 0xB6, 0xA0, 0x4D, 0x2C, 0x07, 0x7F, 0xC1, 0x0F, 0x63, 0x9F,
+    0x21, 0xDA, 0x79, 0x38, 0x44, 0x35, 0x6C, 0xC2, 0xB0, 0xB4, 0x41,
+    0xB3, 0xA7, 0x71, 0x24, 0x03, 0x5C, 0x03, 0xF8, 0xE1, 0xBE, 0x60,
+    0x35, 0xD3, 0x1F, 0x28, 0x28, 0x21, 0xA7, 0x45, 0x0A, 0x02, 0x22,
+    0x2A, 0xB1, 0xB3, 0xCF, 0xF1, 0x67, 0x9B, 0x05, 0xAB, 0x1C, 0xA5,
+    0xD1, 0xAF, 0xFB, 0x78, 0x9C, 0xCD, 0x2B, 0x0B, 0x3B};
+
+static const size_t k_asym_salt_size = 64;
 
 static unsigned int add_key_usage(keymaster_key_param_set_t *params)
 {
@@ -1782,6 +1794,458 @@ err:
 	mbedtls_mpi_free(&s);
 
 	return ret;
+}
+
+static int jacobian_coordinates_to_affine_coordinates(mbedtls_ecp_group *grp, mbedtls_ecp_point *P)
+{
+	int ret = 0;
+	mbedtls_mpi Z_inv, Z_inv_sq, Z_inv_cu;
+
+	mbedtls_mpi_init(&Z_inv);
+	mbedtls_mpi_init(&Z_inv_sq);
+	mbedtls_mpi_init(&Z_inv_cu);
+
+	/* Calculate Z^-1 */
+	if ((ret = mbedtls_mpi_inv_mod(&Z_inv, &P->Z, &grp->P)) != 0) {
+		goto out;
+	}
+
+	/* Calculate Z^-2 */
+	if ((ret = mbedtls_mpi_mul_mpi(&Z_inv_sq, &Z_inv, &Z_inv)) != 0) {
+		goto out;
+	}
+	if ((ret = mbedtls_mpi_mod_mpi(&Z_inv_sq, &Z_inv_sq, &grp->P)) != 0) {
+		goto out;
+	}
+
+	/* Calculate Z^-3 */
+	if ((ret = mbedtls_mpi_mul_mpi(&Z_inv_cu, &Z_inv_sq, &Z_inv)) != 0) {
+		goto out;
+	}
+	if ((ret = mbedtls_mpi_mod_mpi(&Z_inv_cu, &Z_inv_cu, &grp->P)) != 0) {
+		goto out;
+	}
+
+	/* Calculate affine X = X * Z^-2 */
+	if ((ret = mbedtls_mpi_mul_mpi(&P->X, &P->X, &Z_inv_sq)) != 0) {
+		goto out;
+	}
+	if ((ret = mbedtls_mpi_mod_mpi(&P->X, &P->X, &grp->P)) != 0) {
+		goto out;
+	}
+	/* Calculate affine Y = Y * Z^-3 */
+	if ((ret = mbedtls_mpi_mul_mpi(&P->Y, &P->Y, &Z_inv_cu)) != 0) {
+		goto out;
+	}
+	if ((ret = mbedtls_mpi_mod_mpi(&P->Y, &P->Y, &grp->P)) != 0) {
+		goto out;
+	}
+
+	/* Set Z to 1 */
+	mbedtls_mpi_lset(&P->Z, 1);
+
+out:
+	mbedtls_mpi_free(&Z_inv);
+	mbedtls_mpi_free(&Z_inv_sq);
+	mbedtls_mpi_free(&Z_inv_cu);
+
+	return ret;
+}
+
+static int mbedtls_mpi_write_binary_padded(const mbedtls_mpi *X, uint8_t *buf, size_t buflen)
+{
+	int ret = 0;
+	size_t mpi_size = mbedtls_mpi_size(X); /* Get the size of X in bytes */
+	size_t padding_len = 0;
+
+	DMSG("mpi_size %ld", mpi_size);
+
+	if (buflen < mpi_size) {
+		/* The buffer is too small to hold the value of X */
+		return MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL;
+	}
+
+	padding_len = buflen - mpi_size;
+	memset(buf, 0, padding_len); // Pad the buffer with leading zeros
+
+	/* Write X to the buffer right after the padding */
+	if ((ret = mbedtls_mpi_write_binary(X, buf + padding_len, mpi_size)) != 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
+keymaster_error_t mbedTLS_get_ecdsa256_key_from_cert(const keymaster_blob_t *km_cert,
+						     uint8_t *x_coord,
+						     size_t x_length,
+						     uint8_t *y_coord,
+						     size_t y_length)
+{
+	const uint8_t *temp = NULL;
+	int mbedtls_ret = 1;
+	mbedtls_x509_crt *cert = NULL;
+	mbedtls_pk_type_t type = MBEDTLS_PK_NONE;
+	mbedtls_ecp_keypair *keypair = NULL;
+	uint8_t *tmp_x = x_coord;
+	uint8_t *tmp_y = y_coord;
+	keymaster_error_t error = KM_ERROR_OK;
+	bool is_jacobian_coordinate = false;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	if (km_cert != NULL)
+		temp = km_cert->data;
+
+	if (temp == NULL || tmp_x == NULL || tmp_y == NULL) {
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+	if (x_length != K_P256_AFFINE_POINT_SIZE || y_length != K_P256_AFFINE_POINT_SIZE) {
+		return KM_ERROR_INVALID_ARGUMENT;
+	}
+
+	cert = (mbedtls_x509_crt *)TEE_Malloc(sizeof(mbedtls_x509_crt),
+					      TEE_MALLOC_FILL_ZERO);
+	if (cert == NULL)
+		return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+
+	mbedtls_x509_crt_init(cert);
+
+	mbedtls_ret = mbedtls_x509_crt_parse_der(cert, temp, km_cert->data_length);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_x509_crt_parse_der returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	type = mbedtls_pk_get_type(&cert->pk);
+	if (type != MBEDTLS_PK_ECKEY) {
+		EMSG("mbedtls_pk_get_type returned is not MBEDTLS_PK_ECKEY");
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+        keypair = mbedtls_pk_ec(cert->pk);
+	if (!keypair) {
+		EMSG("EC key pair is null");
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	mbedtls_ret = mbedtls_mpi_cmp_int(&keypair->Q.Z, 0);
+	if (mbedtls_ret == 0) {
+		DMSG("Z coordinate value is zero");
+		is_jacobian_coordinate = true;
+	}
+	mbedtls_ret = mbedtls_mpi_cmp_int(&keypair->Q.Z, 1);
+	if (mbedtls_ret == 0) {
+		DMSG("Z coordinate value is one");
+		is_jacobian_coordinate = true;
+	}
+
+	if (is_jacobian_coordinate == false) {
+		mbedtls_ret = jacobian_coordinates_to_affine_coordinates(&keypair->grp, &keypair->Q);
+		if (mbedtls_ret != 0) {
+			EMSG("Convert jacobian coordinates to affine coordinates failed");
+			error = KM_ERROR_UNKNOWN_ERROR;
+			goto exit;
+		}
+	}
+
+	mbedtls_ret = mbedtls_mpi_write_binary_padded(&keypair->Q.X, tmp_x, K_P256_AFFINE_POINT_SIZE);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_mpi_write_binary_padded returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	mbedtls_ret = mbedtls_mpi_write_binary_padded(&keypair->Q.Y, tmp_y, K_P256_AFFINE_POINT_SIZE);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_mpi_write_binary_padded returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+exit:
+	mbedtls_x509_crt_free(cert);
+	TEE_Free(cert);
+	return error;
+}
+
+static keymaster_error_t mbedTLS_kdf(void *context_not_used, size_t length, const uint8_t *ikm,
+				     size_t ikm_size, const uint8_t *salt, size_t salt_size,
+				     const uint8_t *info, size_t info_size, uint8_t *output) {
+	keymaster_error_t error = KM_ERROR_OK;
+	int mbedtls_ret = 1;
+
+	(void)context_not_used;
+
+	mbedtls_ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA512), salt,
+				  salt_size, ikm, ikm_size, info, info_size, output,
+                                  length);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_hkdf returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+	}
+	return error;
+}
+
+static keymaster_error_t mbedTLS_derive_cdi_private_key_seed(void *context,
+							     uint8_t *cdi_attest,
+							     uint8_t *cdi_private_key_seed) {
+	keymaster_error_t error = KM_ERROR_OK;
+
+	error = mbedTLS_kdf(context, DICE_PRIVATE_KEY_SEED_SIZE, cdi_attest,
+			    DICE_CDI_SIZE, k_asym_salt, k_asym_salt_size,
+			    (const uint8_t*)"Key Pair", 8, cdi_private_key_seed);
+	if (error != KM_ERROR_OK) {
+		EMSG("derive CDI private key seed failed");
+	}
+
+	return error;
+}
+
+keymaster_error_t mbedTLS_gen_ecdsa_p256_key_pair(mbedtls_pk_context *context,
+						  uint8_t *cdi_attest,
+						   size_t cdi_attest_size)
+{
+	keymaster_error_t error = KM_ERROR_OK;
+	mbedtls_hmac_drbg_context rng_context;
+	mbedtls_ecp_keypair *keypair = NULL;
+	uint8_t *cdi_private_key_seed = NULL;
+	int mbedtls_ret = 1;
+
+	if (context == NULL || cdi_attest == NULL) {
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+	if (cdi_attest_size != DICE_CDI_SIZE) {
+		return KM_ERROR_INVALID_ARGUMENT;
+	}
+
+	mbedtls_ret = mbedtls_pk_setup(context, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_pk_setup returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		return error;
+	}
+
+	cdi_private_key_seed = TEE_Malloc(DICE_PRIVATE_KEY_SEED_SIZE, TEE_MALLOC_FILL_ZERO);
+	if (!cdi_private_key_seed) {
+		EMSG("Failed to allocate memory for CDI priviate key seed");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		return error;
+	}
+
+	error = mbedTLS_derive_cdi_private_key_seed(NULL, cdi_attest, cdi_private_key_seed);
+	if (error != KM_ERROR_OK) {
+		if (cdi_private_key_seed)
+			TEE_Free(cdi_private_key_seed);
+		return error;
+	}
+
+	mbedtls_hmac_drbg_init(&rng_context);
+	mbedtls_ret = mbedtls_hmac_drbg_seed_buf(&rng_context, mbedtls_md_info_from_type(MBEDTLS_MD_SHA512),
+						 cdi_private_key_seed, DICE_PRIVATE_KEY_SEED_SIZE);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_hmac_drbg_seed_buf returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	keypair = mbedtls_pk_ec(*context);
+	mbedtls_ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, keypair,
+					  mbedtls_hmac_drbg_random, &rng_context);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_ecp_gen_key returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+out:
+	if (cdi_private_key_seed)
+		TEE_Free(cdi_private_key_seed);
+	mbedtls_hmac_drbg_free(&rng_context);
+
+	return error;
+}
+
+keymaster_error_t mbedTLS_export_ecdsa_p256_public_key(mbedtls_pk_context *context,
+						       uint8_t *x_coord,
+						       size_t x_length,
+						       uint8_t *y_coord,
+						       size_t y_length)
+
+{
+	keymaster_error_t error = KM_ERROR_OK;
+	mbedtls_ecp_keypair *keypair = NULL;
+	int mbedtls_ret = 1;
+	bool is_jacobian_coordinate = false;
+
+	if (context == NULL || x_coord == NULL || y_coord == NULL) {
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+	if (x_length != K_P256_AFFINE_POINT_SIZE || y_length != K_P256_AFFINE_POINT_SIZE) {
+		return KM_ERROR_INVALID_ARGUMENT;
+	}
+
+	keypair = mbedtls_pk_ec(*context);
+	mbedtls_ret = mbedtls_mpi_cmp_int(&keypair->Q.Z, 0);
+	if (mbedtls_ret == 0) {
+		DMSG("Z coordinate value is zero");
+		is_jacobian_coordinate = true;
+	}
+	mbedtls_ret = mbedtls_mpi_cmp_int(&keypair->Q.Z, 1);
+	if (mbedtls_ret == 0) {
+		DMSG("Z coordinate value is one");
+		is_jacobian_coordinate = true;
+	}
+
+	if (is_jacobian_coordinate == false) {
+		mbedtls_ret = jacobian_coordinates_to_affine_coordinates(&keypair->grp, &keypair->Q);
+		if (mbedtls_ret != 0) {
+			EMSG("Convert jacobian coordinates to affine coordinates failed returned %d", mbedtls_ret);
+			error = KM_ERROR_UNKNOWN_ERROR;
+			goto out;
+		}
+	}
+
+	mbedtls_ret = mbedtls_mpi_write_binary_padded(&keypair->Q.X, x_coord, x_length);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_mpi_write_binary_padded returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	mbedtls_ret = mbedtls_mpi_write_binary_padded(&keypair->Q.Y, y_coord, y_length);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_mpi_write_binary_padded returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+out:
+	return error;
+}
+
+static keymaster_error_t mbedTLS_sha256(uint8_t *data, size_t size, uint8_t *digest, size_t digest_length)
+{
+	keymaster_error_t error = KM_ERROR_OK;
+	mbedtls_sha256_context context;
+	int mbedtls_ret = 1;
+
+	if (data == NULL || digest == NULL) {
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+	if (digest_length != K_P256_AFFINE_POINT_SIZE) {
+		return KM_ERROR_INVALID_ARGUMENT;
+	}
+
+	mbedtls_sha256_init(&context);
+	mbedtls_ret = mbedtls_sha256_starts(&context, 0);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_sha256_starts returned %d",mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+	mbedtls_ret = mbedtls_sha256_update(&context, data, size);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_sha256_update returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+	mbedtls_ret = mbedtls_sha256_finish(&context, digest);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_sha256_finish returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+out:
+	mbedtls_sha256_free(&context);
+	return error;
+}
+
+keymaster_error_t mbedTLS_sign_data_with_ecdsa_p256(mbedtls_pk_context *context,
+						    uint8_t *signed_data,
+						    size_t signed_data_length,
+						    uint8_t *signature,
+						    size_t signature_buffer_length,
+						    size_t *actual_signature_length)
+{
+	keymaster_error_t error = KM_ERROR_OK;
+	mbedtls_entropy_context entropy;
+	mbedtls_ctr_drbg_context ctr_drbg;
+	uint8_t *digest = NULL;
+	size_t signature_length = 0;
+	int mbedtls_ret = 1;
+	keymaster_blob_t signature_blob = EMPTY_BLOB;
+	uint32_t key_size = 256; /* ECDSA P256 key size */
+
+	if (context == NULL || signed_data == NULL ||
+	    signature == NULL || actual_signature_length == NULL) {
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+
+	mbedtls_ctr_drbg_init(&ctr_drbg);
+	mbedtls_entropy_init(&entropy);
+
+	mbedtls_ret = mbedtls_ctr_drbg_seed(&ctr_drbg, f_rng, &entropy, NULL, 0);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_ctr_drbg_seed returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+
+	digest = TEE_Malloc(K_P256_AFFINE_POINT_SIZE, TEE_MALLOC_FILL_ZERO);
+	if (!digest) {
+		EMSG("Failed to allocate memory for digest");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto out;
+	}
+
+	/* hash the data using SHA-256 */
+	error = mbedTLS_sha256(signed_data,
+			       signed_data_length,
+			       digest,
+			       K_P256_AFFINE_POINT_SIZE);
+	if (error != KM_ERROR_OK) {
+		EMSG("mbedTLS_sha256 operation failed");
+		goto out;
+	}
+
+	/* sign the hashed data */
+	mbedtls_ret = mbedtls_pk_sign(context,
+				      MBEDTLS_MD_SHA256,
+				      digest,
+				      K_P256_AFFINE_POINT_SIZE,
+				      signature,
+				      signature_buffer_length,
+				      &signature_length,
+				      mbedtls_ctr_drbg_random,
+				      &ctr_drbg);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_pk_sign returned %d", mbedtls_ret);
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	signature_blob.data = signature;
+	signature_blob.data_length = signature_length;
+
+	error = mbedTLS_decode_ec_sign(&signature_blob, key_size);
+	if (error != KM_ERROR_OK) {
+		EMSG("mbedTLS_decode_ec_sign %d", error);
+		goto out;
+	}
+	*actual_signature_length = signature_blob.data_length;
+out:
+	if (digest)
+		TEE_Free(digest);
+
+	mbedtls_entropy_free(&entropy);
+	mbedtls_ctr_drbg_free(&ctr_drbg);
+	return error;
 }
 
 /**

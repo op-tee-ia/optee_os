@@ -86,6 +86,11 @@ libdir = lib/libutils
 libuuid = 71855bba-6055-4293-a63f-b0963a737360
 include mk/lib.mk
 
+libname = cbor
+libdir = lib/libcbor
+libuuid = c46ed5c8-328d-11ef-99af-23512788ac87
+include mk/lib.mk
+
 libname = mbedtls
 libdir = lib/libmbedtls
 libuuid = 87bb6ae8-4b1d-49fe-9986-2b966132c309
