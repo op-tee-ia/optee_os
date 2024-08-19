@@ -1464,7 +1464,9 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_blob_t key_data = EMPTY_BLOB; /* IN */
 	keymaster_key_blob_t key_blob = EMPTY_KEY_BLOB; /* OUT */
 	keymaster_key_characteristics_t characts = EMPTY_CHARACTS; /* OUT */
+	keymaster_cert_chain_t cert_chain = EMPTY_CERT_CHAIN; /* OUT */
 	keymaster_error_t res = KM_ERROR_OK;
+	TEE_Result result = TEE_SUCCESS;
 	keymaster_algorithm_t key_algorithm = UNDEFINED;
 	keymaster_digest_t key_digest = UNDEFINED;
 	TEE_Attribute *attrs_in = NULL;
@@ -1474,6 +1476,8 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t key_size = UNDEFINED;
 	uint32_t attrs_in_count = 0;
 	uint64_t key_rsa_public_exponent = UNDEFINED;
+	uint64_t not_before_val = 0;
+	uint64_t not_after_val = 0;
 	bool oob = false; /* out of bounds flag */
 	bool attest_purpose = false;
 	uint8_t* hidden = NULL;
@@ -1481,6 +1485,12 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_blob_t client_id = EMPTY_BLOB;
 	keymaster_blob_t app_data = EMPTY_BLOB;
 	keymaster_blob_t *challenge = NULL;
+	bool asymmetric_alg = false;
+	uint8_t *key_material_restore = NULL;
+	TEE_ObjectHandle key_obj_h = TEE_HANDLE_NULL;
+	keymaster_key_param_set_t params_restore = EMPTY_PARAM_SET;
+	uint32_t type = 0;
+	keymaster_blob_t *root_cert = NULL;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1572,6 +1582,12 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			/* goto out; */
 		}
 
+		if (key_algorithm == KM_ALGORITHM_RSA ||
+		    key_algorithm == KM_ALGORITHM_EC) {
+			asymmetric_alg = true;
+		}
+
+		uint32_t key_size_set_in_tag = key_size;
 		res = mbedTLS_decode_pkcs8(key_data, &attrs_in,
 					   &attrs_in_count, key_algorithm,
 					   &key_size,
@@ -1591,6 +1607,15 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				EMSG("RSA key size must be multiple of 8 and "
 				     "less than %u", MAX_KEY_RSA);
 				res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+				goto out;
+			}
+		}
+		if (key_algorithm == KM_ALGORITHM_RSA ||
+		    key_algorithm == KM_ALGORITHM_EC) {
+			if (key_size_set_in_tag != key_size) {
+				EMSG("Key size: %u setting in TAG::KEY_SIZE is mismatch "
+				     "with key material: %u", key_size_set_in_tag, key_size);
+				res = KM_ERROR_IMPORT_PARAMETER_MISMATCH;
 				goto out;
 			}
 		}
@@ -1645,6 +1670,75 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	}
 	key_blob.key_material = key_material;
 
+	if (!asymmetric_alg)
+		goto out;
+
+	key_material_restore = TEE_Malloc(key_blob.key_material_size,
+					  TEE_MALLOC_FILL_ZERO);
+	if (!key_material_restore) {
+		EMSG("Failed to allocate memory for key_material_restore");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto out;
+	}
+
+	res = TA_restore_key(key_material_restore, &key_blob, &key_size,
+			     hidden, hidden_size, &type, &key_obj_h, &params_restore);
+	if (res != KM_ERROR_OK)
+		goto out;
+
+	if (challenge != NULL) {
+		if (challenge->data_length > MAX_ATTESTATION_CHALLENGE) {
+			EMSG("Attestation challenge is too big");
+			res = KM_ERROR_INVALID_INPUT_LENGTH;
+			goto out;
+		}
+
+		if (asymmetric_alg == false) {
+			EMSG("Incompatible algorithm %d for attestation", key_algorithm);
+			res = KM_ERROR_INCOMPATIBLE_ALGORITHM;
+			goto out;
+		}
+
+		DMSG("Generate Key to be attested");
+		res = TA_attestKey(in, in_end, key_algorithm, key_obj_h,
+				   &params_t, &characts, &cert_chain, not_before_val, not_after_val);
+	} else if (attestation_key_blob_not_null(in, in_end)) {
+		EMSG("Attestation challenge missing!");
+		res = KM_ERROR_ATTESTATION_CHALLENGE_MISSING;
+	} else {
+		if (asymmetric_alg) {
+			/* Allocate memory for chain of certificates */
+			cert_chain.entry_count = 1;
+			cert_chain.entries = TEE_Malloc(sizeof(keymaster_blob_t) * cert_chain.entry_count,
+							TEE_MALLOC_FILL_ZERO);
+			if (!cert_chain.entries) {
+				EMSG("Failed to allocate memory for chain of certificates");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+
+			root_cert = &cert_chain.entries[0];
+
+			if (attest_purpose == true) {
+				DMSG("Generate self-signed cert for signing key");
+				result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
+								 not_before_val, not_after_val);
+				if (result != TEE_SUCCESS) {
+					EMSG("Failed to generated root certificate, res=%x", res);
+					res = KM_ERROR_UNKNOWN_ERROR;
+				}
+			} else {
+				DMSG("Generate fake cert for non-signing asymmetric key");
+				result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+							  not_before_val, not_after_val);
+				if (result != TEE_SUCCESS) {
+					EMSG("Failed to generated fake certificate, res=%x", res);
+					res = KM_ERROR_UNKNOWN_ERROR;
+				}
+			}
+		}
+	}
+
 out:
 	if (res == KM_ERROR_OK) {
 		out += TA_serialize_key_blob_akms(out, out_end, &key_blob,
@@ -1661,6 +1755,16 @@ out:
 			res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
 			goto exit;
 		}
+
+		if (asymmetric_alg == true || challenge != NULL) {
+			out += TA_serialize_cert_chain_akms(out, out_end, &cert_chain,
+							    &res, &oob);
+			if (oob) {
+				EMSG("Out of output buffer space");
+				res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+				goto exit;
+			}
+		}
 	}
 
 exit:
@@ -1676,6 +1780,7 @@ exit:
 	TA_free_params(&params_t);
 	TA_free_params(&characts.sw_enforced);
 	TA_free_params(&characts.hw_enforced);
+	TA_free_cert_chain(&cert_chain);
 	if (key_material)
 		TEE_Free(key_material);
 	if (client_id.data)
@@ -1684,6 +1789,12 @@ exit:
 		TEE_Free(app_data.data);
 	if (hidden)
 		TEE_Free(hidden);
+
+	if (key_obj_h != TEE_HANDLE_NULL)
+		TEE_FreeTransientObject(key_obj_h);
+	if (key_material_restore)
+		TEE_Free(key_material_restore);
+	TA_free_params(&params_restore);
 
 	return res;
 }

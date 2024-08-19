@@ -157,6 +157,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	uint32_t digest_count = 0;
 	uint32_t purpose_count = 0;
 	bool is_ec_curve = false;
+	bool rollback_resistance = false;
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
@@ -219,6 +220,9 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			}
 			DMSG("challenge is not NULL");
 			break;
+		case KM_TAG_ROLLBACK_RESISTANCE:
+			rollback_resistance = (params_t.params + i)->key_param.boolean;
+			break;
 		default:
 			DMSG("Unused parameter with TAG = %x",
 					(params_t.params + i)->tag);
@@ -235,11 +239,6 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	if (*key_algorithm == KM_ALGORITHM_RSA &&
 			*key_rsa_public_exponent == 3 && import) {
 		EMSG("RSA import public exponent '3' doesn't match the key");
-		return KM_ERROR_IMPORT_PARAMETER_MISMATCH;
-	}
-	if (*key_algorithm == KM_ALGORITHM_RSA && *key_size != UNDEFINED
-			&& *key_size > 1024 && import) {
-		EMSG("RSA import key size %d must be less than 1024", *key_size);
 		return KM_ERROR_IMPORT_PARAMETER_MISMATCH;
 	}
 	if (*key_algorithm == KM_ALGORITHM_HMAC && (*key_size % 8 != 0 ||
@@ -296,6 +295,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	}
 
 	if (*attest_purpose == true || *challenge != NULL) {
+		if (*key_algorithm == KM_ALGORITHM_HMAC)
+			goto out;
 		if (*key_algorithm != KM_ALGORITHM_RSA &&
 				*key_algorithm != KM_ALGORITHM_EC) {
 			EMSG("Key attestation supports only asymmetric key pairs, "
@@ -304,6 +305,12 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 		}
 	}
 
+	if (rollback_resistance) {
+		DMSG("Not support rollback resistence");
+		return KM_ERROR_ROLLBACK_RESISTANCE_UNAVAILABLE;
+	}
+
+out:
 	if (purpose_count > 1) {
 		EMSG("ATTEST_KEY cannot be combined with any other purpose.");
 		return KM_ERROR_INCOMPATIBLE_PURPOSE;

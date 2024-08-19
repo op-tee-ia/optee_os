@@ -411,16 +411,16 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 						   .value = cbor_move(cbor_build_string("tee"))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("boot_patch_level")),
-						   .value = cbor_move(cbor_build_uint32(0))});
+						   .value = cbor_move(cbor_build_uint32(optee_km_context->boot_patchlevel))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("bootloader_state")),
 						   .value = cbor_move(cbor_build_string(optee_km_context->rot.deviceLocked ? "locked" : "unlocked"))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("system_patch_level")),
-						   .value = cbor_move(cbor_build_uint32(optee_km_context->rot.patchMonthYearDay))});
+						   .value = cbor_move(cbor_build_uint32(optee_km_context->os_patchlevel))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("vendor_patch_level")),
-						   .value = cbor_move(cbor_build_uint32(0))});
+						   .value = cbor_move(cbor_build_uint32(optee_km_context->vendor_patchlevel))});
 	if (csr_version < 3) {
 		result &= cbor_map_add(device_info,
 				       (struct cbor_pair) {.key = cbor_move(cbor_build_string("version")),
