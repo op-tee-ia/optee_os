@@ -661,3 +661,15 @@ CFG_CORE_MAX_SYSCALL_RECURSION ?= 4
 # When CFG_RSA_PUB_EXPONENT_3 is disabled, RSA public exponents must conform
 # to NIST SP800-56B recommendation and be in the range 65537 <= e < 2^256.
 CFG_RSA_PUB_EXPONENT_3 ?= n
+
+# Change supported HMAC key size range, from 64 to 1024.
+# This is needed to pass AOSP Keymaster VTS tests:
+#   Link to tests : https://android.googlesource.com/platform/hardware/interfaces/+/master/keymaster/3.0/vts/functional/keymaster_hidl_hal_test.cpp
+#   Module: VtsHalKeymasterV3_0TargetTest
+#   Testcases: - PerInstance/SigningOperationsTest#
+#              - PerInstance/NewKeyGenerationTest#
+#              - PerInstance/ImportKeyTest#
+#              - PerInstance/EncryptionOperationsTest#
+#              - PerInstance/AttestationTest#
+# Note that this violates GP requirements of HMAC size range.
+CFG_HMAC_64_1024_RANGE ?= y
