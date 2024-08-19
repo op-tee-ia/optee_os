@@ -20,37 +20,28 @@
 #include <util.h>
 #include <dice/dice.h>
 #include <dice/known_test_values.h>
+#include <kernel/tee_common_otp.h>
 
-//TODO hard code UDS with all 0, will fix it by getting UDS from TPM device
-uint8_t g_uds[32] = { 0 };
+uint8_t g_uds[UDS_LENGTH] = { 0 };
+
 
 static TEE_Result dice_init(void)
 {
-    size_t next_cdi_certificate_buffer_size = 2048;
-    uint8_t next_cdi_certificate[next_cdi_certificate_buffer_size];
-    size_t next_cdi_certificate_actual_size = 0;
-    uint8_t next_cdi_attest[DICE_CDI_SIZE] = { 0 };
-    uint8_t next_cdi_seal[DICE_CDI_SIZE] = { 0 };
-    DiceInputValues input_values = { 0 };
-
     DMSG("%s %d", __func__, __LINE__);
 
-    DiceResult ret = DiceMainFlow(NULL,
-                                  g_uds,
-                                  g_uds,
-                                  &input_values,
-                                  next_cdi_certificate_buffer_size,
-                                  next_cdi_certificate,
-                                  &next_cdi_certificate_actual_size,
-                                  next_cdi_attest,
-                                  next_cdi_seal);
-
-    if (ret != kDiceResultOk) {
-        EMSG("Generate DICE certificate and CDI attestation failed");
-	return TEE_ERROR_GENERIC;
+    TEE_Result ret = TEE_SUCCESS;
+#ifdef CFG_EDK2_TPM
+    ret = tee_otp_get_hw_uds(g_uds, sizeof(g_uds));
+    if (TEE_SUCCESS != ret) {
+        panic("Failed to get UDS.");
     }
 
-    DMSG("next_cdi_certificate_actual_size: %ld", next_cdi_certificate_actual_size);
-    return TEE_SUCCESS;
+    DMSG("Successfully init UDS from TPM.");
+#else
+    DMSG("FAKE UDS is used!");
+#endif
+
+    return ret;
 }
+
 driver_init(dice_init);
