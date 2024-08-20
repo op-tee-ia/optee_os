@@ -1113,7 +1113,7 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		res = KM_ERROR_CALLER_NONCE_PROHIBITED;
 		goto out_cp;
 	}
-	if (!no_auth_req) {
+	if (!no_auth_req && (auth_type != HW_AUTH_NONE || suid_count > 0)) {
 		if (auth_timeout == UNDEFINED && suid_count > 0)
 			*do_auth = true;
 		if (suid_count > 0 && auth_timeout != UNDEFINED) {
@@ -1121,10 +1121,6 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 						auth_type, &auth_token);
 			if (res != KM_ERROR_OK)
 				goto out_cp;
-		} else {
-			EMSG("Authentication failed. Key can not be used");
-			res = KM_ERROR_KEY_USER_NOT_AUTHENTICATED;
-			goto out_cp;
 		}
 	}
 	if (*min_sec != UNDEFINED) {
