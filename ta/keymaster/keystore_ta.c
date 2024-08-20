@@ -25,6 +25,7 @@
 #include "keystore_ta.h"
 #include "attestation.h"
 #include "rot.h"
+#include "unwrapkey.h"
 #include <pta_system.h>
 #include <mbedtls/platform_util.h>
 #include <hmac.h>
@@ -2572,6 +2573,448 @@ out:
 	return res;
 }
 
+/* Imports wrapped key material into Keymaster hardware */
+static keymaster_error_t TA_importWrappedKey(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	uint8_t *arg_in = NULL;
+	uint8_t *arg_in_end = NULL;
+	uint8_t *arg_out = NULL;
+	uint8_t *arg_out_end = NULL;
+	int64_t password_sid = 0;
+	int64_t biometric_sid = 0;
+	size_t auth_set_size = 0;
+	bool oob = false;
+	keymaster_operation_handle_t operation_handle = 0;
+	keymaster_key_param_set_t params_t = EMPTY_PARAM_SET;
+	keymaster_key_param_set_t wrapping_des_t = EMPTY_PARAM_SET;
+	keymaster_key_param_set_t aes_params = EMPTY_PARAM_SET;
+	keymaster_key_param_set_t finish_params_t = EMPTY_PARAM_SET;
+	keymaster_key_format_t key_format = UNDEFINED;
+	keymaster_key_format_t wrapped_key_fmt = UNDEFINED;
+	keymaster_blob_t iv = EMPTY_BLOB;
+	keymaster_blob_t tag = EMPTY_BLOB;
+	keymaster_blob_t wrapped_key_description = EMPTY_BLOB;
+	keymaster_key_blob_t transport_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t secure_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t transit_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t imported_aes_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t wrapped_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t wrapping_key = EMPTY_KEY_BLOB;
+	keymaster_key_blob_t masking_key = EMPTY_KEY_BLOB;
+	keymaster_key_param_set_t wrapping_params = EMPTY_PARAM_SET;
+	keymaster_blob_t signature = EMPTY_BLOB;
+	keymaster_error_t res = KM_ERROR_OK;
+	keymaster_purpose_t op_purpose = KM_PURPOSE_WRAP_KEY;
+	keymaster_blob_t secure_key_blob = EMPTY_BLOB;
+	keymaster_blob_t secure_key_dec = EMPTY_BLOB;
+	TEE_Param param_res[2] = { 0 };
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_end = in + params[0].memref.size;
+
+	in += TA_deserialize_key_blob_akms(in, in_end, &wrapped_key, &res);
+	if (res != KM_ERROR_OK) {
+		DMSG("deserialize wrapped key blob failed");
+		goto exit;
+	}
+
+	in += TA_deserialize_key_blob_akms(in, in_end, &wrapping_key, &res);
+	if (res != KM_ERROR_OK) {
+		DMSG("deserialize wrapping key blob failed");
+		goto exit;
+	}
+
+	in += TA_deserialize_key_blob_akms(in, in_end, &masking_key, &res);
+	if (res != KM_ERROR_OK) {
+		DMSG("deserialize masking key blob failed");
+		goto exit;
+	}
+
+	in += TA_deserialize_auth_set(in, in_end, &wrapping_params, false, &res);
+	if (res != KM_ERROR_OK) {
+		EMSG("deserialize wrapping_params failed");
+		goto exit;
+	}
+
+	TEE_MemMove(&password_sid, in, sizeof(int64_t));
+	in += sizeof(int64_t);
+	TEE_MemMove(&biometric_sid, in, sizeof(int64_t));
+
+	res = TA_decode_wrapped_key_sequence(wrapped_key.key_material,
+			wrapped_key.key_material_size,
+			&params_t,
+			&iv,
+			&tag,
+			&transit_key,
+			&secure_key,
+			&wrapped_key_fmt,
+			&wrapped_key_description);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_decode_wrapped_key_sequence failed, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_check_secure_id(&params_t, password_sid, biometric_sid);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_check_secure_id failed, res=%x", res);
+		goto exit;
+	}
+
+	/*Decryt transport key by using the begin & finish process*/
+	param_res[0].memref.buffer = TEE_Malloc(UNWRAPKEY_BUFFER_SIZE,
+										TEE_MALLOC_FILL_ZERO);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	if (!param_res[0].memref.buffer) {
+		EMSG("Failed to allocate memory for param_res in buffer");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+	param_res[1].memref.buffer = TEE_Malloc(UNWRAPKEY_BUFFER_SIZE,
+										TEE_MALLOC_FILL_ZERO);
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	if (!param_res[1].memref.buffer) {
+		EMSG("Failed to allocate memory for param_res out buffer");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = arg_in + param_res[0].memref.size;
+
+	TEE_MemMove(arg_in, &op_purpose, sizeof(keymaster_purpose_t));
+	arg_in += sizeof(keymaster_purpose_t);
+	arg_in += TA_serialize_key_blob_akms(arg_in, arg_in_end, &wrapping_key, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &wrapping_params, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	DMSG("begin decrypt the transport key");
+	res = TA_begin(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_begin failed, res=%x", res);
+		goto exit;
+	}
+
+	TEE_MemMove(&operation_handle,
+				(uint8_t *)param_res[1].memref.buffer + sizeof(keymaster_error_t),
+				sizeof(keymaster_operation_handle_t));
+
+	TEE_MemFill(param_res[0].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	TEE_MemFill(param_res[1].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = (uint8_t *) (arg_in + param_res[0].memref.size);
+
+	TEE_MemMove(arg_in, &operation_handle, sizeof(keymaster_operation_handle_t));
+	arg_in += sizeof(keymaster_operation_handle_t);
+
+	arg_in += TA_serialize_blob_akms(arg_in, arg_in_end, &signature, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &finish_params_t, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	arg_in += TA_serialize_key_blob_akms(arg_in, arg_in_end, &transit_key, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	res = TA_finish(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_finish failed, res=%x", res);
+		goto exit;
+	}
+	DMSG("TA_finish decrypt transport key successfully");
+
+	/* Decryt transport key finished, import it now, so we can use it to decrypt
+	 * wrapped key*/
+	arg_out = (uint8_t *)param_res[1].memref.buffer;
+	arg_out_end = (uint8_t *)param_res[1].memref.buffer + param_res[1].memref.size;
+	arg_out += sizeof(keymaster_error_t);
+
+	TA_deserialize_key_blob_akms(arg_out, arg_out_end, &transport_key, &res);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to deserialize transport_key, res=%x", res);
+		goto exit;
+	}
+
+	if (masking_key.key_material_size != transport_key.key_material_size) {
+		EMSG("masking_key.key_material_size != transport_key.key_material_size");
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto exit;
+	}
+
+	for (size_t k = 0; k < transport_key.key_material_size; k++)
+		transport_key.key_material[k] ^= masking_key.key_material[k];
+
+	if ((res = TA_construct_transport_key_params(&aes_params)) != KM_ERROR_OK)
+	{
+		EMSG("TA_construct_transport_key_params failed(%d)", res);
+		goto exit;
+	}
+
+	TEE_MemFill(param_res[0].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	TEE_MemFill(param_res[1].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = (uint8_t *) (arg_in + param_res[0].memref.size);
+
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &aes_params, &oob);
+	if (oob) {
+		DMSG("TA_serialize_auth_set failed");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	key_format = KM_KEY_FORMAT_RAW;
+	TEE_MemMove(arg_in, &key_format, sizeof(keymaster_key_format_t));
+	arg_in += sizeof(keymaster_key_format_t);
+
+	arg_in += TA_serialize_key_blob_akms(arg_in, arg_in_end, &transport_key, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	res = TA_importKey(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("import the transport key failed(ret=%d)", res);
+		goto exit;
+	}
+
+	/*Import the transport key finished, now use it to decrypt the wrapped key*/
+	arg_out = (uint8_t *)param_res[1].memref.buffer;
+	arg_out_end = (uint8_t *)param_res[1].memref.buffer + param_res[1].memref.size;
+	arg_out += sizeof(keymaster_error_t);
+	TA_deserialize_key_blob_akms(arg_out, arg_out_end, &imported_aes_key, &res);
+	if (res != KM_ERROR_OK) {
+		DMSG("deserialize the imported transport key blob failed");
+		goto exit;
+	}
+
+	TEE_MemFill(param_res[0].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	TEE_MemFill(param_res[1].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = (uint8_t *) (arg_in + param_res[0].memref.size);
+
+	op_purpose = KM_PURPOSE_DECRYPT;
+	TEE_MemMove(arg_in, &op_purpose, sizeof(keymaster_purpose_t));
+	arg_in += sizeof(keymaster_purpose_t);
+	arg_in += TA_serialize_key_blob_akms(arg_in, arg_in_end, &imported_aes_key, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	aes_params.params[4].tag = KM_TAG_NONCE;
+	aes_params.params[4].key_param.blob = iv;
+	iv.data = NULL;
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &aes_params, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	DMSG("begin decrypt the encrypted secure key");
+	res = TA_begin(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_begin failed, res=%x", res);
+		goto exit;
+	}
+
+	TEE_MemMove(&operation_handle,
+			(uint8_t *)param_res[1].memref.buffer + sizeof(keymaster_error_t),
+			sizeof(keymaster_operation_handle_t));
+
+	TEE_MemFill(param_res[0].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	TEE_MemFill(param_res[1].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = arg_in + param_res[0].memref.size;
+
+	TEE_MemMove(arg_in, &operation_handle, sizeof(keymaster_operation_handle_t));
+	arg_in += sizeof(keymaster_operation_handle_t);
+
+	arg_in += TA_serialize_blob_akms(arg_in, arg_in_end, &signature, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	finish_params_t.length = 1;
+	auth_set_size = 0;
+	if (MUL_OVERFLOW(sizeof(keymaster_key_param_t), finish_params_t.length, &auth_set_size)) {
+		EMSG("Overflow: too many key params! Abort!");
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto exit;
+	}
+
+	finish_params_t.params = TEE_Malloc(auth_set_size, TEE_MALLOC_FILL_ZERO);
+	if (!finish_params_t.params) {
+		EMSG("Failed to allocate memory for params");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+	finish_params_t.params[0].tag = KM_TAG_ASSOCIATED_DATA;
+	finish_params_t.params[0].key_param.blob = wrapped_key_description;
+	wrapped_key_description.data = NULL;
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &finish_params_t, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	secure_key_blob.data_length = secure_key.key_material_size + tag.data_length;
+	secure_key_blob.data = TEE_Malloc(secure_key_blob.data_length, TEE_MALLOC_FILL_ZERO);
+	if (!secure_key_blob.data) {
+		EMSG("Failed to allocate memory for secure_key_blob");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	TEE_MemMove(secure_key_blob.data, secure_key.key_material, secure_key.key_material_size);
+	TEE_MemMove(secure_key_blob.data + secure_key.key_material_size,
+					tag.data, tag.data_length);
+
+	arg_in += TA_serialize_blob_akms(arg_in, arg_in_end, &secure_key_blob, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	res = TA_finish(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_finish failed, res=%x", res);
+		goto exit;
+	}
+
+	DMSG("TA_finish decrypt secure key successfully");
+
+	/*The wrapped key is decrypted successfuly, now import this key*/
+	arg_out = (uint8_t *)param_res[1].memref.buffer;
+	arg_out_end = (uint8_t *)param_res[1].memref.buffer + param_res[1].memref.size;
+	arg_out += sizeof(keymaster_error_t);
+	TA_deserialize_blob_akms(arg_out, arg_out_end, &secure_key_dec, false, &res, false);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to deserialize secure_key_dec, res=%x", res);
+		goto exit;
+	}
+
+	TEE_MemFill(param_res[0].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	TEE_MemFill(param_res[1].memref.buffer, 0, UNWRAPKEY_BUFFER_SIZE);
+	param_res[0].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	param_res[1].memref.size = UNWRAPKEY_BUFFER_SIZE;
+	arg_in = (uint8_t *) param_res[0].memref.buffer;
+	arg_in_end = arg_in + param_res[0].memref.size;
+	arg_in += TA_serialize_auth_set(arg_in, arg_in_end, &params_t, &oob);
+	if (oob) {
+		EMSG("TA_serialize_auth_set failed");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	TEE_MemMove(arg_in, &wrapped_key_fmt, sizeof(keymaster_key_format_t));
+	arg_in += sizeof(keymaster_key_format_t);
+
+	arg_in += TA_serialize_blob_akms(arg_in, arg_in_end, &secure_key_dec, &oob);
+	if (oob) {
+		EMSG("Out of input buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	res = TA_importKey(param_res);
+	if (res != KM_ERROR_OK) {
+		EMSG("TA_importkey in importwrapedkey failed(ret=%d)", res);
+		goto exit;
+	}
+
+	if (param_res[1].memref.size > params[1].memref.size)
+	{
+		EMSG("The importwrappedkey params out size is too small");
+		goto exit;
+	}
+
+	/*wrapped key is decrypted successfuly, now import this key*/
+	TEE_MemMove(params[1].memref.buffer,
+				param_res[1].memref.buffer, param_res[1].memref.size);
+
+	DMSG("Import the wrapped key successfully");
+
+exit:
+	TA_free_params(&params_t);
+	TA_free_params(&wrapping_des_t);
+	TA_free_params(&aes_params);
+	TA_free_params(&finish_params_t);
+	TA_free_params(&wrapping_params);
+	if (iv.data)
+		TEE_Free(iv.data);
+	if (tag.data)
+		TEE_Free(tag.data);
+	if (signature.data)
+		TEE_Free(signature.data);
+	if (secure_key_blob.data)
+		TEE_Free(secure_key_blob.data);
+	if (secure_key_dec.data)
+		TEE_Free(secure_key_dec.data);
+	if (wrapped_key_description.data)
+		TEE_Free(wrapped_key_description.data);
+	if (secure_key.key_material)
+		TEE_Free(secure_key.key_material);
+	if (transport_key.key_material)
+		TEE_Free(transport_key.key_material);
+	if (transit_key.key_material)
+		TEE_Free(transit_key.key_material);
+	if (imported_aes_key.key_material)
+		TEE_Free(imported_aes_key.key_material);
+	if (wrapped_key.key_material)
+		TEE_Free(wrapped_key.key_material);
+	if (wrapping_key.key_material)
+		TEE_Free(wrapping_key.key_material);
+	if (masking_key.key_material)
+		TEE_Free(masking_key.key_material);
+	if (param_res[0].memref.buffer)
+		TEE_Free(param_res[0].memref.buffer);
+	if (param_res[1].memref.buffer)
+		TEE_Free(param_res[1].memref.buffer);
+
+	return res;
+}
+
 static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 {
 	uint8_t *in = NULL;
@@ -3093,6 +3536,10 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 		DMSG("KM_IMPORT_KEY");
 		error = TA_importKey(params);
 		break;
+	case KM_IMPORT_WRAPPED_KEY:
+		DMSG("KM_IMPORT_WRAPPED_KEY");
+		error = TA_importWrappedKey(params);
+		break;
 	case KM_EXPORT_KEY:
 		DMSG("KM_EXPORT_KEY");
 		error = TA_exportKey(params);
@@ -3152,7 +3599,6 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 	case KM_GET_SUPPORTED_IMPORT_FORMATS:
 	case KM_GET_SUPPORTED_EXPORT_FORMATS:
 	case KM_COMPUTE_SHARED_HMAC:
-	case KM_IMPORT_WRAPPED_KEY:
 	case KM_EARLY_BOOT_ENDED:
 	case KM_DEVICE_LOCKED:
 	case KM_GET_ROOT_OF_TRUST:
