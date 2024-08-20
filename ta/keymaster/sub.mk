@@ -15,6 +15,7 @@ srcs-y += shift.c
 srcs-y += crypto_ec.c
 srcs-y += attestation.c
 srcs-y += mbedtls_proxy.c
+srcs-y += unwrapkey.c
 srcs-y += rot.c
 srcs-y += hmac.c
 srcs-y += cose.c
