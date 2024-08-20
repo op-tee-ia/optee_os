@@ -636,25 +636,25 @@ int TA_serialize_auth_set(uint8_t *out, uint8_t *out_end,
 	/* indirect_data */
 	indirect_data = out;
 	for (size_t i = 0; i < param_set->length; i++) {
-		if (keymaster_tag_get_type(param_set->params->tag) == KM_BIGNUM ||
-		    keymaster_tag_get_type(param_set->params->tag) == KM_BYTES) {
+		if (keymaster_tag_get_type(param_set->params[i].tag) == KM_BIGNUM ||
+		    keymaster_tag_get_type(param_set->params[i].tag) == KM_BYTES) {
 			if (TA_is_out_of_bounds(out, out_end,
-			    param_set->params->key_param.blob.data_length)) {
+			    param_set->params[i].key_param.blob.data_length)) {
 				EMSG("Exceeding end of output buffer");
 				*oob = true;
 				goto exit;
 			}
 			TEE_MemMove(out,
-				    param_set->params->key_param.blob.data,
-				    param_set->params->key_param.blob.data_length);
+				    param_set->params[i].key_param.blob.data,
+				    param_set->params[i].key_param.blob.data_length);
 			/*
 			 * set blob data new address for calculate offset in
 			 * param_serialize
 			 */
 			addr_indirect_data[i] = out;
-			out += param_set->params->key_param.blob.data_length;
+			out += param_set->params[i].key_param.blob.data_length;
 			indirect_data_size +=
-				param_set->params->key_param.blob.data_length;
+				param_set->params[i].key_param.blob.data_length;
 		}
 	}
 	/* populate indirect_data_size */
