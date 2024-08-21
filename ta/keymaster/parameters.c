@@ -919,9 +919,10 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		} else if ((*op_padding == KM_PAD_RSA_PKCS1_1_5_ENCRYPT ||
 				*op_padding == KM_PAD_RSA_OAEP) &&
 				op_purpose != KM_PURPOSE_ENCRYPT &&
-				op_purpose != KM_PURPOSE_DECRYPT) {
-			EMSG("Padding modes KM_PAD_RSA_PKCS1_1_5_SIGN and KM_PAD_RSA_PSS "
-			     "supports only SIGN and VERIFY purposes");
+				op_purpose != KM_PURPOSE_DECRYPT &&
+				op_purpose != KM_PURPOSE_WRAP_KEY) {
+			EMSG("Padding modes KM_PAD_RSA_PKCS1_1_5_ENCRYPT and KM_PAD_RSA_OAEP "
+			     "supports only ENCRYPT, DECRYPT and WRAP_KEY purposes");
 			return KM_ERROR_UNSUPPORTED_PADDING_MODE;
 		}
 		if (*op_padding == KM_PAD_RSA_PSS &&
@@ -1112,6 +1113,14 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		EMSG("Caller Nonce is prohibited for this key");
 		res = KM_ERROR_CALLER_NONCE_PROHIBITED;
 		goto out_cp;
+	}
+	if (op_purpose == KM_PURPOSE_WRAP_KEY) {
+		if (*algorithm != KM_ALGORITHM_RSA)
+			return KM_ERROR_INCOMPATIBLE_ALGORITHM;
+		if (*op_digest != KM_DIGEST_SHA_2_256)
+			return KM_ERROR_INCOMPATIBLE_DIGEST;
+		if (*op_padding != KM_PAD_RSA_OAEP)
+			return KM_ERROR_INCOMPATIBLE_PADDING_MODE;
 	}
 	if (!no_auth_req && (auth_type != HW_AUTH_NONE || suid_count > 0)) {
 		if (auth_timeout == UNDEFINED && suid_count > 0)

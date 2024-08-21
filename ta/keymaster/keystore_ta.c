@@ -2098,6 +2098,10 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 			      &min_sec, &do_auth, key_id);
 	if (res != KM_ERROR_OK)
 		goto out;
+
+	if (purpose == KM_PURPOSE_WRAP_KEY)
+		purpose = KM_PURPOSE_DECRYPT;
+
 	if (algorithm == KM_ALGORITHM_AES && mode != KM_MODE_ECB &&
 	    nonce.data_length == 0) {
 		if (mode == KM_MODE_CBC || mode == KM_MODE_CTR) {
