@@ -409,7 +409,7 @@ int x25519_shared_secret(const curve25519_key *private_key,
 #define LTC_MDSA_DELTA 992
 
 /* Max DSA group size in bytes */
-#define LTC_MDSA_MAX_GROUP 64
+#define LTC_MDSA_MAX_GROUP 512
 
 /* Max DSA modulus size in bytes (the actual DSA size, max 8192 bits) */
 #define LTC_MDSA_MAX_MODULUS 1024
