@@ -48,6 +48,8 @@
 #define TEE_MMU_UCACHE_DEFAULT_ATTR	(TEE_MATTR_CACHE_CACHED << \
 					 TEE_MATTR_CACHE_SHIFT)
 
+extern bool is_qnx;
+
 static vaddr_t select_va_in_range(const struct vm_region *prev_reg,
 				  const struct vm_region *next_reg,
 				  const struct vm_region *reg,
@@ -741,7 +743,7 @@ TEE_Result vm_set_prot(struct user_mode_ctx *uctx, vaddr_t va, size_t len,
 		}
 
 	}
-	if (need_sync && was_writeable)
+	if (need_sync && was_writeable && !is_qnx)
 		cache_op_inner(ICACHE_INVALIDATE, NULL, 0);
 
 	merge_vm_range(uctx, va, len);
