@@ -2,6 +2,8 @@
 /*
  *  Copyright (c) 2023 Intel Corporation
  */
+#include <drivers/guest_shm.h>
+#include <drivers/io_apic.h>
 #include <drivers/io_mem.h>
 #include <drivers/ivshmem.h>
 #include <drivers/pci.h>
@@ -44,6 +46,9 @@
 
 #define IVSHMEM_MSIX_ENTRY_NUM		3
 
+/* QNX tee shm size in pages*/
+#define QNX_TEE_SHM_SIZE		0x500
+
 #ifdef CFG_EDK2_TPM
 #define TEE_TPM2_INIT                   0x00000001
 #define TEE_TPM2_END                    0x00000002
@@ -57,6 +62,8 @@
 #define TEE_TPM2_SHOW_INDEX             0x0000000A
 #define TEE_TPM2_DELETE_INDEX           0x0000000B
 #endif
+
+extern bool is_qnx;
 
 struct ivshmem_device {
 	uint8_t dev;
@@ -74,6 +81,9 @@ struct ivshmem_device {
 	uint32_t bar1_len;
 	uint32_t bar2_addr;
 	uint32_t bar2_len;
+
+	volatile struct guest_shm_factory *fact;
+	volatile struct guest_shm_control *ctrl;
 };
 
 static struct ivshmem_device g_ivshmem_devs[TEE_MAX_IVSHMEM_DEVICE];
@@ -124,11 +134,7 @@ struct thread_smc_args *g_smc_args = NULL;
 struct optee_smc_ring *smc_avail_ring = NULL;
 struct optee_smc_ring *smc_used_ring = NULL;
 struct optee_vm_ids *smc_vm_ids = NULL;
-
-static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
-{
-	return ITRR_HANDLED;
-}
+uint32_t *smc_evt_src = NULL;
 
 static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 {
@@ -197,7 +203,8 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 #ifdef CFG_EDK2_TPM
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
 	// offset 0x1000 is reserved for seed rot to use.
-	struct tpm2_int_req *req = (struct tpm2_int_req *)(g_ivshmem_devs[0].rot_addr + 0x1000);
+	volatile struct tpm2_int_req *req =
+		(struct tpm2_int_req *)(g_ivshmem_devs[0].rot_addr + 0x1000);
 
 	//TEE_TPM2_READ_DEVICE_STATE
 	UINT8 *rd_state = req->payload;
@@ -266,6 +273,23 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	return ITRR_HANDLED;
 }
 
+static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
+{
+	enum itr_return ret = ITRR_HANDLED;
+
+	if (!is_qnx)
+		return ret;
+
+	if (g_ivshmem_devs[0].ctrl->status & (1 << smc_vm_ids->ree_id)) {
+		if (*smc_evt_src == EVENT_ROT)
+			ret = ivshmem_rot_itr_cb(NULL);
+		else if (*smc_evt_src == EVENT_ROLLBACK)
+			ret = ivshmem_rollback_index_itr_cb(NULL);
+	}
+
+	return ret;
+}
+
 static struct itr_handler ivshmem_doorbell_itr = {
 	.it = IVSHMEM_DOORBELL_VECTOR,
 	.flags = ITRF_TRIGGER_LEVEL,
@@ -292,7 +316,10 @@ static uint8_t ivshmem_get_dev_func(void)
 	uint32_t dev_vndr;
 	uint8_t num = 0;
 
-	expect = IVSHMEM_VENDOR_ID | (IVSHMEM_DEVICE_ID << 16);
+	if (is_qnx)
+		expect = PCI_VID_BlackBerry_QNX | (PCI_DID_QNX_GUEST_SHM << 16);
+	else
+		expect = IVSHMEM_VENDOR_ID | (IVSHMEM_DEVICE_ID << 16);
 
 	for (device = 0; device < PCI_MAX_DEV_NUM; device++) {
 		for (function = 0; function < PCI_MAX_FUNC_NUM; function++) {
@@ -310,7 +337,7 @@ static uint8_t ivshmem_get_dev_func(void)
 	return num;
 }
 
-void ivshmem_init(void)
+static void generic_ivshmem_init(void)
 {
 	uint8_t dev_num = 0;
 	uint8_t i = 0, j = 0;
@@ -482,11 +509,153 @@ void ivshmem_init(void)
 	return;
 }
 
+static void qnx_ivshmem_init(void)
+{
+	uint8_t dev_num = 0;
+	uint8_t j = 0;
+	uint8_t dev, func;
+	uint32_t shmem_addr;
+	uint32_t shmem_len;
+
+
+	/*
+	 * PCI devices reside in bus zero for QEMU by default.
+	 *
+	 * Traverse all devices and functions of bus zero to find virtio console
+	 * device. To speed up probe, read 32 bits combination of vendor ID and
+	 * device ID directly insteading of read 16 bits twice.
+	 */
+	dev_num = ivshmem_get_dev_func();
+	if (dev_num == 0) {
+		panic("Error: IVSHMEM PCI device not found!!\n");
+	} else {
+		IMSG("Found %d IVSHMEM device\n", dev_num);
+	}
+
+	// Support only 1 ivshmem device on QNX currently
+	dev = g_ivshmem_devs[0].dev;
+	func = g_ivshmem_devs[0].func;
+
+	g_ivshmem_devs[0].bar0_addr = pci_resource_start(0, dev, func, PCI_CONFIG_BAR0_OFFSET);
+	g_ivshmem_devs[0].bar0_len = pci_resource_len(0, dev, func, PCI_CONFIG_BAR0_OFFSET);
+	IMSG("IVSHMEM device: bar0 addr=0x%x, len=0x%x\n",
+	  g_ivshmem_devs[0].bar0_addr, g_ivshmem_devs[0].bar0_len);
+
+	if (!core_mmu_add_mapping(MEM_AREA_RAM_SEC, g_ivshmem_devs[0].bar0_addr, PAGE_SIZE)) {
+		EMSG("IVSHMEM device: factory page map failed\n");
+		panic();
+	}
+
+	g_ivshmem_devs[0].fact = phys_to_virt(g_ivshmem_devs[0].bar0_addr, MEM_AREA_RAM_SEC);
+
+	if ((g_ivshmem_devs[0].fact->signature & 0xFFFFFFFF) != GUEST_SHM_SIGNATURE_L
+	  || (g_ivshmem_devs[0].fact->signature >> 32) != GUEST_SHM_SIGNATURE_H) {
+		EMSG("factory signature doesn't match 0x%lx\n", g_ivshmem_devs[0].fact->signature);
+		panic();
+	}
+
+	strcpy(g_ivshmem_devs[0].fact->name, "tee_shmem");
+	//Allocate 5M memory
+	guest_shm_create(g_ivshmem_devs[0].fact, QNX_TEE_SHM_SIZE);
+
+	if (g_ivshmem_devs[0].fact->status != GSS_OK) {
+		EMSG("factory status is not GSS_OK: %d name: %s!\n",
+		  g_ivshmem_devs[0].fact->status, g_ivshmem_devs[0].fact->name);
+		panic();
+	}
+
+	IMSG("factory status is GSS_OK shmem name is %s size 0x%x\n",
+	  g_ivshmem_devs[0].fact->name, g_ivshmem_devs[0].fact->size);
+
+	if (!core_mmu_add_mapping(MEM_AREA_RAM_SEC, g_ivshmem_devs[0].fact->shmem, PAGE_SIZE)) {
+		EMSG("IVSHMEM device: shm ctrl page map failed\n");
+		panic();
+	}
+
+	g_ivshmem_devs[0].ctrl = phys_to_virt(g_ivshmem_devs[0].fact->shmem, MEM_AREA_RAM_SEC);
+	IMSG("ctrl status is 0x%x\n", g_ivshmem_devs[0].ctrl->status);
+
+	shmem_addr = g_ivshmem_devs[0].fact->shmem + PAGE_SIZE;
+	shmem_len = g_ivshmem_devs[0].fact->size * PAGE_SIZE;
+
+	if (shmem_len < 0x400000) {
+		EMSG("IVSHMEM device: bar2 size too small\n");
+		panic();
+	}
+
+	if (!core_mmu_add_mapping(MEM_AREA_RAM_NSEC, shmem_addr, IVSHMEM_SMC_SIZE)) {
+		EMSG("IVSHMEM device: smc map failed\n");
+		panic();
+	}
+
+	g_ivshmem_devs[0].smc_addr = (vaddr_t)phys_to_virt(shmem_addr, MEM_AREA_RAM_NSEC);
+
+	smc_evt_src = (uint32_t *)g_ivshmem_devs[0].smc_addr;
+	smc_vm_ids = (struct optee_vm_ids *)(g_ivshmem_devs[0].smc_addr +
+	  sizeof(uint32_t));
+	smc_avail_ring = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
+	  sizeof(uint32_t) + sizeof(struct optee_vm_ids));
+	smc_used_ring = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
+	  sizeof(uint32_t) + sizeof(struct optee_vm_ids) +
+	  sizeof(struct optee_smc_ring));
+	g_smc_args = (struct thread_smc_args *)(g_ivshmem_devs[0].smc_addr +
+	  sizeof(uint32_t) + sizeof(struct optee_vm_ids) +
+	  sizeof(struct optee_smc_ring) + sizeof(struct optee_smc_ring));
+
+	smc_avail_ring->head = 0;
+	smc_avail_ring->tail = 0;
+	for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
+		smc_avail_ring->ring[j] = j;
+	}
+
+	smc_used_ring->head = 0;
+	smc_used_ring->tail = 0;
+	for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
+		smc_used_ring->ring[j] = OPTEE_SHM_QUEUE_SIZE;
+	}
+
+	g_ivshmem_devs[0].rot_addr = g_ivshmem_devs[0].smc_addr + 0x100000;
+
+	tee_shmem_start = ROUNDUP(shmem_addr + 0x200000, PAGE_SIZE);
+
+	if ((tee_shmem_start + TEE_SHMEM_SIZE) > (shmem_addr + shmem_len))
+		panic("nsec shm is out of bar2");
+
+	if (!core_mmu_add_mapping(MEM_AREA_NSEC_SHM, tee_shmem_start, TEE_SHMEM_SIZE)) {
+		EMSG("IVSHMEM device: nsec shm map failed\n");
+		panic();
+	}
+
+	smc_vm_ids->tee_id = g_ivshmem_devs[0].ctrl->idx;
+	IMSG("IVSHMEM device: tee_id:%d ree_id:%d", smc_vm_ids->tee_id, smc_vm_ids->ree_id);
+
+#ifdef CFG_IO_APIC
+	ivshmem_doorbell_itr.it = ioapic_get_it_num(g_ivshmem_devs[0].fact->vector);
+	itr_add(&ivshmem_doorbell_itr);
+
+	ioapic_enable_interrupt(g_ivshmem_devs[0].fact->vector);
+#endif
+
+	return;
+}
+
+void ivshmem_init(void)
+{
+	if(is_qnx)
+		qnx_ivshmem_init();
+	else
+		generic_ivshmem_init();
+
+}
+
 void ivshmem_doorbell_ring(uint8_t dev, uint32_t peer)
 {
 	assert(peer != 0);
 
-	io_write_32((void *)(g_ivshmem_devs[dev].regs_addr + DOORBELL_OFF), peer<<16);
+	if(is_qnx)
+		g_ivshmem_devs[dev].ctrl->notify = 1 << peer;
+	else
+		io_write_32((void *)(g_ivshmem_devs[dev].regs_addr + DOORBELL_OFF), peer<<16);
 }
 
 TEE_Result ivshmem_rot_copy(uint8_t dev __unused, void *dest, size_t size)
