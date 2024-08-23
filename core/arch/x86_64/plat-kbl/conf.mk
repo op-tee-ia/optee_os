@@ -1,5 +1,6 @@
 $(call force,CFG_GENERIC_BOOT,y)
 $(call force,CFG_APIC,y)
+$(call force,CFG_IO_APIC,y)
 $(call force,CFG_UART,y)
 $(call force,CFG_PM_STUBS,y)
 $(call force,CFG_SECURE_TIME_SOURCE_REE,y)

@@ -32,6 +32,7 @@
 #include <utee_defines.h>
 #include <util.h>
 #include <drivers/apic.h>
+#include <drivers/io_apic.h>
 #ifdef CFG_IVSHMEM
 #include <drivers/ivshmem.h>
 #endif
@@ -629,6 +630,10 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
 	apic_init();
 #endif
 	is_qnx = running_on_qnx();
+#ifdef CFG_IO_APIC
+	if(is_qnx)
+		ioapic_init();
+#endif
 }
 
 /*
