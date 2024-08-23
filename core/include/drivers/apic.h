@@ -30,6 +30,7 @@ void apic_init(void);
 void restore_pic(void);
 void lapic_software_disable(void);
 void apic_it_handle(uint32_t id);
+uint8_t lapic_get_id(void);
 bool send_self_ipi(uint32_t vector);
 
 #endif

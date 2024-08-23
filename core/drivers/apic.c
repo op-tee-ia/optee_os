@@ -175,6 +175,23 @@ bool send_self_ipi(uint32_t vector)
 	return true;
 }
 
+uint8_t lapic_get_id(void)
+{
+	uint64_t apic_base_msr = read_msr(MSR_APIC_BASE);
+
+	if (!(apic_base_msr & LAPIC_ENABLED)) {
+		return 0;
+	}
+
+	if (apic_base_msr & LAPIC_X2_ENABLED) {
+		//x2APIC
+		return (read_msr(MSR_x2APIC_ID) & 0xFF);
+	}else {
+		//xAPIC
+		return (get_lapicx1_id() & 0xFF);
+	}
+}
+
 static void lapic_eoi(void)
 {
 	uint64_t apic_base_msr = read_msr(MSR_APIC_BASE);
