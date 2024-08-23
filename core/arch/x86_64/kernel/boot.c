@@ -75,6 +75,8 @@ DECLARE_KEEP_PAGER(sem_cpu_sync);
 static uint32_t cntfrq;
 #endif
 
+bool is_qnx = false;
+
 /* May be overridden in plat-$(PLATFORM)/main.c */
 __weak void plat_primary_init_early(void)
 {
@@ -94,6 +96,28 @@ __weak void main_secondary_init_gic(void)
 void init_sec_mon(unsigned long nsec_entry __maybe_unused)
 {
 	/* Do nothing as we don't have a secure monitor */
+}
+
+static bool running_on_qnx(void)
+{
+	uint32_t info[4];
+	uint32_t leaf = 0x40000000;
+	uint32_t subleaf = 0;
+	char hyper_vendor_id[6];
+
+	__asm__ __volatile__ (
+        "cpuid"
+        : "=a" (info[0]), "=b" (info[1]), "=c" (info[2]), "=d" (info[3])
+        : "a" (leaf), "c" (subleaf)
+        : "cc"
+    );
+
+	memcpy(hyper_vendor_id, &info[1], 4);
+	memcpy(hyper_vendor_id + 4, &info[2], 2);
+	if (!strncmp(hyper_vendor_id, "QNXQVM", 6))
+		return true;
+
+	return false;
 }
 
 #ifdef CFG_SECONDARY_INIT_CNTFRQ
@@ -604,6 +628,7 @@ static void init_primary(unsigned long pageable_part, unsigned long nsec_entry)
 #ifdef CFG_APIC
 	apic_init();
 #endif
+	is_qnx = running_on_qnx();
 }
 
 /*
