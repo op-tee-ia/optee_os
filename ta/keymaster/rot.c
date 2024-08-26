@@ -11,23 +11,6 @@
 tee_km_context_t optee_km_context;
 tee_dice_context_t optee_dice_context;
 
-//getprop ro.boot.vbmeta.digest
-//14df041d403d990b
-//b922b7cded60564c
-//c095b574bfc983a4
-//18cbed6856ed6b9f
-static uint8_t vbmeta_digest_stub [32] = {
-       0x14, 0xdf, 0x04, 0x1d, 0x40, 0x3d, 0x99, 0x0b,
-       0xb9, 0x22, 0xb7, 0xcd, 0xed, 0x60, 0x56, 0x4c,
-       0xc0, 0x95, 0xb5, 0x74, 0xbf, 0xc9, 0x83, 0xa4,
-       0x18, 0xcb, 0xed, 0x68, 0x56, 0xed, 0x6b, 0x9f };
-
-static uint8_t key_hash_stub [32] = {
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-
 void TA_init_km_context(void)
 {
 	memset(&optee_km_context, 0, sizeof(tee_km_context_t));
@@ -75,17 +58,6 @@ keymaster_error_t TA_set_rot_data(void)
 		res = KM_ERROR_UNKNOWN_ERROR;
 		goto out;
 	}
-
-	//TODO: hard code rot here for now
-	DMSG("Hard code ROT");
-	optee_km_context.rot.deviceLocked = 0x0;
-	optee_km_context.rot.verifiedBootState = 0x2;
-	memcpy(optee_km_context.rot.keyHash256, key_hash_stub,
-		sizeof(key_hash_stub));
-	memset(optee_km_context.rot.vbmetaDigest, 0,
-		sizeof(optee_km_context.rot.vbmetaDigest));
-	memcpy(optee_km_context.rot.vbmetaDigest, vbmeta_digest_stub,
-		sizeof(vbmeta_digest_stub));
 
 out:
 	TEE_CloseTASession(sess);
