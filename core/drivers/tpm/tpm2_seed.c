@@ -19,6 +19,7 @@
 #include <kernel/tee_common_otp.h>
 #include <mbedtls/platform_util.h>
 #include <mbedtls/constant_time.h>
+#include <mbedtls/sha256.h>
 #include "tpm2_ops.h"
 #include <drivers/tpm2_seed.h>
 
@@ -272,6 +273,61 @@ out:
 	return ret;
 }
 
+TEE_Result tee_sha256_pcrs(uint8_t *digest, size_t len)
+{
+	EFI_STATUS          Status;
+	TPML_PCR_SELECTION  PcrSelectionIn;
+	UINT32              PcrUpdateCounter;
+	TPML_PCR_SELECTION  PcrSelectionOut;
+	TPML_DIGEST         PcrValues;
+
+	if (!digest || len < TEE_SHA256_HASH_SIZE)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	ZeroMem(&PcrSelectionIn, sizeof(PcrSelectionIn));
+	PcrSelectionIn.count = 1;
+
+	PcrSelectionIn.pcrSelections[0].hash = TPM_ALG_SHA256;
+	PcrSelectionIn.pcrSelections[0].sizeofSelect = 3;
+
+	PcrSelectionIn.pcrSelections[0].pcrSelect[0] = 0xFF; //PCR 0-7 selected
+	PcrSelectionIn.pcrSelections[0].pcrSelect[1] = 0x00; //PCR 8-15 not selected
+	PcrSelectionIn.pcrSelections[0].pcrSelect[2] = 0x00; //PCR 16-23 not selected
+
+	Status = Tpm2PcrRead(&PcrSelectionIn, &PcrUpdateCounter, &PcrSelectionOut, &PcrValues);
+	if (EFI_ERROR(Status)) {
+		EMSG("Tpm2PcrRead failed: %d\n", Status);
+		return TEE_ERROR_GENERIC;
+	}
+
+	UINT8 PCRs[8*32]; // PCR 0~7 * 32B SHA256
+	for (UINT32 i = 0; i < PcrValues.count; i++) {
+		memcpy(PCRs + i * PcrValues.digests[i].size,
+			PcrValues.digests[i].buffer,
+			PcrValues.digests[i].size);
+	}
+
+	mbedtls_sha256_context ctx;
+	int mbedtls_ret = 1;
+
+	mbedtls_sha256_init(&ctx);
+	if (0 != mbedtls_sha256_starts(&ctx, 0))
+		goto err;
+	if (0 != mbedtls_sha256_update(&ctx, PCRs, sizeof(PCRs)))
+		goto err;
+	if (0 != mbedtls_sha256_finish(&ctx, digest))
+		goto err;
+	mbedtls_ret = 0;
+
+err:
+	mbedtls_sha256_free(&ctx);
+	if (mbedtls_ret) {
+		EMSG("PCRs mbedtls_sha256 failed.");
+		return TEE_ERROR_GENERIC;
+	}
+
+	return TEE_SUCCESS;
+}
 
 TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 {
