@@ -455,9 +455,19 @@ EFI_STATUS tee_tpm2_end(void)
 	g_tpm_nv_bootloader_lock = true;
 	IMSG("g_tpm_nv_bootloader_lock is changed to LOCKED...");
 
-	EFI_STATUS ret = Tpm2Shutdown(TPM_SU_CLEAR);
+	/* Since TPM is passthroughed to TEE, SOS and Android
+	 * cannot send TPM2Shutdown(STATE) when S3. It causes
+	 * to an SBL failure when resume back:
+	 *     -- Attempting TPM_Startup with TPM_SU_STATE.
+	 *     -- Tpm2Startup: Response Code error! 0x000001C4
+	 * If SBL does not provide a workaround, TEE makes such
+	 * workaround by sending Tpm2Shutdown(TPM_SU_STATE).
+	 * For most cases, TPM only covers two states:
+	 * TPM_Restart and TPM_Resume.
+	 */
+	EFI_STATUS ret = Tpm2Shutdown(TPM_SU_STATE);
 	if (EFI_ERROR(ret))
-		EMSG("Failed(%lx) to shutdown TPM.", ret);
+		EMSG("Failed(%lx) to shutdown TPM STATE.", ret);
 
 	return ret;
 }
