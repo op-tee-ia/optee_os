@@ -35,6 +35,7 @@
 #include <dice/dice.h>
 #include <string.h>
 #include <trace.h>
+#include <kernel/tee_common_otp.h>
 
 static unsigned int system_pnum;
 extern uint8_t g_uds[32];
@@ -175,6 +176,18 @@ static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 
 	if (exp_pt != param_types)
 		return TEE_ERROR_BAD_PARAMETERS;
+
+	uint8_t digest[TEE_SHA256_HASH_SIZE];
+	if (TEE_SUCCESS != tee_sha256_pcrs(digest, sizeof(digest))) {
+		EMSG("DICE failed to get the hash of PCR 0~7");
+		return TEE_ERROR_GENERIC;
+	}
+
+	/* Reference:
+	 * https://pigweed.googlesource.com/open-dice/+/HEAD/docs/specification.md#configuration-input-value-details-optional
+	 * Todo: Fill in Byte 0~4
+	 */
+	memcpy(input_values.config_value + 32, digest, sizeof(digest));
 
 	DiceResult ret = DiceMainFlow(NULL,
 				      g_uds,
