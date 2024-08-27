@@ -22,6 +22,12 @@ struct optee_vm_ids {
 	uint32_t tee_id;
 } __packed;
 
+typedef enum {
+	EVENT_KERNEL = 1,
+	EVENT_ROT,
+	EVENT_ROLLBACK,
+} shm_event_src_t;
+
 /* Initialize ivshmem device */
 void ivshmem_init(void);
 
