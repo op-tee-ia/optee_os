@@ -197,6 +197,15 @@ typedef enum {
 	KM_TAG_RESET_SINCE_ID_ROTATION = KM_BOOL | 1004, /* Whether the device has beeen factory reset
 														since the last unique ID rotation.  Used for
 														key attestation. */
+	KM_TAG_CONFIRMATION_TOKEN = KM_BYTES | 1005, /* used to deliver a cryptographic token
+								proving that the user confirmed a signing
+								request. */
+	KM_TAG_CERTIFICATE_SERIAL = KM_BIGNUM | 1006, /* The serial number that should be
+								set in the attestation certificate
+								to be generated. */
+	KM_TAG_CERTIFICATE_SUBJECT = KM_BYTES | 1007, /* A DER-encoded X.500 subject that should be
+								set in the attestation certificate
+								to be generated. */
 	KM_TAG_CERTIFICATE_NOT_BEFORE = KM_DATE | 1008,  /* Epoch time in milliseconds of the start of
 							    the to be generated certificate's validity.
 							    The value should interpreted as too's

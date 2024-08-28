@@ -120,6 +120,13 @@ void TA_free_params(keymaster_key_param_set_t *params);
 
 void TA_free_cert_chain(keymaster_cert_chain_t *cert_chain);
 
+keymaster_error_t TA_get_subject_info(
+				const keymaster_key_param_set_t *input_set,
+				keymaster_blob_t *subject);
+
+keymaster_error_t TA_get_serial_info(
+				const keymaster_key_param_set_t *input_set,
+				keymaster_blob_t *serial);
 
 static inline keymaster_ec_curve_t TA_size_to_ECcurve(uint32_t key_size)
 {
