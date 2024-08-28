@@ -1042,6 +1042,7 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 
 	/* Generate key attestation certificate (using STA ASN.1) */
 	result = TA_gen_key_attest_cert_with_rootkey(root_algorithm, alg, root_key,
+					&params_t,
 					attested_key, attest_params, attest_key_chr, cert_chain,
 					includeUniqueID, not_before_val, not_after_val);
 	if (result != TEE_SUCCESS) {
@@ -1279,15 +1280,15 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 				goto exit;
 			}
 
-			result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
-						not_before_val, not_after_val);
+			result = TA_gen_self_signed_cert(&params_t, key_algorithm, key_obj_h,
+						root_cert, not_before_val, not_after_val);
 			if (result != TEE_SUCCESS) {
 				EMSG("Failed to generated root certificate, res=%x", res);
 				res = KM_ERROR_UNKNOWN_ERROR;
 			}
 		} else {
 			DMSG("Generate fake cert for non-signing asymmetric key");
-			result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+			result = TA_gen_fake_cert(&params_t, key_algorithm, key_obj_h, root_cert,
 						not_before_val, not_after_val);
 			if (result != TEE_SUCCESS) {
 				EMSG("Failed to generated fake certificate, res=%x", res);
@@ -1786,15 +1787,15 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				goto out;
 			}
 
-			result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
-							 not_before_val, not_after_val);
+			result = TA_gen_self_signed_cert(&params_t, key_algorithm, key_obj_h,
+							root_cert, not_before_val, not_after_val);
 			if (result != TEE_SUCCESS) {
 				EMSG("Failed to generated root certificate, res=%x", res);
 				res = KM_ERROR_UNKNOWN_ERROR;
 			}
 		} else {
 			DMSG("Generate fake cert for non-signing asymmetric key");
-			result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+			result = TA_gen_fake_cert(&params_t, key_algorithm, key_obj_h, root_cert,
 						  not_before_val, not_after_val);
 			if (result != TEE_SUCCESS) {
 				EMSG("Failed to generated fake certificate, res=%x", res);

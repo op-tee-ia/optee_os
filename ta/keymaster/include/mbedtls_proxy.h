@@ -65,15 +65,15 @@ keymaster_error_t mbedTLS_encode_key(keymaster_blob_t *export_data,
 TEE_Result mbedTLS_gen_root_cert_rsa(TEE_ObjectHandle root_rsa_key,
 				      keymaster_blob_t *root_cert);
 
-TEE_Result mbedTLS_gen_self_signed_cert_rsa(TEE_ObjectHandle root_rsa_key,
-				      keymaster_blob_t *root_cert,
+TEE_Result mbedTLS_gen_self_signed_cert_rsa(const keymaster_key_param_set_t *input_set,
+				     TEE_ObjectHandle root_rsa_key, keymaster_blob_t *root_cert,
 				     uint64_t not_before_val, uint64_t not_after_val);
 
 TEE_Result mbedTLS_gen_root_cert_ecc(TEE_ObjectHandle ecc_root_key,
 				     keymaster_blob_t *ecc_root_cert);
 
-TEE_Result mbedTLS_gen_self_signed_cert_ecc(TEE_ObjectHandle ecc_root_key,
-				     keymaster_blob_t *ecc_root_cert,
+TEE_Result mbedTLS_gen_self_signed_cert_ecc(const keymaster_key_param_set_t *input_set,
+				     TEE_ObjectHandle ecc_root_key, keymaster_blob_t *ecc_root_cert,
 				     uint64_t not_before_val, uint64_t not_after_val);
 
 TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
@@ -83,7 +83,9 @@ TEE_Result mbedTLS_gen_attest_key_cert(TEE_ObjectHandle root_key,
 				       keymaster_cert_chain_t *cert_chain,
 				       keymaster_blob_t *attest_ext);
 
-TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(TEE_ObjectHandle root_key,
+TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(
+				       const keymaster_key_param_set_t *input_set,
+				       TEE_ObjectHandle root_key,
 				       TEE_ObjectHandle attest_key,
 				       keymaster_algorithm_t root_alg,
 				       keymaster_algorithm_t alg,
@@ -129,6 +131,7 @@ TEE_Result TA_gen_attest_cert(TEE_ObjectHandle attestedKey,
                               keymaster_cert_chain_t *cert_chain);
 
 TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
+                              const keymaster_key_param_set_t *root_params,
                               TEE_ObjectHandle attested_key,
                               keymaster_key_param_set_t *attested_params,
                               keymaster_key_characteristics_t *key_chr,

@@ -770,9 +770,9 @@ error:
 	}
 }
 
-TEE_Result TA_gen_self_signed_cert(keymaster_algorithm_t alg,
-				  TEE_ObjectHandle root_key,
-				  keymaster_blob_t *root_cert,
+TEE_Result TA_gen_self_signed_cert(const keymaster_key_param_set_t *input_set,
+				  keymaster_algorithm_t alg,
+				  TEE_ObjectHandle root_key, keymaster_blob_t *root_cert,
 				  uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
@@ -782,10 +782,10 @@ TEE_Result TA_gen_self_signed_cert(keymaster_algorithm_t alg,
 
 	//Call ASN1 TA to generate self-signed certificate
 	if (alg == KM_ALGORITHM_RSA) {
-		res = mbedTLS_gen_self_signed_cert_rsa(root_key, root_cert,
+		res = mbedTLS_gen_self_signed_cert_rsa(input_set, root_key, root_cert,
 				not_before_val, not_after_val);
 	} else if (alg == KM_ALGORITHM_EC) {
-		res = mbedTLS_gen_self_signed_cert_ecc(root_key, root_cert,
+		res = mbedTLS_gen_self_signed_cert_ecc(input_set, root_key, root_cert,
 				not_before_val, not_after_val);
 	} else {
 		res = TEE_ERROR_BAD_PARAMETERS;
@@ -794,9 +794,9 @@ TEE_Result TA_gen_self_signed_cert(keymaster_algorithm_t alg,
 	return res;
 }
 
-TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
-				  TEE_ObjectHandle asymmetric_key,
-				  keymaster_blob_t *fake_cert,
+TEE_Result TA_gen_fake_cert(const keymaster_key_param_set_t *input_set,
+				  keymaster_algorithm_t alg,
+				  TEE_ObjectHandle asymmetric_key, keymaster_blob_t *fake_cert,
 				  uint64_t not_before_val, uint64_t not_after_val)
 {
 	TEE_Result res = TEE_SUCCESS;
@@ -806,10 +806,10 @@ TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
 
 	//Call ASN1 TA to generate fake certificate
 	if (alg == KM_ALGORITHM_RSA) {
-		res = mbedTLS_gen_self_signed_cert_rsa(asymmetric_key, fake_cert,
+		res = mbedTLS_gen_self_signed_cert_rsa(input_set, asymmetric_key, fake_cert,
 				not_before_val, not_after_val);
 	} else if (alg == KM_ALGORITHM_EC) {
-		res = mbedTLS_gen_self_signed_cert_ecc(asymmetric_key, fake_cert,
+		res = mbedTLS_gen_self_signed_cert_ecc(input_set, asymmetric_key, fake_cert,
 				not_before_val, not_after_val);
 	} else {
 		res = TEE_ERROR_BAD_PARAMETERS;
@@ -821,6 +821,7 @@ TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
 TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 				  keymaster_algorithm_t alg,
 				  TEE_ObjectHandle root_key,
+				  const keymaster_key_param_set_t *root_params,
 				  TEE_ObjectHandle attested_key,
 				  keymaster_key_param_set_t *attest_params,
 				  keymaster_key_characteristics_t *key_chr,
@@ -834,7 +835,7 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 	if (alg != KM_ALGORITHM_RSA && alg != KM_ALGORITHM_EC)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	res = TA_gen_attest_cert_with_rootkey(root_key, attested_key,
+	res = TA_gen_attest_cert_with_rootkey(root_key, root_params, attested_key,
 		                        attest_params, key_chr,
 		                        includeUniqueID,
 		                        root_alg, alg,

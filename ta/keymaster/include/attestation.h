@@ -70,17 +70,18 @@ TEE_Result TA_AppendAttestationCertKey(TEE_Param params[TEE_NUM_PARAMS]);
 
 keymaster_error_t TA_read_root_attest_cert(uint32_t type,
 		keymaster_cert_chain_t *cert_chain);
-TEE_Result TA_gen_self_signed_cert(keymaster_algorithm_t alg,
-				TEE_ObjectHandle root_key,
-				keymaster_blob_t *root_cert,
+TEE_Result TA_gen_self_signed_cert(const keymaster_key_param_set_t *input_set,
+				keymaster_algorithm_t alg,
+				TEE_ObjectHandle root_key, keymaster_blob_t *root_cert,
 				uint64_t not_before_val, uint64_t not_after_val);
-TEE_Result TA_gen_fake_cert(keymaster_algorithm_t alg,
-				TEE_ObjectHandle asymmetric_key,
-				keymaster_blob_t *fake_cert,
+TEE_Result TA_gen_fake_cert(const keymaster_key_param_set_t *input_set,
+				keymaster_algorithm_t alg,
+				TEE_ObjectHandle asymmetric_key, keymaster_blob_t *fake_cert,
 				uint64_t not_before_val, uint64_t not_after_val);
 TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 				keymaster_algorithm_t alg,
 				TEE_ObjectHandle root_key,
+				const keymaster_key_param_set_t *root_params,
 				TEE_ObjectHandle attested_key,
 				keymaster_key_param_set_t *attest_params,
 				keymaster_key_characteristics_t *key_chr,

@@ -447,6 +447,7 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_ACTIVE_DATETIME:
 		case KM_TAG_ORIGINATION_EXPIRE_DATETIME:
 		case KM_TAG_USAGE_EXPIRE_DATETIME:
+		case KM_TAG_USAGE_COUNT_LIMIT:
 		case KM_TAG_USER_ID:
 		case KM_TAG_ALL_USERS:
 		case KM_TAG_CREATION_DATETIME:
@@ -1405,4 +1406,66 @@ keymaster_error_t TA_check_permission(const keymaster_key_param_set_t *params,
 		return KM_ERROR_INVALID_KEY_BLOB;
 	}
 	return KM_ERROR_OK;
+}
+
+keymaster_error_t TA_get_subject_info(
+				const keymaster_key_param_set_t *input_set,
+				keymaster_blob_t *subject)
+{
+	keymaster_error_t res = KM_ERROR_OK;
+
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_MemFill(subject, 0, sizeof(keymaster_blob_t));
+
+	for (size_t i = 0; i < input_set->length; i++) {
+		if (input_set->params[i].tag == KM_TAG_CERTIFICATE_SUBJECT) {
+			subject->data_length = input_set->params[i].key_param.blob.data_length;
+			/* Freed when deserialized blob is destroyed by caller */
+			subject->data = TEE_Malloc(subject->data_length, TEE_MALLOC_FILL_ZERO);
+			if (!subject->data) {
+				EMSG("Failed to allocate memory for subject info");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto err;
+			}
+			TEE_MemMove(subject->data, input_set->params[i].key_param.blob.data, subject->data_length);
+		}
+	}
+
+	return KM_ERROR_OK;
+
+err:
+	if (subject->data)
+		TEE_Free(subject->data);
+	return res;
+}
+
+keymaster_error_t TA_get_serial_info(
+				const keymaster_key_param_set_t *input_set,
+				keymaster_blob_t *serial)
+{
+	keymaster_error_t res = KM_ERROR_OK;
+
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_MemFill(serial, 0, sizeof(keymaster_blob_t));
+
+	for (size_t i = 0; i < input_set->length; i++) {
+		if (input_set->params[i].tag == KM_TAG_CERTIFICATE_SERIAL) {
+			serial->data_length = input_set->params[i].key_param.blob.data_length;
+			/* Freed when deserialized blob is destroyed by caller */
+			serial->data = TEE_Malloc(serial->data_length, TEE_MALLOC_FILL_ZERO);
+			if (!serial->data) {
+				EMSG("Failed to allocate memory for serial info");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto err;
+			}
+			TEE_MemMove(serial->data, input_set->params[i].key_param.blob.data, serial->data_length);
+		}
+	}
+
+	return KM_ERROR_OK;
+
+err:
+	if (serial->data)
+		TEE_Free(serial->data);
+	return res;
 }
