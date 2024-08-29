@@ -1149,7 +1149,8 @@ TEE_Result TEE_CipherDoFinal(TEE_OperationHandle operation,
 
 out:
 	if (res != TEE_SUCCESS &&
-	    res != TEE_ERROR_SHORT_BUFFER)
+	    res != TEE_ERROR_SHORT_BUFFER &&
+	    res != TEE_ERROR_BAD_PARAMETERS)
 		TEE_Panic(res);
 
 	return res;

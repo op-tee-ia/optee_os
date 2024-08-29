@@ -59,7 +59,7 @@ keymaster_error_t TA_check_out_size(const uint32_t input_l,
 	return KM_ERROR_OK;
 }
 
-keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input,
+keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_size,
 				const bool force, keymaster_blob_t *output,
 				uint32_t *out_size, bool *is_input_ext)
 {
@@ -70,9 +70,9 @@ keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input,
 		EMSG("Input is NULL");
 		return KM_ERROR_UNEXPECTED_NULL_POINTER;
 	}
-	if (input->data_length == 0 && !force)
+	if (input->data_length == 0 && buffering_size == 0 && !force)
 		return KM_ERROR_OK;
-	pad = BLOCK_SIZE - (input->data_length % BLOCK_SIZE);
+	pad = BLOCK_SIZE - ((input->data_length + buffering_size) % BLOCK_SIZE);
 	DMSG("PKCS7 ADD pad = 0x%x", pad);
 	/* if input data size is a multiple of block size add
 	 * one extra block as padding
@@ -85,7 +85,8 @@ keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input,
 		EMSG("Failed to allocate memory for buffer on padding adding");
 		return KM_ERROR_MEMORY_ALLOCATION_FAILED;
 	}
-	TEE_MemMove(data, input->data, input->data_length);
+	if (input->data_length > 0)
+		TEE_MemMove(data, input->data, input->data_length);
 	TEE_MemFill(data + input->data_length, pad, pad);
 	if (*is_input_ext)
 		TEE_Free(input->data);
