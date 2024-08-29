@@ -31,7 +31,7 @@ keymaster_error_t TA_check_out_size(const uint32_t input_l,
 					uint32_t *out_size,
 					uint32_t tag_len);
 
-keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input,
+keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_size,
 				const bool force, keymaster_blob_t *output,
 				uint32_t *out_size, bool *is_input_ext);
 
