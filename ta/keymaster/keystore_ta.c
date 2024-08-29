@@ -1477,8 +1477,8 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t key_size = UNDEFINED;
 	uint32_t attrs_in_count = 0;
 	uint64_t key_rsa_public_exponent = UNDEFINED;
-	uint64_t not_before_val = 0;
-	uint64_t not_after_val = 0;
+	uint64_t not_before_val = 0xFFFFFFFF;
+	uint64_t not_after_val = 0xFFFFFFFF;
 	bool oob = false; /* out of bounds flag */
 	bool attest_purpose = false;
 	uint8_t* hidden = NULL;
@@ -1613,7 +1613,7 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		}
 		if (key_algorithm == KM_ALGORITHM_RSA ||
 		    key_algorithm == KM_ALGORITHM_EC) {
-			if (key_size_set_in_tag != key_size) {
+			if ((key_size_set_in_tag != UNDEFINED) && (key_size_set_in_tag != key_size)) {
 				EMSG("Key size: %u setting in TAG::KEY_SIZE is mismatch "
 				     "with key material: %u", key_size_set_in_tag, key_size);
 				res = KM_ERROR_IMPORT_PARAMETER_MISMATCH;
@@ -1700,6 +1700,12 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			goto out;
 		}
 
+		res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+		if (res != KM_ERROR_OK) {
+			EMSG("Failed to get validity info, res=%x", res);
+			goto out;
+		}
+
 		DMSG("Generate Key to be attested");
 		res = TA_attestKey(in, in_end, key_algorithm, key_obj_h,
 				   &params_t, &characts, &cert_chain, not_before_val, not_after_val);
@@ -1722,6 +1728,12 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 
 			if (attest_purpose == true) {
 				DMSG("Generate self-signed cert for signing key");
+				res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+				if (res != KM_ERROR_OK) {
+					EMSG("Failed to get validity info, res=%x", res);
+					goto out;
+				}
+
 				result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
 								 not_before_val, not_after_val);
 				if (result != TEE_SUCCESS) {
