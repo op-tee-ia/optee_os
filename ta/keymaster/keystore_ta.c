@@ -55,6 +55,8 @@ uint64_t identifier_ec[] = {1, 2, 840, 10045, 2, 1};
 
 static TEE_TASessionHandle session_rngSTA = TEE_HANDLE_NULL;
 static TEE_TASessionHandle session_diceSTA = TEE_HANDLE_NULL;
+const int k_rot_version1 = 40001;
+const int k_cose_mac0_semantic_tag = 17;
 
 extern tee_km_context_t optee_km_context;
 extern tee_dice_context_t optee_dice_context;
@@ -3027,6 +3029,150 @@ exit:
 	return res;
 }
 
+static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	uint8_t *out = NULL;
+	uint8_t *out_end = NULL;
+	size_t out_size = 0;
+	keymaster_blob_t challenge = EMPTY_BLOB; /* IN */
+	keymaster_blob_t maced_root_of_trust = EMPTY_BLOB;
+	keymaster_blob_t root_of_trust = EMPTY_BLOB; /* OUT */
+	keymaster_error_t error = KM_ERROR_OK;
+	cbor_item_t *root_of_trust_tag = NULL;
+	cbor_item_t *root_of_trust_array = NULL;
+	uint8_t *root_of_trust_data = NULL;
+	size_t root_of_trust_size = 0;
+	bool result = false;
+	bool device_locked = false;
+	cbor_item_t *maced_root_of_trust_deserialize = NULL;
+	struct cbor_load_result load_result = { 0 };
+	cbor_item_t *cose_mac0_semantic_tag = NULL;
+	uint8_t *root_of_trust_data_serialize = NULL;
+	size_t root_of_trust_size_serialize = 0;
+	bool oob = false; /* out of bounds flag */
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_end = in + params[0].memref.size;
+	out = (uint8_t *)params[1].memref.buffer;
+	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
+	out_end = out + out_size;
+	out += sizeof(keymaster_error_t);
+
+	in += TA_deserialize_blob_akms(in, in_end, &challenge, false, &error,
+			false);
+	if (error != KM_ERROR_OK)
+		goto exit;
+
+	/* set rot data if not */
+	if (!optee_km_context.rot_info_set) {
+		error = TA_set_rot_data();
+		if (error != KM_ERROR_OK && error != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
+			EMSG("Failed(%d) to get root of trust data", error);
+			goto exit;
+		}
+		optee_km_context.rot_info_set = true;
+	}
+
+	root_of_trust_array = cbor_new_definite_array(5);
+	if (!root_of_trust_array) {
+		EMSG("Failed to allocate memory for root_of_trust_array");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	result = cbor_array_push(root_of_trust_array,
+			cbor_move(cbor_build_bytestring(optee_km_context.rot.keyHash256, optee_km_context.rot.keySize)));
+	if (!optee_km_context.rot.deviceLocked) {
+		device_locked = false;
+	} else {
+		device_locked = true;
+	}
+	result &= cbor_array_push(root_of_trust_array,
+			cbor_move(cbor_build_bool(device_locked)));
+	result &= cbor_array_push(root_of_trust_array,
+			cbor_move(cbor_build_uint8(optee_km_context.rot.verifiedBootState)));
+	result &= cbor_array_push(root_of_trust_array,
+			cbor_move(cbor_build_bytestring(optee_km_context.rot.vbmetaDigest, optee_km_context.rot.digestSize)));
+	result &= cbor_array_push(root_of_trust_array,
+			cbor_move(cbor_build_uint8(optee_km_context.boot_patchlevel)));
+	if (!result) {
+		EMSG("Failed to push items to root_of_trust_array");
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	root_of_trust_tag = cbor_build_tag(k_rot_version1, cbor_move(root_of_trust_array));
+	if (!root_of_trust_tag) {
+		EMSG("Failed to build tag for root_of_trust_tag");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	cbor_serialize_alloc(root_of_trust_tag, &root_of_trust_data, &root_of_trust_size);
+	error = TA_construct_cose_mac0(challenge.data,
+				       challenge.data_length,
+				       root_of_trust_data,
+				       root_of_trust_size,
+				       &maced_root_of_trust.data,
+				       &maced_root_of_trust.data_length);
+	if (error != KM_ERROR_OK) {
+		EMSG("maced challenge and root of trust data failed, error=%x", error);
+		goto exit;
+	}
+	maced_root_of_trust_deserialize = cbor_load(maced_root_of_trust.data,
+						    maced_root_of_trust.data_length,
+						    &load_result);
+	if (!maced_root_of_trust_deserialize) {
+		EMSG("Failed to deserialize maced_root_of_trust.data");
+		error = KM_ERROR_UNKNOWN_ERROR;
+		goto exit;
+	}
+
+	cose_mac0_semantic_tag = cbor_build_tag(k_cose_mac0_semantic_tag, cbor_move(maced_root_of_trust_deserialize));
+	if (!cose_mac0_semantic_tag) {
+		EMSG("Failed to build tag for cose_mac0_semantic_tag");
+		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	cbor_serialize_alloc(cose_mac0_semantic_tag, &root_of_trust_data_serialize, &root_of_trust_size_serialize);
+	if (root_of_trust_data_serialize) {
+		root_of_trust.data = root_of_trust_data_serialize;
+		root_of_trust.data_length = root_of_trust_size_serialize;
+		if (error == KM_ERROR_OK) {
+			out += TA_serialize_blob_akms(out, out_end, &root_of_trust,
+					&oob);
+			if (oob) {
+				EMSG("Out of output buffer space");
+				error = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+				goto exit;
+			}
+		}
+	}
+exit:
+	params[1].memref.size = out - (uint8_t *)params[1].memref.buffer;
+
+	if (challenge.data)
+		TEE_Free(challenge.data);
+	if (maced_root_of_trust.data)
+		TEE_Free(maced_root_of_trust.data);
+	if (root_of_trust_array)
+		cbor_decref(&root_of_trust_array);
+	if (root_of_trust_tag)
+		cbor_decref(&root_of_trust_tag);
+	if (root_of_trust_data)
+		free(root_of_trust_data);
+	if (maced_root_of_trust_deserialize)
+		cbor_decref(&maced_root_of_trust_deserialize);
+	if (cose_mac0_semantic_tag)
+		cbor_decref(&cose_mac0_semantic_tag);
+	if (root_of_trust_data_serialize)
+		free(root_of_trust_data_serialize);
+
+	return error;
+}
+
 static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 {
 	uint8_t *in = NULL;
@@ -3613,8 +3759,11 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 	case KM_COMPUTE_SHARED_HMAC:
 	case KM_EARLY_BOOT_ENDED:
 	case KM_DEVICE_LOCKED:
-	case KM_GET_ROOT_OF_TRUST:
 		error = TA_unimplementedOperation(params);
+		break;
+	case KM_GET_ROOT_OF_TRUST:
+		DMSG("KM_GET_ROOT_OF_TRUST");
+		error = TA_getRootOfTrust(params);
 		break;
 	case KM_GENERATE_RKP_KEY:
 		DMSG("KM_GENERATE_RKP_KEY");
