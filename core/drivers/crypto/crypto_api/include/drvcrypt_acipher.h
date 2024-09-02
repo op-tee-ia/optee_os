@@ -163,4 +163,15 @@ static inline TEE_Result drvcrypt_register_ecc(struct drvcrypt_ecc *ops)
 	return drvcrypt_register(CRYPTO_ECC, (void *)ops);
 }
 
+/*
+ * Register a X25519 processing driver in the crypto API
+ *
+ * @ops - Driver operations in the HW layer
+ */
+static inline TEE_Result drvcrypt_register_x25519(struct drvcrypt_montgomery
+						  *ops)
+{
+	return drvcrypt_register(CRYPTO_X25519, (void *)ops);
+}
+
 #endif /* __DRVCRYPT_ACIPHER_H__ */
