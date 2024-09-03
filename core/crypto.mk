@@ -6,6 +6,12 @@ CFG_CRYPTO_SIZE_OPTIMIZATION ?= y
 
 ifeq (y,$(CFG_CRYPTO))
 
+###############################################################
+# Platform independent crypto-driver configuration
+###############################################################
+CRYPTO_MAKEFILES := $(sort $(wildcard core/drivers/crypto/*/crypto.mk))
+include $(CRYPTO_MAKEFILES)
+
 # Ciphers
 CFG_CRYPTO_AES ?= y
 CFG_CRYPTO_DES ?= y
@@ -42,6 +48,8 @@ CFG_CRYPTO_ECC ?= y
 CFG_CRYPTO_SM2_PKE ?= y
 CFG_CRYPTO_SM2_DSA ?= y
 CFG_CRYPTO_SM2_KEP ?= y
+CFG_CRYPTO_ED25519 ?= y
+CFG_CRYPTO_X25519 ?= y
 
 # Authenticated encryption
 CFG_CRYPTO_CCM ?= y
@@ -158,6 +166,7 @@ core-ltc-vars += SIZE_OPTIMIZATION
 core-ltc-vars += SM2_PKE
 core-ltc-vars += SM2_DSA
 core-ltc-vars += SM2_KEP
+core-ltc-vars += ED25519 X25519
 # Assigned selected CFG_CRYPTO_xxx as _CFG_CORE_LTC_xxx
 $(foreach v, $(core-ltc-vars), $(eval _CFG_CORE_LTC_$(v) := $(CFG_CRYPTO_$(v))))
 _CFG_CORE_LTC_MPI := $(CFG_CORE_MBEDTLS_MPI)
@@ -183,6 +192,9 @@ _CFG_CORE_LTC_CCM := $(CFG_CRYPTO_CCM)
 _CFG_CORE_LTC_AES := $(call cfg-one-enabled, CFG_CRYPTO_XTS CFG_CRYPTO_CCM \
 					     CFG_CRYPTO_AES)
 _CFG_CORE_LTC_AES_ACCEL := $(CFG_CORE_CRYPTO_AES_ACCEL)
+_CFG_CORE_LTC_X25519 := $(CFG_CRYPTO_X25519)
+_CFG_CORE_LTC_ED25519 := $(CFG_CRYPTO_ED25519)
+_CFG_CORE_LTC_SHA512 := $(CFG_CRYPTO_SHA512)
 endif
 
 ###############################################################
@@ -229,12 +241,7 @@ _CFG_CORE_LTC_HASH := $(call ltc-one-enabled, MD5 SHA1 SHA224 SHA256 SHA384 \
 _CFG_CORE_LTC_MAC := $(call ltc-one-enabled, HMAC CMAC CBC_MAC)
 _CFG_CORE_LTC_CBC := $(call ltc-one-enabled, CBC CBC_MAC)
 _CFG_CORE_LTC_ASN1 := $(call ltc-one-enabled, RSA DSA ECC)
-
-###############################################################
-# Platform independent crypto-driver configuration
-###############################################################
-CRYPTO_MAKEFILES := $(sort $(wildcard core/drivers/crypto/*/crypto.mk))
-include $(CRYPTO_MAKEFILES)
+_CFG_CORE_LTC_EC25519 := $(call ltc-one-enabled, ED25519 X25519)
 
 # Enable TEE_ALG_RSASSA_PKCS1_V1_5 algorithm for signing with PKCS#1 v1.5 EMSA
 # without ASN.1 around the hash.
