@@ -2499,11 +2499,14 @@ static int asn1_write_rot (unsigned char **p, size_t *len)
 	unsigned char *ptr = buf + sizeof(buf);
 	unsigned char *start = buf;
 
-	//TODO: insert real vbmeta digest, 32bytes or 64 bytes?
-	//sizeof(optee_km_context.rot.vbmetaDigest)
+	IMSG("digestSize is %d", optee_km_context.rot.digestSize);
+	if (optee_km_context.rot.digestSize > sizeof(optee_km_context.rot.vbmetaDigest)) {
+		EMSG ("digestSize is too big");
+		return -1;
+	}
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 		mbedtls_asn1_write_octet_string(&ptr, start, optee_km_context.rot.vbmetaDigest,
-                                    32));
+                                    optee_km_context.rot.digestSize));
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 		mbedtls_asn1_write_enum(&ptr, start, optee_km_context.rot.verifiedBootState));
@@ -2511,9 +2514,15 @@ static int asn1_write_rot (unsigned char **p, size_t *len)
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 		mbedtls_asn1_write_bool(&ptr, start, optee_km_context.rot.deviceLocked));
 
+	IMSG("keySize is %d", optee_km_context.rot.keySize);
+	if (optee_km_context.rot.keySize > sizeof(optee_km_context.rot.keyHash256)) {
+		EMSG ("keySize is too big");
+		return -1;
+	}
 	MBEDTLS_ASN1_CHK_ADD(len_ret,
 		mbedtls_asn1_write_octet_string(&ptr, start, optee_km_context.rot.keyHash256,
-	                                sizeof(optee_km_context.rot.keyHash256)));
+                                    optee_km_context.rot.keySize));
+
 
 	MBEDTLS_ASN1_CHK_ADD(len_ret, mbedtls_asn1_write_len(&ptr, start,
 	                                                     (size_t)len_ret));
