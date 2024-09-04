@@ -415,6 +415,7 @@ out:
 TEE_Result crypto_acipher_rsaes_decrypt(uint32_t algo, struct rsa_keypair *key,
 					const uint8_t *label __unused,
 					size_t label_len __unused,
+					uint32_t mgf_algo,
 					const uint8_t *src, size_t src_len,
 					uint8_t *dst, size_t *dst_len)
 {
@@ -489,6 +490,7 @@ TEE_Result crypto_acipher_rsaes_decrypt(uint32_t algo, struct rsa_keypair *key,
 
 	mbedtls_rsa_set_padding(rsa, lmd_padding, md_algo);
 
+	rsa->mgf_hash_id = tee_algo_to_mbedtls_hash_algo(mgf_algo);
 	lmd_res = pk_info->decrypt_func(&ctx, src, src_len, buf, &blen,
 					blen, mbd_rand, NULL);
 	if (lmd_res != 0) {
@@ -517,6 +519,7 @@ TEE_Result crypto_acipher_rsaes_encrypt(uint32_t algo,
 					struct rsa_public_key *key,
 					const uint8_t *label __unused,
 					size_t label_len __unused,
+					uint32_t mgf_algo,
 					const uint8_t *src, size_t src_len,
 					uint8_t *dst, size_t *dst_len)
 {
@@ -581,6 +584,7 @@ TEE_Result crypto_acipher_rsaes_encrypt(uint32_t algo,
 
 	mbedtls_rsa_set_padding(rsa, lmd_padding, md_algo);
 
+	rsa->mgf_hash_id = tee_algo_to_mbedtls_hash_algo(mgf_algo);
 	lmd_res = pk_info->encrypt_func(&ctx, src, src_len, dst, dst_len,
 					*dst_len, mbd_rand, NULL);
 	if (lmd_res != 0) {
