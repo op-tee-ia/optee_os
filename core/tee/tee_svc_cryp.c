@@ -3967,6 +3967,7 @@ TEE_Result syscall_asymm_operate(unsigned long state,
 	size_t n = 0;
 	int salt_len = 0;
 	TEE_Attribute *params = NULL;
+	uint32_t mgf_algo = 0;
 
 	res = tee_svc_cryp_get_state(sess, uref_to_vaddr(state), &cs);
 	if (res != TEE_SUCCESS)
@@ -4057,16 +4058,28 @@ TEE_Result syscall_asymm_operate(unsigned long state,
 				label_len = params[n].content.ref.length;
 				break;
 			}
+
+			if (cs->algo != TEE_ALG_RSAES_PKCS1_V1_5 &&
+				params[n].attributeID ==
+				TEE_ATTR_RSA_OAEP_MGF_HASH) {
+				mgf_algo = params[n].content.value.a;
+			}
+		}
+
+		if (!mgf_algo) {
+			mgf_algo = TEE_INTERNAL_HASH_TO_ALGO(cs->algo);
 		}
 
 		if (cs->mode == TEE_MODE_ENCRYPT) {
 			res = crypto_acipher_rsaes_encrypt(cs->algo, o->attr,
 							   label, label_len,
+							   mgf_algo,
 							   src_data, src_len,
 							   dst_data, &dlen);
 		} else if (cs->mode == TEE_MODE_DECRYPT) {
 			res = crypto_acipher_rsaes_decrypt(
 					cs->algo, o->attr, label, label_len,
+					mgf_algo,
 					src_data, src_len, dst_data, &dlen);
 		} else {
 			res = TEE_ERROR_BAD_PARAMETERS;
