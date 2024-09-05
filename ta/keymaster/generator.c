@@ -18,6 +18,7 @@
 #include "generator.h"
 
 uint32_t attributes_aes_hmac[KM_ATTR_COUNT_AES_HMAC] = {TEE_ATTR_SECRET_VALUE};
+uint32_t attributes_des[KM_ATTR_COUNT_DES] = {TEE_ATTR_SECRET_VALUE};
 uint32_t attributes_rsa[KM_ATTR_COUNT_RSA] = {
 						TEE_ATTR_RSA_MODULUS,
 						TEE_ATTR_RSA_PUBLIC_EXPONENT,
@@ -66,6 +67,10 @@ uint32_t TA_get_key_size(const keymaster_algorithm_t algorithm)
 		 */
 		return KM_ATTR_COUNT_AES_HMAC *
 			(2 * sizeof(uint32_t) + KM_AES_ATTR_SIZE)
+			+ sizeof(algorithm) + sizeof(uint32_t);
+	case KM_ALGORITHM_TRIPLE_DES:
+		return KM_ATTR_COUNT_DES *
+			(2 * sizeof(uint32_t) + KM_DES_ATTR_SIZE)
 			+ sizeof(algorithm) + sizeof(uint32_t);
 	case KM_ALGORITHM_HMAC:
 		/* Maximal HMAC key size 128 bytes */
@@ -242,6 +247,9 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 			return KM_ERROR_INCOMPATIBLE_DIGEST;
 		}
 		break;
+	case KM_ALGORITHM_TRIPLE_DES:
+		type = TEE_TYPE_DES3;
+		break;
 	case KM_ALGORITHM_RSA:
 		type = TEE_TYPE_RSA_KEYPAIR;
 		break;
@@ -358,6 +366,11 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 		default:
 			return KM_ERROR_UNSUPPORTED_DIGEST;
 		}
+		break;
+	case KM_ALGORITHM_TRIPLE_DES:
+		attributes = attributes_des;
+		attr_count = KM_ATTR_COUNT_DES;
+		type = TEE_TYPE_DES3;
 		break;
 	case KM_ALGORITHM_RSA:
 		attributes = attributes_rsa;
@@ -578,6 +591,12 @@ keymaster_error_t TA_populate_key_attrs(uint8_t *key_material,
 		DMSG("AES attrs_count = %u algorithm = %d",
 		     att->attrs_count, att->alg);
 		break;
+	case TEE_TYPE_DES3:
+		 att->attrs_count = KM_ATTR_COUNT_DES;
+		 att->alg = KM_ALGORITHM_TRIPLE_DES;
+		 DMSG("DES3 attrs_count = %u algorithm = %d",
+		     att->attrs_count, att->alg);
+		 break;
 	case TEE_TYPE_RSA_KEYPAIR:
 		att->attrs_count = KM_ATTR_COUNT_RSA;
 		att->alg = KM_ALGORITHM_RSA;
@@ -859,6 +878,22 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 			algo = TEE_ALG_AES_GCM;
 		}
 		break;
+	case (KM_ALGORITHM_TRIPLE_DES):
+		switch (op_mode) {
+		case KM_MODE_ECB:
+			/* KM_PAD_PKCS7 will be done
+			 * before or after operation
+			 */
+			algo = TEE_ALG_DES3_ECB_NOPAD;
+			break;
+		case KM_MODE_CBC:
+			/* KM_PAD_PKCS7 will be done
+			 * before or after operation
+			 */
+			algo = TEE_ALG_DES3_CBC_NOPAD;
+			break;
+		}
+		break;
 	case (KM_ALGORITHM_RSA):
 		switch (padding) {
 		case KM_PAD_RSA_PKCS1_1_5_SIGN:
@@ -1026,6 +1061,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 	}
 	switch (algorithm) {
 	case (KM_ALGORITHM_AES):
+	case (KM_ALGORITHM_TRIPLE_DES):
 		if (op_mode == KM_MODE_GCM) {
 			TEE_AEInit(*operation, nonce.data,
 					nonce.data_length,

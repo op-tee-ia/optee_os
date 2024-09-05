@@ -299,7 +299,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	}
 
 	if (*attest_purpose == true || *challenge != NULL) {
-		if (*key_algorithm == KM_ALGORITHM_HMAC)
+		if (*key_algorithm == KM_ALGORITHM_HMAC ||
+		    *key_algorithm == KM_ALGORITHM_TRIPLE_DES)
 			goto out;
 		if (*key_algorithm != KM_ALGORITHM_RSA &&
 				*key_algorithm != KM_ALGORITHM_EC) {
@@ -1119,7 +1120,7 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			goto out_cp;
 	}
 	if (*algorithm != KM_ALGORITHM_HMAC&& *algorithm != KM_ALGORITHM_EC) {
-		/* AES, RSA */
+		/* AES, RSA, DES */
 		match = false;
 		if (*op_padding == UNDEFINED) {
 			EMSG("Operation padding is not set");
@@ -1137,8 +1138,8 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			res = KM_ERROR_INCOMPATIBLE_PADDING_MODE;
 			goto out_cp;
 		}
-		if (*algorithm == KM_ALGORITHM_AES) {
-			/* AES */
+		if (*algorithm == KM_ALGORITHM_AES || *algorithm == KM_ALGORITHM_TRIPLE_DES) {
+			/* AES, DES */
 			match = false;
 			if (*op_mode == UNDEFINED) {
 				EMSG("Operation block mode is not set");
@@ -1167,7 +1168,13 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				res = KM_ERROR_INCOMPATIBLE_PADDING_MODE;
 				goto out_cp;
 			}
-			if (nonce->data_length > 0 && nonce->data_length != 12 &&
+			if (*algorithm == KM_ALGORITHM_TRIPLE_DES && nonce->data_length > 0 &&
+					nonce->data_length != 8) {
+				EMSG("Wrong nonce length is prohibited %ld", nonce->data_length);
+				res = KM_ERROR_INVALID_NONCE;
+				goto out_cp;
+			}
+			if (*algorithm == KM_ALGORITHM_AES && nonce->data_length > 0 && nonce->data_length != 12 &&
 					nonce->data_length != 16) {
 				EMSG("Wrong nonce length is prohibited %ld", nonce->data_length);
 				res = KM_ERROR_INVALID_NONCE;
