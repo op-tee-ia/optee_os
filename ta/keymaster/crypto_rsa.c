@@ -134,6 +134,8 @@ keymaster_error_t TA_rsa_finish(keymaster_operation_t *operation,
 	uint8_t digest_out[KM_MAX_DIGEST_SIZE];
 	uint8_t *in_buf = NULL;
 	uint32_t in_buf_l = 0;
+	TEE_Attribute *attrs_in = NULL;
+	uint32_t attrs_in_count = 0;
 
 	if (*operation->digest_op != TEE_HANDLE_NULL) {
 		res = TEE_DigestDoFinal(*operation->digest_op, input->data,
@@ -216,13 +218,34 @@ keymaster_error_t TA_rsa_finish(keymaster_operation_t *operation,
 				res = KM_ERROR_INVALID_INPUT_LENGTH;
 				goto out;
 			}
+
+			attrs_in = TEE_Malloc(sizeof(TEE_Attribute), TEE_MALLOC_FILL_ZERO);
+			if (!attrs_in) {
+				EMSG("Failed to allocate memory for attributes");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+			attrs_in_count = 1;
+			attrs_in->attributeID = TEE_ATTR_RSA_OAEP_MGF_HASH;
+			attrs_in->content.value.a = operation->mgf_digest;
 		}
-		res = TEE_AsymmetricEncrypt(*operation->operation, NULL, 0,
+		res = TEE_AsymmetricEncrypt(*operation->operation, attrs_in, attrs_in_count,
 					in_buf, in_buf_l,
 					output->data, out_size);
 		break;
 	case KM_PURPOSE_DECRYPT:
-		res = TEE_AsymmetricDecrypt(*operation->operation, NULL, 0,
+		if (operation->padding == KM_PAD_RSA_OAEP) {
+			attrs_in = TEE_Malloc(sizeof(TEE_Attribute), TEE_MALLOC_FILL_ZERO);
+			if (!attrs_in) {
+				EMSG("Failed to allocate memory for attributes");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+			attrs_in_count = 1;
+			attrs_in->attributeID = TEE_ATTR_RSA_OAEP_MGF_HASH;
+			attrs_in->content.value.a = operation->mgf_digest;
+		}
+		res = TEE_AsymmetricDecrypt(*operation->operation, attrs_in, attrs_in_count,
 					in_buf, in_buf_l,
 					output->data, out_size);
 		break;
@@ -353,6 +376,7 @@ keymaster_error_t TA_rsa_finish(keymaster_operation_t *operation,
 				operation->padding != KM_PAD_NONE)
 		res = KM_ERROR_UNKNOWN_ERROR;
 out:
+	free_attrs(attrs_in, attrs_in_count);
 	return res;
 }
 

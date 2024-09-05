@@ -43,6 +43,7 @@ typedef struct {
 	keymaster_operation_handle_t op_handle;
 	keymaster_purpose_t purpose;
 	keymaster_padding_t padding;
+	keymaster_digest_t mgf_digest;
 	keymaster_block_mode_t mode;
 	keymaster_blob_list_item_t *sf_item;/*sign/verify data*/
 	TEE_Time *last_access;
@@ -75,6 +76,7 @@ keymaster_error_t TA_try_start_operation(
 				const keymaster_block_mode_t mode,
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
+				const keymaster_digest_t mgf_digest,
 				const keymaster_blob_t nonce,
 				const keymaster_blob_t client_id,
 				const keymaster_blob_t app_data,
@@ -92,6 +94,7 @@ keymaster_error_t TA_start_operation(
 				const keymaster_block_mode_t mode,
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
+				const keymaster_digest_t mgf_digest,
 				const keymaster_blob_t nonce,
 				const keymaster_blob_t client_id,
 				const keymaster_blob_t app_data,

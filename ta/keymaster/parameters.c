@@ -686,6 +686,7 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				keymaster_algorithm_t *algorithm,
 				const keymaster_purpose_t op_purpose,
 				keymaster_digest_t *op_digest,
+				keymaster_digest_t *op_mgf_digest,
 				keymaster_block_mode_t *op_mode,
 				keymaster_padding_t *op_padding,
 				uint32_t *mac_length,
@@ -698,7 +699,9 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 	keymaster_blob_t client_id = {.data = NULL, .data_length = 0};
 	keymaster_blob_t app_data = {.data = NULL, .data_length = 0};
 	keymaster_digest_t digest[7];
+	keymaster_digest_t mgf_digest[7];
 	uint32_t digest_count = 0;
+	uint32_t mgf_digest_count = 0;
 	keymaster_padding_t padding[6];
 	uint32_t padding_count = 0;
 	keymaster_block_mode_t block_mode[4];
@@ -791,6 +794,12 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			digest[digest_count] = (keymaster_digest_t)
 				key_params->params[i].key_param.integer;
 			digest_count++;
+			break;
+		case KM_TAG_RSA_OAEP_MGF_DIGEST:
+			DMSG("KM_TAG_RSA_OAEP_MGF_DIGEST");
+			mgf_digest[mgf_digest_count] = (keymaster_digest_t)
+				key_params->params[i].key_param.integer;
+			mgf_digest_count++;
 			break;
 		case KM_TAG_PADDING:
 			DMSG("KM_TAG_PADDING");
@@ -905,6 +914,15 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			*op_digest = (keymaster_digest_t)
 				in_params->params[j].key_param.enumerated;
 			break;
+		case KM_TAG_RSA_OAEP_MGF_DIGEST:
+			if (*op_mgf_digest != UNDEFINED) {
+				EMSG("To many mgf_digest tags");
+				res = KM_ERROR_UNSUPPORTED_DIGEST;
+				goto out_cp;
+			}
+			*op_mgf_digest = (keymaster_digest_t)
+				in_params->params[j].key_param.enumerated;
+			break;
 		case KM_TAG_PADDING:
 			if (*op_padding != UNDEFINED) {
 				EMSG("To many padding tags");
@@ -958,11 +976,32 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			EMSG("RSA padding mode KM_PAD_RSA_PSS and key size must be larger than digest output size");
 			return KM_ERROR_INCOMPATIBLE_DIGEST;
 		}
-		if (*op_padding == KM_PAD_RSA_OAEP &&
-				*op_digest == KM_DIGEST_NONE) {
-			EMSG("RSA padding mode KM_PAD_RSA_OAEP can not be used with "
-			     "KM_DIGEST_NONE");
-			return KM_ERROR_INCOMPATIBLE_DIGEST;
+		if (*op_padding == KM_PAD_RSA_OAEP) {
+			if (*op_digest == KM_DIGEST_NONE) {
+				EMSG("RSA padding mode KM_PAD_RSA_OAEP can not be used with "
+				  "KM_DIGEST_NONE");
+				return KM_ERROR_INCOMPATIBLE_DIGEST;
+			}
+			if (*op_mgf_digest == KM_DIGEST_NONE) {
+				EMSG("RSA padding mode KM_PAD_RSA_OAEP can not be used with "
+				  "KM_DIGEST_NONE for mgf digest");
+				return KM_ERROR_UNSUPPORTED_MGF_DIGEST;
+			}
+			if (*op_mgf_digest == UNDEFINED)
+				*op_mgf_digest = KM_DIGEST_SHA1;
+			match = false;
+			for (uint32_t i = 0; i < mgf_digest_count; i++) {
+				if (*op_mgf_digest == mgf_digest[i]) {
+					match = true;
+					break;
+				}
+			}
+			if (mgf_digest_count > 0 && !match) {
+				EMSG("Key does not support such mgf_digest");
+				res = KM_ERROR_INCOMPATIBLE_MGF_DIGEST;
+				goto out_cp;
+			}
+			*op_mgf_digest = km_algo_to_tee_hash_algo(*op_mgf_digest);
 		}
 		if (*op_padding == KM_PAD_PKCS7) {
 			EMSG("RSA padding mode KM_PAD_PKCS7 can not be used");
