@@ -661,6 +661,26 @@ bool cmpBlobParam(const keymaster_blob_t blob,
 		blob.data_length);
 }
 
+static uint32_t km_algo_to_tee_hash_algo(uint32_t algo)
+{
+	switch (algo) {
+		case KM_DIGEST_SHA1:
+			return TEE_ALG_SHA1;
+		case KM_DIGEST_SHA_2_224:
+			return TEE_ALG_SHA224;
+		case KM_DIGEST_SHA_2_256:
+			return TEE_ALG_SHA256;
+		case KM_DIGEST_SHA_2_384:
+			return TEE_ALG_SHA384;
+		case KM_DIGEST_SHA_2_512:
+			return TEE_ALG_SHA512;
+		case KM_DIGEST_MD5:
+			return TEE_ALG_MD5;
+		default:
+			return KM_DIGEST_NONE;
+	}
+}
+
 keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				const keymaster_key_param_set_t *in_params,
 				keymaster_algorithm_t *algorithm,
