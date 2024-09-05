@@ -171,6 +171,7 @@ keymaster_error_t TA_try_start_operation(
 				const keymaster_block_mode_t mode,
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
+				const keymaster_digest_t mgf_digest,
 				const keymaster_blob_t nonce,
 				const keymaster_blob_t client_id,
 				const keymaster_blob_t app_data,
@@ -209,6 +210,7 @@ keymaster_error_t TA_try_start_operation(
 			operations[i].min_sec = min_sec;
 			operations[i].operation = operation;
 			operations[i].purpose = purpose;
+			operations[i].mgf_digest = mgf_digest;
 			operations[i].do_auth = do_auth;
 			operations[i].digest_op = digest_op;
 			operations[i].mac_length = mac_length;
@@ -283,6 +285,7 @@ keymaster_error_t TA_start_operation(
 				const keymaster_block_mode_t mode,
 				const uint32_t mac_length,
 				const keymaster_digest_t digest,
+				const keymaster_digest_t mgf_digest,
 				const keymaster_blob_t nonce,
 				const keymaster_blob_t client_id,
 				const keymaster_blob_t app_data,
@@ -292,7 +295,7 @@ keymaster_error_t TA_start_operation(
 						       operation, purpose,
 						       digest_op, do_auth,
 						       padding, mode,
-						       mac_length, digest,
+						       mac_length, digest, mgf_digest,
 						       nonce, client_id, app_data, key_id);
 	if (res != KM_ERROR_OK) {
 		res = TA_kill_old_operation();
@@ -301,7 +304,7 @@ keymaster_error_t TA_start_operation(
 						     operation, purpose,
 						     digest_op, do_auth,
 						     padding, mode,
-						     mac_length, digest,
+						     mac_length, digest, mgf_digest,
 						     nonce, client_id, app_data, key_id);
 		}
 	}

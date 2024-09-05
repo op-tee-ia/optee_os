@@ -2025,6 +2025,7 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_algorithm_t algorithm = UNDEFINED;
 	keymaster_blob_t nonce = EMPTY_BLOB;
 	keymaster_digest_t digest = UNDEFINED;
+	keymaster_digest_t mgf_digest = UNDEFINED;
 	keymaster_block_mode_t mode = UNDEFINED;
 	keymaster_padding_t padding = UNDEFINED;
 	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
@@ -2109,7 +2110,7 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 		algorithm = KM_ALGORITHM_HMAC;
 	}
 	res = TA_check_params(&params_t, &in_params, &algorithm, purpose,
-			      &digest, &mode, &padding, &mac_length, &nonce,
+			      &digest, &mgf_digest, &mode, &padding, &mac_length, &nonce,
 			      &min_sec, &do_auth, key_id);
 	if (res != KM_ERROR_OK)
 		goto out;
@@ -2163,7 +2164,7 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	}
 	res = TA_start_operation(operation_handle, key, min_sec, operation,
 				 purpose, digest_op, do_auth, padding, mode,
-				 mac_length, digest, nonce, client_id, app_data, key_id);
+				 mac_length, digest, mgf_digest, nonce, client_id, app_data, key_id);
 	if (res != KM_ERROR_OK)
 		goto out;
 
