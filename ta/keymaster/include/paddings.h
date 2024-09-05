@@ -19,6 +19,7 @@
 #define ANDROID_OPTEE_PADDINGS_H
 
 #define BLOCK_SIZE 16U
+#define DES_BLOCK_SIZE 8U
 
 #include <tee_internal_api.h>
 #include <tee_internal_api_extensions.h>
@@ -26,19 +27,19 @@
 
 #include "ta_ca_defs.h"
 
-keymaster_error_t TA_check_out_size(const uint32_t input_l,
+keymaster_error_t TA_check_out_size(uint32_t block_size, const uint32_t input_l,
 					keymaster_blob_t *output,
 					uint32_t *out_size,
 					uint32_t tag_len);
 
-keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_size,
+keymaster_error_t TA_add_pkcs7_pad(uint32_t block_size, keymaster_blob_t *input, uint32_t buffering_size,
 				const bool force, keymaster_blob_t *output,
 				uint32_t *out_size, bool *is_input_ext);
 
-keymaster_error_t TA_remove_pkcs7_pad(keymaster_blob_t *output,
+keymaster_error_t TA_remove_pkcs7_pad(uint32_t block_size, keymaster_blob_t *output,
 					uint32_t *out_size);
 
-bool TA_check_pkcs7_pad(keymaster_blob_t *output);
+bool TA_check_pkcs7_pad(uint32_t block_size, keymaster_blob_t *output);
 
 keymaster_error_t TA_do_rsa_pad(uint8_t **input, uint32_t *input_l,
 				const uint32_t key_size);

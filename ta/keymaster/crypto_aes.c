@@ -150,8 +150,8 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 			operation->purpose == KM_PURPOSE_ENCRYPT) {
 		if (operation->prev_in_size == UNDEFINED)
 			operation->prev_in_size = 0;
-		res = TA_add_pkcs7_pad(input, operation->prev_in_size, !operation->padded, output,
-							out_size, is_input_ext);
+		res = TA_add_pkcs7_pad(BLOCK_SIZE, input, operation->prev_in_size, !operation->padded,
+							output, out_size, is_input_ext);
 		if (res != KM_ERROR_OK)
 			goto out;
 		operation->padded = true;
@@ -220,7 +220,7 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 	if (res == KM_ERROR_OK && operation->padding == KM_PAD_PKCS7
 			&& operation->purpose == KM_PURPOSE_DECRYPT) {
 		if (output->data_length > 0) {
-			res = TA_remove_pkcs7_pad(output, out_size);
+			res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
 			if (res == KM_ERROR_OK)
 				operation->padded = true;
 		}
@@ -421,8 +421,8 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 	if (operation->padding == KM_PAD_PKCS7 && !operation->buffering &&
 			operation->purpose == KM_PURPOSE_ENCRYPT) {
 		DMSG("Adding padding before encryption");
-		res = TA_add_pkcs7_pad(input, operation->prev_in_size, !operation->padded, output,
-					out_size, is_input_ext);
+		res = TA_add_pkcs7_pad(BLOCK_SIZE, input, operation->prev_in_size, !operation->padded,
+					output, out_size, is_input_ext);
 		if (res != KM_ERROR_OK)
 			goto out;
 		operation->padded = true;
@@ -435,7 +435,7 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 		if (res != KM_ERROR_OK)
 			goto out;
 		/* Resize output if input length increased */
-		res = TA_check_out_size(input->data_length, output, out_size,
+		res = TA_check_out_size(BLOCK_SIZE, input->data_length, output, out_size,
 						operation->mac_length / 8);
 		if (res != KM_ERROR_OK)
 			goto out;
@@ -484,7 +484,7 @@ out1:
 	if (res == KM_ERROR_OK && operation->padding == KM_PAD_PKCS7 &&
 			operation->purpose == KM_PURPOSE_DECRYPT
 			&& *input_consumed == input_provided) {
-		if (operation->buffering && TA_check_pkcs7_pad(output)
+		if (operation->buffering && TA_check_pkcs7_pad(BLOCK_SIZE, output)
 						&& operation->first) {
 			DMSG("Store last block");
 			res = TA_store_last_block(output, input_consumed,
@@ -494,9 +494,9 @@ out1:
 				goto out;
 			}
 		}
-		if (!operation->buffering || TA_check_pkcs7_pad(output)) {
+		if (!operation->buffering || TA_check_pkcs7_pad(BLOCK_SIZE, output)) {
 			DMSG("Remove PKCS7 pad");
-			res = TA_remove_pkcs7_pad(output, out_size);
+			res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
 			if (res == KM_ERROR_OK) {
 				operation->padded = true;
 			} else if (res == KM_ERROR_INVALID_ARGUMENT) {

@@ -256,6 +256,9 @@ static uint32_t TA_possibe_size(const uint32_t type, const uint32_t key_size,
 		 */
 		return ((input.data_length + BLOCK_SIZE - 1)
 				/ BLOCK_SIZE + 1) * BLOCK_SIZE + tag_len;
+	case TEE_TYPE_DES3:
+		return ((input.data_length + DES_BLOCK_SIZE - 1)
+				/ DES_BLOCK_SIZE + 1) * DES_BLOCK_SIZE + tag_len;
 	case TEE_TYPE_RSA_KEYPAIR:
 		return (key_size + 7) / 8;
 	case TEE_TYPE_ECDSA_KEYPAIR:
@@ -1234,6 +1237,9 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 			goto exit;
 		}
 
+		if (key_algorithm == KM_ALGORITHM_TRIPLE_DES)
+			goto exit;
+
 		if (asymmetric_alg == false) {
 			EMSG("Incompatible algorithm %d for attestation", key_algorithm);
 			res = KM_ERROR_INCOMPATIBLE_ALGORITHM;
@@ -1531,8 +1537,9 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	if (key_format == KM_KEY_FORMAT_RAW) {
 		if (key_algorithm != KM_ALGORITHM_AES &&
-		    key_algorithm != KM_ALGORITHM_HMAC) {
-			EMSG("Only HMAC and AES keys can imported in raw "
+		    key_algorithm != KM_ALGORITHM_HMAC &&
+		    key_algorithm != KM_ALGORITHM_TRIPLE_DES) {
+			EMSG("Only DES3, HMAC and AES keys can imported in raw "
 			     "format");
 			res = KM_ERROR_UNSUPPORTED_KEY_FORMAT;
 			/* goto out; */
@@ -1563,6 +1570,14 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			     "192 and 256", key_size);
 			res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 			goto out;
+		} else if (key_algorithm == KM_ALGORITHM_TRIPLE_DES &&
+						key_size != 112 &&
+						key_size != 168 &&
+						key_size != 192) {
+			 EMSG("Unsupported key size %d ! Supported only 112, "
+			      "168 and 192", key_size);
+			 res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+			 goto out;
 		}
 
 		attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
@@ -2100,6 +2115,9 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	case TEE_TYPE_AES:
 		algorithm = KM_ALGORITHM_AES;
 		break;
+	case TEE_TYPE_DES3:
+		algorithm = KM_ALGORITHM_TRIPLE_DES;
+		break;
 	case TEE_TYPE_RSA_KEYPAIR:
 		algorithm = KM_ALGORITHM_RSA;
 		break;
@@ -2118,12 +2136,16 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	if (purpose == KM_PURPOSE_WRAP_KEY)
 		purpose = KM_PURPOSE_DECRYPT;
 
-	if (algorithm == KM_ALGORITHM_AES && mode != KM_MODE_ECB &&
-	    nonce.data_length == 0) {
+	if ((algorithm == KM_ALGORITHM_AES && mode != KM_MODE_ECB &&
+	    nonce.data_length == 0) || (algorithm == KM_ALGORITHM_TRIPLE_DES &&
+	    mode != KM_MODE_ECB && nonce.data_length == 0)) {
 		if (mode == KM_MODE_CBC || mode == KM_MODE_CTR) {
 			IVsize = 16;
 		} else { /* GCM mode */
 			IVsize = 12;
+		}
+		if (algorithm == KM_ALGORITHM_TRIPLE_DES) {
+			IVsize = 8;
 		}
 		out_params.length = 1;
 		secretIV = TEE_Malloc(IVsize, TEE_MALLOC_FILL_ZERO);
@@ -2306,6 +2328,10 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 				    input_provided, &input_consumed,
 				    &in_params, &is_input_ext);
 		break;
+	case TEE_TYPE_DES3:
+		res = TA_des_update(&operation, &input, &output, &keyblob_out_size,
+				    input_provided, &input_consumed, &is_input_ext);
+		break;
 	case TEE_TYPE_RSA_KEYPAIR:
 		res = TA_rsa_update(&operation, &input, &output,
 				    &keyblob_out_size, key_size,
@@ -2475,6 +2501,10 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 		res = TA_aes_finish(&operation, &input, &output,
 				    &keyblob_out_size, tag_len, &is_input_ext,
 				    &in_params);
+		break;
+	case TEE_TYPE_DES3:
+		res = TA_des_finish(&operation, &input, &output,
+				    &keyblob_out_size, &is_input_ext);
 		break;
 	case TEE_TYPE_RSA_KEYPAIR:
 		res = TA_rsa_finish(&operation, &input, &output,

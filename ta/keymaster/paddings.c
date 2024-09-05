@@ -17,18 +17,18 @@
 
 #include "paddings.h"
 
-bool TA_check_pkcs7_pad(keymaster_blob_t *output)
+bool TA_check_pkcs7_pad(uint32_t block_size, keymaster_blob_t *output)
 {
 	uint32_t last_i;
 	uint8_t pad;
 
 	if (output->data == NULL || output->data_length == 0 ||
-			output->data_length < BLOCK_SIZE ||
-			output->data_length % BLOCK_SIZE != 0)
+			output->data_length < block_size ||
+			output->data_length % block_size != 0)
 		return false;
 	last_i = output->data_length - 1;
 	pad = output->data[last_i];
-	if (pad > BLOCK_SIZE || pad > output->data_length)
+	if (pad > block_size || pad > output->data_length)
 		return false;
 	for (uint32_t i = 0; i < pad; i++) {
 		if (output->data[last_i - i] != pad)
@@ -37,7 +37,7 @@ bool TA_check_pkcs7_pad(keymaster_blob_t *output)
 	return true;
 }
 
-keymaster_error_t TA_check_out_size(const uint32_t input_l,
+keymaster_error_t TA_check_out_size(uint32_t block_size, const uint32_t input_l,
 					keymaster_blob_t *output,
 					uint32_t *out_size,
 					uint32_t tag_len)
@@ -45,10 +45,10 @@ keymaster_error_t TA_check_out_size(const uint32_t input_l,
 	uint8_t *ptr = NULL;
 
 	/* Recalculate output size */
-	if (*out_size != (((input_l + BLOCK_SIZE - 1) / BLOCK_SIZE + 1)
-						* BLOCK_SIZE + tag_len)) {
-		*out_size = ((input_l + BLOCK_SIZE - 1) / BLOCK_SIZE + 1)
-							* BLOCK_SIZE + tag_len;
+	if (*out_size != (((input_l + block_size - 1) / block_size + 1)
+						* block_size + tag_len)) {
+		*out_size = ((input_l + block_size - 1) / block_size + 1)
+							* block_size + tag_len;
 		ptr = TEE_Realloc(output->data, *out_size);
 		if (!ptr) {
 			EMSG("Failed reallocate memory for output");
@@ -59,7 +59,7 @@ keymaster_error_t TA_check_out_size(const uint32_t input_l,
 	return KM_ERROR_OK;
 }
 
-keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_size,
+keymaster_error_t TA_add_pkcs7_pad(uint32_t block_size, keymaster_blob_t *input, uint32_t buffering_size,
 				const bool force, keymaster_blob_t *output,
 				uint32_t *out_size, bool *is_input_ext)
 {
@@ -72,13 +72,13 @@ keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_s
 	}
 	if (input->data_length == 0 && buffering_size == 0 && !force)
 		return KM_ERROR_OK;
-	pad = BLOCK_SIZE - ((input->data_length + buffering_size) % BLOCK_SIZE);
+	pad = block_size - ((input->data_length + buffering_size) % block_size);
 	DMSG("PKCS7 ADD pad = 0x%x", pad);
 	/* if input data size is a multiple of block size add
 	 * one extra block as padding
 	 */
 	if (pad == 0)
-		pad = BLOCK_SIZE;
+		pad = block_size;
 	/* Freed before input blob is destroyed by caller */
 	data = TEE_Malloc(pad + input->data_length, TEE_MALLOC_FILL_ZERO);
 	if (!data) {
@@ -93,10 +93,10 @@ keymaster_error_t TA_add_pkcs7_pad(keymaster_blob_t *input, uint32_t buffering_s
 	input->data = data;
 	input->data_length = input->data_length + pad;
 	*is_input_ext = true;
-	return TA_check_out_size(input->data_length, output, out_size, 0);
+	return TA_check_out_size(block_size, input->data_length, output, out_size, 0);
 }
 
-keymaster_error_t TA_remove_pkcs7_pad(keymaster_blob_t *output,
+keymaster_error_t TA_remove_pkcs7_pad(uint32_t block_size, keymaster_blob_t *output,
 					uint32_t *out_size)
 {
 	uint32_t pad = 0;
@@ -110,7 +110,7 @@ keymaster_error_t TA_remove_pkcs7_pad(keymaster_blob_t *output,
 		return KM_ERROR_OK;
 	pad = output->data[output->data_length - 1];
 	DMSG("PKCS7 REMOVE pad = %x", pad);
-	if (!TA_check_pkcs7_pad(output)) {
+	if (!TA_check_pkcs7_pad(block_size, output)) {
 		EMSG("Failed to read PKCS7 padding");
 		return KM_ERROR_INVALID_ARGUMENT;
 	}

@@ -31,6 +31,7 @@
 #include "generator.h"
 #include "mbedtls_proxy.h"
 #include "crypto_aes.h"
+#include "crypto_des.h"
 #include "crypto_rsa.h"
 #include "crypto_ec.h"
 
