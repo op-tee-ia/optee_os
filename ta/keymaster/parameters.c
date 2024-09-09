@@ -305,8 +305,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	}
 
 	if (*attest_purpose == true || *challenge != NULL) {
-		if (*key_algorithm == KM_ALGORITHM_HMAC ||
-		    *key_algorithm == KM_ALGORITHM_TRIPLE_DES)
+		if (*key_algorithm == KM_ALGORITHM_HMAC || *key_algorithm == KM_ALGORITHM_AES
+			|| *key_algorithm == KM_ALGORITHM_TRIPLE_DES)
 			goto out;
 		if (*key_algorithm != KM_ALGORITHM_RSA &&
 				*key_algorithm != KM_ALGORITHM_EC) {
