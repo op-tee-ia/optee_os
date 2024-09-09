@@ -72,7 +72,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
 				keymaster_blob_t **challenge,
-				const bool import);
+				const bool import,
+				bool *early_boot_only);
 
 keymaster_error_t TA_fill_characteristics(
 			keymaster_key_characteristics_t *characteristics,

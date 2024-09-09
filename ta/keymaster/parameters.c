@@ -19,6 +19,7 @@
 #include "generator.h"
 const size_t kMinGcmTagLength = 12 * 8;
 const size_t kMaxGcmTagLength = 16 * 8;
+extern bool g_isEarlyBootEnded;
 
 void TA_free_params(keymaster_key_param_set_t *params)
 {
@@ -150,7 +151,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
 				keymaster_blob_t **challenge,
-				const bool import)
+				const bool import,
+				bool *early_boot_only)
 {
 	bool check_min_mac_length = false;
 	uint32_t min_mac_length = UNDEFINED;
@@ -166,6 +168,10 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	DMSG("%s %d", __func__, __LINE__);
 	for (size_t i = 0; i < params_t.length; i++) {
 		switch ((params_t.params + i)->tag) {
+		case KM_TAG_EARLY_BOOT_ONLY:
+			if (early_boot_only != NULL)
+				*early_boot_only = (params_t.params + i)->key_param.boolean;
+			break;
 		case KM_TAG_ALGORITHM:
 			*key_algorithm = (keymaster_algorithm_t)
 				(params_t.params + i)->key_param.integer;
@@ -411,6 +417,7 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_VENDOR_PATCHLEVEL:
 		case KM_TAG_BOOT_PATCHLEVEL:
 		case KM_TAG_UNLOCKED_DEVICE_REQUIRED:
+		case KM_TAG_EARLY_BOOT_ONLY:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->hw_enforced.length)
 				return KM_ERROR_INVALID_KEY_BLOB;
@@ -735,6 +742,11 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 	DMSG("%s %d", __func__, __LINE__);
 	for (size_t i = 0; i < key_params->length; i++) {
 		switch (key_params->params[i].tag) {
+		case KM_TAG_EARLY_BOOT_ONLY:
+			DMSG("KM_TAG_EARLY_BOOT_ONLY");
+			if (g_isEarlyBootEnded && key_params->params[i].key_param.boolean)
+				return KM_ERROR_EARLY_BOOT_ENDED;
+			break;
 		case KM_TAG_KEY_SIZE:
 			DMSG("KM_TAG_KEY_SIZE");
 			key_size = key_params->params[i].key_param.integer;

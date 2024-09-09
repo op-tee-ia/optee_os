@@ -32,6 +32,10 @@
 #include <cbor.h>
 #include <cose.h>
 
+// todo: 1. multiple-Android support
+//       2. Android resets but tee does not
+bool g_isEarlyBootEnded = false;
+
 uint64_t identifier_rsa[] = {1, 2, 840, 113549, 1, 1, 1};
 /* RSAPrivateKey ::= SEQUENCE {
  *    version Version,
@@ -1111,6 +1115,7 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_blob_t app_data = EMPTY_BLOB;
 	keymaster_blob_t *challenge = NULL;
 	keymaster_blob_t *root_cert = NULL;
+	bool early_boot_only = false;
 
 	in = (uint8_t *)params[0].memref.buffer;
 	in_end = in + params[0].memref.size;
@@ -1143,7 +1148,7 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
 			      &key_rsa_public_exponent, &key_digest, &attest_purpose,
-				  &challenge, false);
+				&challenge, false, &early_boot_only);
 	if (res != KM_ERROR_OK)
 		goto exit;
 
@@ -1500,6 +1505,7 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_key_param_set_t params_restore = EMPTY_PARAM_SET;
 	uint32_t type = 0;
 	keymaster_blob_t *root_cert = NULL;
+	bool early_boot_only = false;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1532,9 +1538,13 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
 			      &key_rsa_public_exponent, &key_digest, &attest_purpose, 
-				  &challenge, true);
+				  &challenge, true, &early_boot_only);
 	if (res != KM_ERROR_OK)
 		goto out;
+	if (early_boot_only && g_isEarlyBootEnded) {
+		res = KM_ERROR_EARLY_BOOT_ENDED;
+		goto out;
+	}
 	if (key_format == KM_KEY_FORMAT_RAW) {
 		if (key_algorithm != KM_ALGORITHM_AES &&
 		    key_algorithm != KM_ALGORITHM_HMAC &&
@@ -3060,6 +3070,12 @@ exit:
 	return res;
 }
 
+static keymaster_error_t TA_earlyBootEnded()
+{
+	g_isEarlyBootEnded = true;
+	return KM_ERROR_OK;
+}
+
 static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
 {
 	uint8_t *in = NULL;
@@ -3247,6 +3263,7 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 	size_t serialize_size = 0;
 	bool result = false;
 	keymaster_blob_t *challenge = NULL;
+	bool early_boot_only = false;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -3309,7 +3326,8 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* Parse mandatory and optional parameters */
 	error = TA_parse_params(params_t, &key_algorithm, &key_size,
-			        &key_rsa_public_exponent, &key_digest, &attest_purpose, &challenge, false);
+			        &key_rsa_public_exponent, &key_digest,
+				&attest_purpose, &challenge, false, &early_boot_only);
 	if (error != KM_ERROR_OK)
 		goto exit;
 
@@ -3788,9 +3806,11 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 	case KM_GET_SUPPORTED_IMPORT_FORMATS:
 	case KM_GET_SUPPORTED_EXPORT_FORMATS:
 	case KM_COMPUTE_SHARED_HMAC:
-	case KM_EARLY_BOOT_ENDED:
 	case KM_DEVICE_LOCKED:
 		error = TA_unimplementedOperation(params);
+		break;
+	case KM_EARLY_BOOT_ENDED:
+		error = TA_earlyBootEnded();
 		break;
 	case KM_GET_ROOT_OF_TRUST:
 		DMSG("KM_GET_ROOT_OF_TRUST");
