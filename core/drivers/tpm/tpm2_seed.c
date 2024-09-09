@@ -355,10 +355,20 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 		g_huk_initialized = true;
 	}
 #ifdef CFG_TEE_CORE_DEBUG
+	uint8_t digest[32] = {0};
+	mbedtls_sha256_context ctx;
+
+	mbedtls_sha256_init(&ctx);
+	mbedtls_sha256_starts(&ctx, 0);
+	mbedtls_sha256_update(&ctx, g_huk, sizeof(g_huk));
+	mbedtls_sha256_finish(&ctx, digest);
+	mbedtls_sha256_free(&ctx);
+
+	for (uint32_t i = 0; i < sizeof(digest); i++)
+		DMSG("huk digest[%d] = %x", i, digest[i]);
+
+	DMSG("Warning: for debug build it will use a all-zero dummy key.");
 	mbedtls_platform_zeroize(g_huk, HW_UNIQUE_KEY_LENGTH);
-	DMSG("Warning: for debug build it will use a dummy key:");
-	for (uint32_t i=0; i<HW_UNIQUE_KEY_LENGTH; i++)
-		DMSG("huk[%d] = %x", i, g_huk[i]);
 #endif
 	memcpy(&hwkey->data[0], g_huk, HW_UNIQUE_KEY_LENGTH);
 
