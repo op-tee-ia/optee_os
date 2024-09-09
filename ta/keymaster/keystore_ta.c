@@ -1235,19 +1235,13 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	}
 	key_blob.key_material = key_material;
 	
+	if (!asymmetric_alg)
+		goto exit;
+
 	if (challenge != NULL) {
 		if (challenge->data_length > MAX_ATTESTATION_CHALLENGE) {
 			EMSG("Attestation challenge is too big");
 			res = KM_ERROR_INVALID_INPUT_LENGTH;
-			goto exit;
-		}
-
-		if (key_algorithm == KM_ALGORITHM_TRIPLE_DES)
-			goto exit;
-
-		if (asymmetric_alg == false) {
-			EMSG("Incompatible algorithm %d for attestation", key_algorithm);
-			res = KM_ERROR_INCOMPATIBLE_ALGORITHM;
 			goto exit;
 		}
 
@@ -1264,43 +1258,41 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 		EMSG("Attestation challenge missing!");
 		res = KM_ERROR_ATTESTATION_CHALLENGE_MISSING;
 	} else {
-		if (asymmetric_alg) {
-			/* Allocate memory for chain of certificates */
-			cert_chain.entry_count = 1;
-			cert_chain.entries =
-			TEE_Malloc(sizeof(keymaster_blob_t)*cert_chain.entry_count,
-			   	TEE_MALLOC_FILL_ZERO);
-			if (!cert_chain.entries) {
-				EMSG("Failed to allocate memory for chain of certificates");
-				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		/* Allocate memory for chain of certificates */
+		cert_chain.entry_count = 1;
+		cert_chain.entries =
+		TEE_Malloc(sizeof(keymaster_blob_t)*cert_chain.entry_count,
+			TEE_MALLOC_FILL_ZERO);
+		if (!cert_chain.entries) {
+			EMSG("Failed to allocate memory for chain of certificates");
+			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+			goto exit;
+		}
+
+		root_cert = &cert_chain.entries[0];
+
+		if (attest_purpose == true) {
+			DMSG("Generate self-signed cert for signing key");
+
+			res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+			if (res != KM_ERROR_OK) {
+				EMSG("Failed to get validity info, res=%x", res);
 				goto exit;
 			}
 
-			root_cert = &cert_chain.entries[0];
-
-			if (attest_purpose == true) {
-				DMSG("Generate self-signed cert for signing key");
-
-				res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
-				if (res != KM_ERROR_OK) {
-					EMSG("Failed to get validity info, res=%x", res);
-					goto exit;
-				}
-
-				result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
-							not_before_val, not_after_val);
-				if (result != TEE_SUCCESS) {
-					EMSG("Failed to generated root certificate, res=%x", res);
-					res = KM_ERROR_UNKNOWN_ERROR;
-				}
-			} else {
-				DMSG("Generate fake cert for non-signing asymmetric key");
-				result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
-							not_before_val, not_after_val);
-				if (result != TEE_SUCCESS) {
-					EMSG("Failed to generated fake certificate, res=%x", res);
-					res = KM_ERROR_UNKNOWN_ERROR;
-				}
+			result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
+						not_before_val, not_after_val);
+			if (result != TEE_SUCCESS) {
+				EMSG("Failed to generated root certificate, res=%x", res);
+				res = KM_ERROR_UNKNOWN_ERROR;
+			}
+		} else {
+			DMSG("Generate fake cert for non-signing asymmetric key");
+			result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+						not_before_val, not_after_val);
+			if (result != TEE_SUCCESS) {
+				EMSG("Failed to generated fake certificate, res=%x", res);
+				res = KM_ERROR_UNKNOWN_ERROR;
 			}
 		}
 	}
@@ -1721,12 +1713,6 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			goto out;
 		}
 
-		if (asymmetric_alg == false) {
-			EMSG("Incompatible algorithm %d for attestation", key_algorithm);
-			res = KM_ERROR_INCOMPATIBLE_ALGORITHM;
-			goto out;
-		}
-
 		res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
 		if (res != KM_ERROR_OK) {
 			EMSG("Failed to get validity info, res=%x", res);
@@ -1740,41 +1726,39 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		EMSG("Attestation challenge missing!");
 		res = KM_ERROR_ATTESTATION_CHALLENGE_MISSING;
 	} else {
-		if (asymmetric_alg) {
-			/* Allocate memory for chain of certificates */
-			cert_chain.entry_count = 1;
-			cert_chain.entries = TEE_Malloc(sizeof(keymaster_blob_t) * cert_chain.entry_count,
-							TEE_MALLOC_FILL_ZERO);
-			if (!cert_chain.entries) {
-				EMSG("Failed to allocate memory for chain of certificates");
-				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		/* Allocate memory for chain of certificates */
+		cert_chain.entry_count = 1;
+		cert_chain.entries = TEE_Malloc(sizeof(keymaster_blob_t) * cert_chain.entry_count,
+						TEE_MALLOC_FILL_ZERO);
+		if (!cert_chain.entries) {
+			EMSG("Failed to allocate memory for chain of certificates");
+			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+			goto out;
+		}
+
+		root_cert = &cert_chain.entries[0];
+
+		if (attest_purpose == true) {
+			DMSG("Generate self-signed cert for signing key");
+			res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+			if (res != KM_ERROR_OK) {
+				EMSG("Failed to get validity info, res=%x", res);
 				goto out;
 			}
 
-			root_cert = &cert_chain.entries[0];
-
-			if (attest_purpose == true) {
-				DMSG("Generate self-signed cert for signing key");
-				res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
-				if (res != KM_ERROR_OK) {
-					EMSG("Failed to get validity info, res=%x", res);
-					goto out;
-				}
-
-				result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
-								 not_before_val, not_after_val);
-				if (result != TEE_SUCCESS) {
-					EMSG("Failed to generated root certificate, res=%x", res);
-					res = KM_ERROR_UNKNOWN_ERROR;
-				}
-			} else {
-				DMSG("Generate fake cert for non-signing asymmetric key");
-				result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
-							  not_before_val, not_after_val);
-				if (result != TEE_SUCCESS) {
-					EMSG("Failed to generated fake certificate, res=%x", res);
-					res = KM_ERROR_UNKNOWN_ERROR;
-				}
+			result = TA_gen_self_signed_cert(key_algorithm, key_obj_h, root_cert,
+							 not_before_val, not_after_val);
+			if (result != TEE_SUCCESS) {
+				EMSG("Failed to generated root certificate, res=%x", res);
+				res = KM_ERROR_UNKNOWN_ERROR;
+			}
+		} else {
+			DMSG("Generate fake cert for non-signing asymmetric key");
+			result = TA_gen_fake_cert(key_algorithm, key_obj_h, root_cert,
+						  not_before_val, not_after_val);
+			if (result != TEE_SUCCESS) {
+				EMSG("Failed to generated fake certificate, res=%x", res);
+				res = KM_ERROR_UNKNOWN_ERROR;
 			}
 		}
 	}
