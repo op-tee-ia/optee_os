@@ -297,7 +297,7 @@ keymaster_error_t TA_start_operation(
 						       padding, mode,
 						       mac_length, digest, mgf_digest,
 						       nonce, client_id, app_data, key_id);
-	if (res != KM_ERROR_OK) {
+	if (res != KM_ERROR_OK && res != KM_ERROR_TOO_MANY_OPERATIONS) {
 		res = TA_kill_old_operation();
 		if (res == KM_ERROR_OK) {
 			res = TA_try_start_operation(op_handle, key, min_sec,
