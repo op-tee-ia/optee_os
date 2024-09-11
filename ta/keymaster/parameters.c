@@ -272,6 +272,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 		return KM_ERROR_UNSUPPORTED_MIN_MAC_LENGTH;
 	}
 	if (*key_algorithm == KM_ALGORITHM_HMAC && (min_mac_length % 8 != 0
+			|| min_mac_length > get_digest_size(key_digest)
 			|| min_mac_length < MIN_MML_HMAC)) {
 		EMSG("Min MAC length must be multiple and at least 64");
 		return KM_ERROR_UNSUPPORTED_MIN_MAC_LENGTH;
@@ -860,6 +861,13 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				(op_purpose == KM_PURPOSE_ENCRYPT ||
 				op_purpose == KM_PURPOSE_DECRYPT)) {
 		EMSG("Decrypt/encrypt operation is not supported by EC algorithm");
+		res = KM_ERROR_UNSUPPORTED_PURPOSE;
+		goto out_cp;
+	}
+	if (*algorithm == KM_ALGORITHM_AES &&
+				(op_purpose == KM_PURPOSE_SIGN ||
+				op_purpose == KM_PURPOSE_VERIFY)) {
+		EMSG("Sign/verify operation is not supported by AES algorithm");
 		res = KM_ERROR_UNSUPPORTED_PURPOSE;
 		goto out_cp;
 	}
