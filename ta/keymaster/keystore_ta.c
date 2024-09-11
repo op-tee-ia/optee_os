@@ -1484,6 +1484,10 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint64_t key_rsa_public_exponent = UNDEFINED;
 	uint64_t not_before_val = 0xFFFFFFFF;
 	uint64_t not_after_val = 0xFFFFFFFF;
+	uint32_t os_version = 0xFFFFFFFF;
+	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
 	bool oob = false; /* out of bounds flag */
 	bool attest_purpose = false;
 	uint8_t* hidden = NULL;
@@ -1526,6 +1530,18 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				       false);
 	if (res != KM_ERROR_OK)
 		goto out;
+
+	/*
+	 * Need add os version and patchlevel to key_description,
+	 * attest_key will check thess sections.
+	 * optee add these values in hal and pass to ta.
+	 */
+	os_version = tee_get_os_version();
+	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
+	TA_add_version_patchlevel(&params_t, os_version, os_patchlevel,
+				vendor_patchlevel, boot_patchlevel);
 
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
@@ -2525,11 +2541,20 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 				}
 			}
 		} else { /* KM_PURPOSE_VERIFY */
-			res = TEE_MACCompareFinal(*operation.operation,
+			uint8_t computed_mac[TEE_MAX_HASH_SIZE];
+			uint32_t computed_mac_size = TEE_MAX_HASH_SIZE;
+			res = TEE_MACComputeFinal(*operation.operation,
 						  input.data,
 						  input.data_length,
-						  signature.data,
-						  signature.data_length);
+						  computed_mac,
+						  &computed_mac_size);
+			if (res == TEE_SUCCESS) {
+				if (computed_mac_size >= signature.data_length) {
+					if (TEE_MemCompare(signature.data, computed_mac, signature.data_length) != 0) {
+						res = TEE_ERROR_MAC_INVALID;
+					}
+				}
+			}
 			keyblob_out_size = 0;
 			/* Convert error code to Android style */
 			if (res == (int) TEE_ERROR_MAC_INVALID)
