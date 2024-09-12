@@ -1358,8 +1358,9 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	size_t out_size = 0;
 	uint8_t *key_material = NULL;
 	keymaster_key_blob_t key_blob = EMPTY_KEY_BLOB; /* IN */
-	keymaster_blob_t client_id = EMPTY_BLOB; /* IN */
-	keymaster_blob_t app_data = EMPTY_BLOB; /* IN */
+	keymaster_key_param_set_t additional_params_t = EMPTY_PARAM_SET; /* IN */
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
 	keymaster_key_characteristics_t chr = EMPTY_CHARACTS; /* OUT */
 	keymaster_key_param_set_t params_t = EMPTY_PARAM_SET;
 	keymaster_error_t res = KM_ERROR_OK;
@@ -1384,12 +1385,7 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	in += TA_deserialize_key_blob_akms(in, in_end, &key_blob, &res);
 	if (res != KM_ERROR_OK)
 		goto exit;
-	in += TA_deserialize_blob_akms(in, in_end, &client_id, false, &res,
-				       false);
-	if (res != KM_ERROR_OK)
-		goto exit;
-	in += TA_deserialize_blob_akms(in, in_end, &app_data, false, &res,
-				       false);
+	in += TA_deserialize_auth_set(in, in_end, &additional_params_t, false, &res);
 	if (res != KM_ERROR_OK)
 		goto exit;
 	if (key_blob.key_material_size == 0) {
@@ -1402,6 +1398,12 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	if (!key_material) {
 		EMSG("Failed to allocate memory for key material");
 		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+	res = TA_get_client_info(&additional_params_t, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
 		goto exit;
 	}
 
@@ -1442,6 +1444,7 @@ out:
 		TEE_FreeTransientObject(obj_h);
 	if (key_blob.key_material)
 		TEE_Free(key_blob.key_material);
+	TA_free_params(&additional_params_t);
 	if (client_id.data)
 		TEE_Free(client_id.data);
 	if (app_data.data)
