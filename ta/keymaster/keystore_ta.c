@@ -293,8 +293,7 @@ static uint32_t tee_get_vendor_patchlevel(void)
 
 static uint32_t tee_get_boot_patchlevel(void)
 {
-	//TODO: use os_patchlevel for now, should passed from bootloader
-	optee_km_context.boot_patchlevel = optee_km_context.os_patchlevel * 100 + 1;
+	optee_km_context.boot_patchlevel = optee_km_context.rot.patchMonthYearDay;
 	return optee_km_context.boot_patchlevel;
 }
 
@@ -1368,10 +1367,15 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	uint32_t characts_size = 0;
 	uint32_t key_size = 0;
 	uint32_t type = 0;
+	uint32_t os_version = 0xFFFFFFFF;
+	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
 	bool exportable = false;
 	bool oob = false; /* out of bounds flag */
 	uint8_t* hidden = NULL;
 	size_t hidden_size = 0;
+	bool is_modified = false;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1381,6 +1385,11 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
 	out_end = out + out_size;
 	out += sizeof(keymaster_error_t);
+
+	os_version = tee_get_os_version();
+	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
 
 	in += TA_deserialize_key_blob_akms(in, in_end, &key_blob, &res);
 	if (res != KM_ERROR_OK)
@@ -1417,6 +1426,18 @@ static keymaster_error_t TA_getKeyCharacteristics(
 				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto exit;
+
+	if (!TA_upgrade_version_patchlevel(&params_t, os_version, os_patchlevel,
+		  vendor_patchlevel, boot_patchlevel, &is_modified, true)) {
+		res = KM_ERROR_INVALID_ARGUMENT;
+		goto out;
+	}
+
+	if (is_modified) {
+		EMSG("need to upgrade the key");
+		res = KM_ERROR_KEY_REQUIRES_UPGRADE;
+		goto out;
+	}
 
 	res = TA_check_permission(&params_t, client_id, app_data, &exportable);
 	if (res != KM_ERROR_OK)
@@ -1864,6 +1885,11 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 	bool oob = false; /* out of bounds flag */
 	uint8_t* hidden = NULL;
 	size_t hidden_size = 0;
+	uint32_t os_version = 0xFFFFFFFF;
+	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
+	bool is_modified = false;
 	keymaster_blob_t client_id = EMPTY_BLOB;
 	keymaster_blob_t app_data = EMPTY_BLOB;
 
@@ -1875,6 +1901,11 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 	out_size = (size_t)params[1].memref.size; /* limited to 8192 */
 	out_end = out + out_size;
 	out += sizeof(keymaster_error_t);
+
+	os_version = tee_get_os_version();
+	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
 
 	/* additional param */
 	in += TA_deserialize_auth_set(in, in_end, &in_params, false, &res);
@@ -1917,6 +1948,19 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 				hidden, hidden_size, &type, &obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
+
+	if (!TA_upgrade_version_patchlevel(&params_t, os_version, os_patchlevel,
+		  vendor_patchlevel, boot_patchlevel, &is_modified, true)) {
+		res = KM_ERROR_INVALID_ARGUMENT;
+		goto exit;
+	}
+
+	if (is_modified) {
+		EMSG("need to upgrade the key");
+		res = KM_ERROR_KEY_REQUIRES_UPGRADE;
+		goto exit;
+	}
+
 	res = TA_check_permission(&params_t,
 				  /* client id */
 				  in_params.params[0].key_param.blob,
@@ -1976,14 +2020,35 @@ static keymaster_error_t TA_upgradeKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint8_t *in_end = NULL;
 	uint8_t *out = NULL;
 	uint8_t *out_end = NULL;
+	uint8_t *key_material = NULL;
 	size_t out_size = 0;
+	uint32_t key_size = 0;
+	uint32_t type = 0;
+	bool oob = false; /* out of bounds flag */
+	bool is_modified = false;
+	uint8_t* hidden = NULL;
+	size_t hidden_size = 0;
+	uint32_t key_buffer_size = 0; /* For serialization of generated key */
+	uint32_t os_version = 0xFFFFFFFF;
+	uint32_t os_patchlevel = 0xFFFFFFFF;
+	uint32_t vendor_patchlevel = 0xFFFFFFFF;
+	uint32_t boot_patchlevel = 0xFFFFFFFF;
 	keymaster_key_blob_t key_to_upgrade = EMPTY_KEY_BLOB; /* IN */
 	keymaster_key_param_set_t upgr_params = EMPTY_PARAM_SET; /* IN */
 	keymaster_key_blob_t upgraded_key = EMPTY_KEY_BLOB; /* OUT */
+	keymaster_key_param_set_t params_t = EMPTY_PARAM_SET;
 	keymaster_error_t res = KM_ERROR_OK;
-	bool oob = false; /* out of bounds flag */
+	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
+	keymaster_blob_t client_id = EMPTY_BLOB;
+	keymaster_blob_t app_data = EMPTY_BLOB;
+	tee_key_attributes attrs;
 
 	DMSG("%s %d", __func__, __LINE__);
+
+	os_version = tee_get_os_version();
+	os_patchlevel = tee_get_os_patchlevel();
+	vendor_patchlevel = tee_get_vendor_patchlevel();
+	boot_patchlevel = tee_get_boot_patchlevel();
 
 	in = (uint8_t *)params[0].memref.buffer;
 	in_end = in + params[0].memref.size;
@@ -1994,14 +2059,81 @@ static keymaster_error_t TA_upgradeKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	in += TA_deserialize_key_blob_akms(in, in_end, &key_to_upgrade, &res);
 	if (res != KM_ERROR_OK)
-		goto out;
+		goto exit;
 	in += TA_deserialize_auth_set(in, in_end, &upgr_params, false, &res);
 	if (res != KM_ERROR_OK)
+		goto exit;
+
+	key_material = TEE_Malloc(key_to_upgrade.key_material_size, TEE_MALLOC_FILL_ZERO);
+	if (!key_material) {
+		EMSG("Failed to allocate memory for key material");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+
+	res = TA_get_client_info(&upgr_params, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to get client info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_build_hidden_info(&hidden, &hidden_size, &client_id, &app_data);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to serialize hidden info, res=%x", res);
+		goto exit;
+	}
+
+	res = TA_restore_key(key_material, &key_to_upgrade, &key_size,
+				hidden, hidden_size, &type, &obj_h, &params_t);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to restore the upgraded key, res=%x", res);
+		goto exit;
+	}
+
+	if (!TA_upgrade_version_patchlevel(&params_t, os_version, os_patchlevel,
+		  vendor_patchlevel, boot_patchlevel, &is_modified, false)) {
+		EMSG("Failed to upgrade the os version and patchlevel");
+		res = KM_ERROR_INVALID_ARGUMENT;
+		goto exit;
+	}
+
+	if (!is_modified) {
+		EMSG("Dont need to upgrade");
 		goto out;
-	TA_add_origin(&upgr_params, KM_ORIGIN_UNKNOWN, false);
+	}
+
+	res = TA_populate_key_attrs(key_material, &attrs);
+	if (res != KM_ERROR_OK)	{
+		EMSG("Failed to get key attributes from rey data");
+		return KM_ERROR_INVALID_KEY_BLOB;
+	}
+
+	key_buffer_size = TA_get_key_size(attrs.alg);
+	upgraded_key.key_material = TEE_Malloc(key_to_upgrade.key_material_size, TEE_MALLOC_FILL_ZERO);
+	if (!upgraded_key.key_material) {
+		EMSG("Failed to allocate memory for upgraded key material");
+		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		goto exit;
+	}
+	upgraded_key.key_material_size = key_to_upgrade.key_material_size;
+	TEE_MemMove(upgraded_key.key_material, key_material, key_buffer_size);
+	TA_serialize_param_set(upgraded_key.key_material + key_buffer_size,
+			       upgraded_key.key_material + upgraded_key.key_material_size,
+			       &params_t, &oob);
+	if (oob) {
+		EMSG("Out of output buffer space");
+		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
+		goto exit;
+	}
+
+	res = TA_encrypt(upgraded_key.key_material, upgraded_key.key_material_size,
+					hidden, hidden_size);
+	if (res != KM_ERROR_OK) {
+		EMSG("Failed to encrypt key blob, res=%x", res);
+		goto exit;
+	}
 
 out:
-	/* TODO Upgrade Key */
 	if (res == KM_ERROR_OK) {
 		out += TA_serialize_key_blob_akms(out, out_end, &upgraded_key,
 						  &oob);
@@ -2018,6 +2150,10 @@ exit:
 	TA_free_params(&upgr_params);
 	if (key_to_upgrade.key_material)
 		TEE_Free(key_to_upgrade.key_material);
+	if (upgraded_key.key_material)
+		TEE_Free(upgraded_key.key_material);
+	if (key_material)
+		TEE_Free(key_material);
 	return res;
 }
 
