@@ -17,9 +17,11 @@
 
 #include "parameters.h"
 #include "generator.h"
+#include "rot.h"
 const size_t kMinGcmTagLength = 12 * 8;
 const size_t kMaxGcmTagLength = 16 * 8;
 extern bool g_isEarlyBootEnded;
+extern tee_km_context_t optee_km_context;
 
 void TA_free_params(keymaster_key_param_set_t *params)
 {
@@ -651,6 +653,71 @@ void TA_add_version_patchlevel(keymaster_key_param_set_t *params_t,
 	}
 }
 
+bool TA_upgrade_version_patchlevel(keymaster_key_param_set_t *params_t,
+				  uint32_t os_version, uint32_t os_patchlevel,
+				  uint32_t vendor_patchlevel, uint32_t boot_patchlevel,
+				  bool *is_modified, bool check_only)
+{
+	size_t i;
+	DMSG("%s %d", __func__, __LINE__);
+
+	for (i = 0; i < params_t->length; i++) {
+		switch (params_t->params[i].tag) {
+		case KM_TAG_OS_VERSION:
+			if (os_version == 0 &&
+				params_t->params[i].key_param.integer != 0) {
+				*is_modified = true;
+				if (check_only)
+					return true;
+				params_t->params[i].key_param.integer = os_version;
+			}
+			if (params_t->params[i].key_param.integer > os_version)
+				return false;
+			if (params_t->params[i].key_param.integer != os_version) {
+				*is_modified = true;
+				if (check_only)
+					return true;
+				params_t->params[i].key_param.integer = os_version;
+			}
+			break;
+		case KM_TAG_OS_PATCHLEVEL:
+			if (params_t->params[i].key_param.integer > os_patchlevel)
+				return false;
+			if (params_t->params[i].key_param.integer != os_patchlevel) {
+				*is_modified = true;
+				if (check_only)
+					return true;
+				params_t->params[i].key_param.integer = os_patchlevel;
+			}
+			break;
+		case KM_TAG_VENDOR_PATCHLEVEL:
+			if (params_t->params[i].key_param.integer > vendor_patchlevel)
+				return false;
+			if (params_t->params[i].key_param.integer != vendor_patchlevel) {
+				*is_modified = true;
+				if (check_only)
+					return true;
+				params_t->params[i].key_param.integer = vendor_patchlevel;
+			}
+			break;
+		case KM_TAG_BOOT_PATCHLEVEL:
+			if (params_t->params[i].key_param.integer > boot_patchlevel)
+				return false;
+			if (params_t->params[i].key_param.integer != boot_patchlevel) {
+				*is_modified = true;
+				if (check_only)
+					return true;
+				params_t->params[i].key_param.integer = boot_patchlevel;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	return true;
+}
+
 void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size)
 {
 	bool tag_added = false;
@@ -843,7 +910,49 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		case KM_TAG_MAC_LENGTH:
 			DMSG("KM_TAG_MAC_LENGTH");
 			*mac_length =
-				in_params->params[i].key_param.integer;
+				key_params->params[i].key_param.integer;
+			break;
+		case KM_TAG_OS_VERSION:
+			if (optee_km_context.os_version == 0 &&
+				key_params->params[i].key_param.integer !=0) {
+				DMSG("keyblob with os_ver %u needs upgrade to version 0",
+				  key_params->params[i].key_param.integer);
+				return KM_ERROR_KEY_REQUIRES_UPGRADE;
+			}
+			if (key_params->params[i].key_param.integer <
+				optee_km_context.os_version) {
+				return KM_ERROR_KEY_REQUIRES_UPGRADE;
+			} else if (key_params->params[i].key_param.integer >
+				optee_km_context.os_version) {
+				return KM_ERROR_INVALID_KEY_BLOB;
+			}
+			break;
+		case KM_TAG_OS_PATCHLEVEL:
+			if (key_params->params[i].key_param.integer <
+				optee_km_context.os_patchlevel) {
+				return KM_ERROR_KEY_REQUIRES_UPGRADE;
+			} else if (key_params->params[i].key_param.integer >
+				optee_km_context.os_patchlevel) {
+				return KM_ERROR_INVALID_KEY_BLOB;
+			}
+			break;
+		case KM_TAG_VENDOR_PATCHLEVEL:
+			if (key_params->params[i].key_param.integer <
+				optee_km_context.vendor_patchlevel) {
+				return KM_ERROR_KEY_REQUIRES_UPGRADE;
+			} else if (key_params->params[i].key_param.integer >
+				optee_km_context.vendor_patchlevel) {
+				return KM_ERROR_INVALID_KEY_BLOB;
+			}
+			break;
+		case KM_TAG_BOOT_PATCHLEVEL:
+			if (key_params->params[i].key_param.integer <
+				optee_km_context.rot.patchMonthYearDay) {
+				return KM_ERROR_KEY_REQUIRES_UPGRADE;
+			} else if (key_params->params[i].key_param.integer >
+				optee_km_context.rot.patchMonthYearDay) {
+				return KM_ERROR_INVALID_KEY_BLOB;
+			}
 			break;
 		default:
 			DMSG("Unused parameter with tag 0x%x",
