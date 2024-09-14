@@ -160,6 +160,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	uint32_t purpose_count = 0;
 	bool is_ec_curve = false;
 	bool rollback_resistance = false;
+	bool device_unique_attestation = false;
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
@@ -228,6 +229,9 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			break;
 		case KM_TAG_ROLLBACK_RESISTANCE:
 			rollback_resistance = (params_t.params + i)->key_param.boolean;
+			break;
+		case KM_TAG_DEVICE_UNIQUE_ATTESTATION:
+			device_unique_attestation = (params_t.params + i)->key_param.boolean;
 			break;
 		default:
 			DMSG("Unused parameter with TAG = %x",
@@ -314,8 +318,13 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	}
 
 	if (rollback_resistance) {
-		DMSG("Not support rollback resistence");
+		EMSG("Not support rollback resistence");
 		return KM_ERROR_ROLLBACK_RESISTANCE_UNAVAILABLE;
+	}
+
+	if (device_unique_attestation){
+		EMSG("Not support device unique attestation");
+		return KM_ERROR_UNSUPPORTED_TAG;
 	}
 
 out:
