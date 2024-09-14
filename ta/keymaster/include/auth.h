@@ -37,10 +37,12 @@ TEE_Result TA_computeTokenHmac(const hw_auth_token_t *auth_token, uint8_t *hmac,
 keymaster_error_t TA_check_auth_token(const uint64_t *suid,
 					const uint32_t suid_count,
 					const hw_authenticator_type_t auth_type,
-					const hw_auth_token_t *auth_token);
+					const hw_auth_token_t *auth_token,
+					uint32_t timeout);
 
 keymaster_error_t TA_do_auth(const keymaster_key_param_set_t in_params,
-				const keymaster_key_param_set_t key_params);
+				const keymaster_key_param_set_t key_params,
+				const keymaster_operation_handle_t operation_handle);
 
 #define HMAC_SHA256_KEY_SIZE_BYTE 32
 #define HMAC_SHA256_KEY_SIZE_BIT (8*HMAC_SHA256_KEY_SIZE_BYTE)

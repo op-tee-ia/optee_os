@@ -182,12 +182,14 @@ exit:
  * requirements. After that, it checks hw_auth_token signature.
  */
 keymaster_error_t TA_do_auth(const keymaster_key_param_set_t in_params,
-				const keymaster_key_param_set_t key_params)
+				const keymaster_key_param_set_t key_params,
+				const keymaster_operation_handle_t operation_handle)
 {
 	uint64_t suid[MAX_SUID];
 	uint32_t suid_count = 0;
 	bool found_token = false;
 	hw_authenticator_type_t auth_type = UNDEFINED;
+	uint32_t auth_timeout = UNDEFINED;
 	hw_auth_token_t auth_token;
 	keymaster_error_t res = KM_ERROR_OK;
 
@@ -238,8 +240,17 @@ keymaster_error_t TA_do_auth(const keymaster_key_param_set_t in_params,
 		goto exit;
 	}
 
-	res = TA_check_auth_token(suid, suid_count, auth_type, &auth_token);
+	res = TA_check_auth_token(suid, suid_count, auth_type, &auth_token, auth_timeout);
+	if (res != KM_ERROR_OK) {
+		EMSG("Check auth token failed");
+		goto exit;
+	}
 
+	if (operation_handle && operation_handle != auth_token.challenge) {
+		EMSG("Auth token has the challenge %lu, need %lu", auth_token.challenge, operation_handle);
+		res = KM_ERROR_KEY_USER_NOT_AUTHENTICATED;
+		goto exit;
+	}
 exit:
 	return res;
 }
@@ -405,7 +416,8 @@ static TEE_Result TA_ValidateTokenSignature(const hw_auth_token_t *token)
 keymaster_error_t TA_check_auth_token(const uint64_t *suid,
 					const uint32_t suid_count,
 					const hw_authenticator_type_t auth_type,
-					const hw_auth_token_t *auth_token)
+					const hw_auth_token_t *auth_token,
+					uint32_t timeout)
 {
 	TEE_Result	res;
 	bool		in_list = false;
@@ -448,5 +460,15 @@ keymaster_error_t TA_check_auth_token(const uint64_t *suid,
 		return KM_ERROR_UNKNOWN_ERROR;
 	}
 
+	if (timeout != UNDEFINED) {
+		uint64_t timeout_ms = 1000 * (uint64_t)timeout;
+		TEE_Time time;
+		TEE_GetSystemTime(&time);
+		uint64_t timestamp = (time.seconds * 1000) + time.millis;
+		if ((TEE_U64_FROM_BIG_ENDIAN(auth_token->timestamp) + timeout_ms) < timestamp) {
+			EMSG("authentication occurs timeout");
+			res = KM_ERROR_KEY_USER_NOT_AUTHENTICATED;
+		}
+	}
 	return res;
 }
