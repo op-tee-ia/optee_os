@@ -2455,7 +2455,7 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
-		res = TA_do_auth(in_params, params_t);
+		res = TA_do_auth(in_params, params_t, operation_handle);
 		if (res != KM_ERROR_OK) {
 			EMSG("Authentication failed");
 			goto out;
@@ -2629,7 +2629,7 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
-		res = TA_do_auth(in_params, params_t);
+		res = TA_do_auth(in_params, params_t, operation_handle);
 		if (res != KM_ERROR_OK) {
 			EMSG("Authentication failed");
 			goto out;
