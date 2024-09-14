@@ -415,6 +415,7 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_EC_CURVE:
 		case KM_TAG_ECIES_SINGLE_HASH_MODE:
 		case KM_TAG_DIGEST:
+		case KM_TAG_RSA_OAEP_MGF_DIGEST:
 		case KM_TAG_OS_VERSION:
 		case KM_TAG_OS_PATCHLEVEL:
 		case KM_TAG_VENDOR_PATCHLEVEL:
