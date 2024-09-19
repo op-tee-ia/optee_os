@@ -1007,6 +1007,19 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 			attest_app_id =
 				&attest_params->params[i].key_param.blob;
 			break;
+		case KM_TAG_ATTESTATION_ID_BRAND:
+		case KM_TAG_ATTESTATION_ID_DEVICE:
+		case KM_TAG_ATTESTATION_ID_PRODUCT:
+		case KM_TAG_ATTESTATION_ID_SERIAL:
+		case KM_TAG_ATTESTATION_ID_IMEI:
+		case KM_TAG_ATTESTATION_ID_MEID:
+		case KM_TAG_ATTESTATION_ID_MANUFACTURER:
+		case KM_TAG_ATTESTATION_ID_MODEL:
+		case KM_TAG_ATTESTATION_ID_SECOND_IMEI:
+			DMSG("Cannot attest ids tag %x",
+			    attest_params->params[i].tag);
+			res = KM_ERROR_CANNOT_ATTEST_IDS;
+			goto exit;
 		default:
 			DMSG("Unused attestation parameter tag %x",
 			     attest_params->params[i].tag);
