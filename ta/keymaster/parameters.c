@@ -300,11 +300,6 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			/*If the request only contains Tag::EC_CURVE, use the specified*/
 			*key_size = TA_ECcurve_to_size(ec_curve);
 		}
-
-		if ((*key_size == 224 || ec_curve == KM_EC_CURVE_P_224) && import) {
-			EMSG("EC import key size must be greater than '224'");
-			return KM_ERROR_IMPORT_PARAMETER_MISMATCH;
-		}
 	}
 
 	if (*attest_purpose == true || *challenge != NULL) {
