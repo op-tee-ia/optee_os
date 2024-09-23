@@ -163,8 +163,9 @@ keymaster_error_t TA_rsa_finish(keymaster_operation_t *operation,
 	if (in_buf_l == 0 && (operation->padding != KM_PAD_NONE ||
 			operation->got_input)
 			&& !TA_is_signature_purpose(operation->purpose)) {
+		if (operation->padding != KM_PAD_NONE)
+			res = KM_ERROR_INVALID_INPUT_LENGTH;
 		*out_size = 0;
-		res = KM_ERROR_INVALID_INPUT_LENGTH;
 		goto out;
 	}
 	if (operation->padding == KM_PAD_NONE) {
