@@ -137,8 +137,8 @@ static keymaster_error_t TA_aes_gcm_prepare(keymaster_operation_t *operation,
 }
 
 keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
- 				keymaster_blob_t *input,
- 				keymaster_blob_t *output, uint32_t *out_size,
+				keymaster_blob_t *input,
+				keymaster_blob_t *output, uint32_t *out_size,
 				uint32_t tag_len, bool *is_input_ext,
 				const keymaster_key_param_set_t *in_params)
 {
@@ -216,17 +216,36 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 					input->data_length, output->data,
 					out_size);
 	}
-	output->data_length = *out_size;
+
 	if (res == KM_ERROR_OK && operation->padding == KM_PAD_PKCS7
 			&& operation->purpose == KM_PURPOSE_DECRYPT) {
-		if (output->data_length > 0) {
+		if (*out_size > 0) {
+			output->data_length = *out_size;
 			res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
 			if (res == KM_ERROR_OK)
 				operation->padded = true;
-		}
-		if (!operation->padded) {
-			EMSG("Padding was not removed");
-			res = KM_ERROR_INVALID_ARGUMENT;
+
+			if (!operation->padded) {
+				EMSG("Padding removal failed");
+				res = KM_ERROR_INVALID_ARGUMENT;
+			}
+		} else {
+			if (operation->last_block.data != NULL
+					&& operation->last_block.data_length != 0) {
+				output->data_length = operation->last_block.data_length;
+				TEE_MemMove(output->data, operation->last_block.data, output->data_length);
+				res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
+				if (res == KM_ERROR_OK)
+					operation->padded = true;
+
+				if (!operation->padded) {
+					EMSG("Padding removal failed");
+					res = KM_ERROR_INVALID_ARGUMENT;
+				}
+			} else {
+				EMSG("Unsupported padding mode");
+				res = KM_ERROR_INVALID_ARGUMENT;
+			}
 		}
 	}
 out:
@@ -251,8 +270,6 @@ static keymaster_error_t TA_store_last_block(keymaster_blob_t *output,
 	TEE_MemMove(op->last_block.data, output->data +
 		output->data_length - BLOCK_SIZE, BLOCK_SIZE);
 	output->data_length -= BLOCK_SIZE;
-	*input_consumed -= BLOCK_SIZE;
-	op->prev_in_size += BLOCK_SIZE;
 	op->last_block.data_length = BLOCK_SIZE;
 	return KM_ERROR_OK;
 }
@@ -267,7 +284,6 @@ static keymaster_error_t TA_restore_last_block(keymaster_blob_t *output,
 		return KM_ERROR_UNKNOWN_ERROR;
 	}
 	TEE_MemMove(output->data, op->last_block.data, BLOCK_SIZE);
-	*input_consumed += BLOCK_SIZE;
 	*pos += BLOCK_SIZE;
 	op->last_block.data_length = 0;
 	TEE_Free(op->last_block.data);
@@ -286,16 +302,16 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 				bool *is_input_ext)
 {
 	keymaster_error_t res = KM_ERROR_OK;
-	uint32_t pos = 0U;
+	uint32_t pos_in = 0U;
+	uint32_t pos_out = 0U;
 	uint32_t remainder = 0;
 	uint32_t in_size = BLOCK_SIZE;
-	static bool remainder_from_last_update = false;
 
 	/* KM_MODE_CBC, KM_MODE_ECB */
 	if (!TA_is_stream_cipher(operation->mode)) {
 		if (operation->last_block.data != NULL && operation->last_block.data_length != 0) {
 			DMSG("Restore last block");
-			res = TA_restore_last_block(output, input_consumed, operation, &pos);
+			res = TA_restore_last_block(output, input_consumed, operation, &pos_out);
 			if (res != KM_ERROR_OK) {
 				EMSG("Failed to restore last block");
 				goto out;
@@ -320,29 +336,29 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 				res = TEE_CipherUpdate(*operation->operation,
 					input->data, in_size,
 					output->data, out_size);
+
 				if (res != TEE_SUCCESS) {
 					EMSG("Error TEE_CipherUpdate, res=%x", res);
 					goto out;
 				}
+
 				output->data_length = *out_size;
 				*input_consumed = in_size;
+
 				if (*out_size == BLOCK_SIZE)
 					operation->prev_in_size -= *out_size;
-				goto out;
+
+				goto out1;
 			}
 			if (operation->purpose == KM_PURPOSE_DECRYPT) {
+				if (operation->prev_in_size == UNDEFINED)
+					operation->prev_in_size = 0;
+
 				if (input->data_length > BLOCK_SIZE) {
-					operation->prev_in_size = input->data_length;
+					operation->prev_in_size += input->data_length;
 					operation->buffering = false;
 				} else {
 					operation->buffering = true;
-					if (operation->prev_in_size == UNDEFINED)
-						operation->prev_in_size = 0;
-					if ((remainder_from_last_update == true) &&
-					     operation->prev_in_size == input->data_length) {
-						operation->prev_in_size = 0;
-						remainder_from_last_update = false;
-					}
 					operation->prev_in_size += input->data_length;
 				}
 			} else {
@@ -350,13 +366,9 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 				if (operation->prev_in_size == UNDEFINED)
 					operation->prev_in_size = 0;
 
-				if ((remainder_from_last_update == true) &&
-				     operation->prev_in_size == input->data_length) {
-					operation->prev_in_size = 0;
-					remainder_from_last_update = false;
-				}
 				operation->prev_in_size += input->data_length;
 			}
+
 			if (operation->buffering && ((input->data_length <=
 					BLOCK_SIZE && operation->purpose ==
 					KM_PURPOSE_DECRYPT) ||
@@ -375,12 +387,12 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 						output->data_length;
 				res = TEE_CipherUpdate(*operation->operation,
 					input->data, in_size,
-					output->data, out_size);
+					output->data + pos_out, out_size);
 				if (res != TEE_SUCCESS) {
 					EMSG("Error TEE_CipherUpdate, res=%x", res);
 					goto out;
 				}
-				output->data_length = *out_size;
+				output->data_length += *out_size;
 				*input_consumed = in_size;
 				operation->prev_in_size -= *out_size;
 				if ((operation->purpose == KM_PURPOSE_DECRYPT) &&
@@ -417,17 +429,6 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 		}
 	}
 
-	/* only KM_MODE_CBC and KM_MODE_ECB */
-	if (operation->padding == KM_PAD_PKCS7 && !operation->buffering &&
-			operation->purpose == KM_PURPOSE_ENCRYPT) {
-		DMSG("Adding padding before encryption");
-		res = TA_add_pkcs7_pad(BLOCK_SIZE, input, operation->prev_in_size, !operation->padded,
-					output, out_size, is_input_ext);
-		if (res != KM_ERROR_OK)
-			goto out;
-		operation->padded = true;
-	}
-	remainder = input->data_length - pos;
 	if (operation->mode == KM_MODE_GCM) {
 		/* check presence of associated data for AES keys */
 		res = TA_aes_gcm_prepare(operation, in_params, input,
@@ -449,6 +450,14 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 		if (operation->mode == KM_MODE_CTR)
 			/* CTR is a stream mode */
 			in_size = input->data_length;
+
+		if (!TA_is_stream_cipher(operation->mode) &&
+			operation->padding == KM_PAD_PKCS7 &&
+			operation->purpose == KM_PURPOSE_DECRYPT)
+			operation->prev_in_size -= output->data_length;
+
+		remainder = input->data_length - output->data_length;
+
 		while (operation->mode == KM_MODE_CTR
 			   || remainder / BLOCK_SIZE != 0) {
 			/* calculate memory left.
@@ -457,35 +466,38 @@ keymaster_error_t TA_aes_update(keymaster_operation_t *operation,
 			*out_size = BLOCK_SIZE + input->data_length -
 							output->data_length;
 			res = TEE_CipherUpdate(*operation->operation,
-					input->data + pos, in_size,
-					output->data + pos, out_size);
+					input->data + pos_in, in_size,
+					output->data + pos_out, out_size);
 			if (res != TEE_SUCCESS) {
 				EMSG("Error TEE_CipherUpdate, res=%x", res);
 				goto out;
 			}
+
 			output->data_length += *out_size;
-			pos += in_size;
+			pos_in += in_size;
+			pos_out += in_size;
 			*input_consumed += in_size;
 			operation->prev_in_size -= in_size;
 			remainder -= in_size;
 			if (remainder < BLOCK_SIZE) {
 				if (!TA_is_stream_cipher(operation->mode) &&
 				    operation->padding == KM_PAD_PKCS7 &&
-				    (remainder > 0)) {
-					remainder_from_last_update = true;
-				}
+				    (remainder > 0))
+					operation->prev_in_size -= remainder;
+
 				break;
 			}
 		}
 	}
+
 out1:
 	if (*input_consumed > input_provided)
 		*input_consumed = input_provided;
 	if (res == KM_ERROR_OK && operation->padding == KM_PAD_PKCS7 &&
 			operation->purpose == KM_PURPOSE_DECRYPT
-			&& *input_consumed == input_provided) {
-		if (operation->buffering && TA_check_pkcs7_pad(BLOCK_SIZE, output)
-						&& operation->first) {
+			&& operation->prev_in_size == 0
+			&& remainder == 0
+			&& output->data_length >= BLOCK_SIZE) {
 			DMSG("Store last block");
 			res = TA_store_last_block(output, input_consumed,
 								operation);
@@ -493,17 +505,6 @@ out1:
 				EMSG("Failed to store last block");
 				goto out;
 			}
-		}
-		if (!operation->buffering || TA_check_pkcs7_pad(BLOCK_SIZE, output)) {
-			DMSG("Remove PKCS7 pad");
-			res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
-			if (res == KM_ERROR_OK) {
-				operation->padded = true;
-			} else if (res == KM_ERROR_INVALID_ARGUMENT) {
-				DMSG("No padding");
-				res = KM_ERROR_OK;
-			}
-		}
 	}
 	operation->first = false;
 out:
