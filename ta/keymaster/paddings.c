@@ -28,7 +28,7 @@ bool TA_check_pkcs7_pad(uint32_t block_size, keymaster_blob_t *output)
 		return false;
 	last_i = output->data_length - 1;
 	pad = output->data[last_i];
-	if (pad > block_size || pad > output->data_length)
+	if (pad > block_size || pad > output->data_length || pad == 0)
 		return false;
 	for (uint32_t i = 0; i < pad; i++) {
 		if (output->data[last_i - i] != pad)
