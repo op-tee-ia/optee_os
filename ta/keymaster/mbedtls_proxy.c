@@ -114,6 +114,11 @@ static uint8_t unique_id_stub[16] = {
         0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb
 };
 
+uint8_t unique_id[16] = {
+        0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb,
+        0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb
+};
+
 static const uint8_t k_asym_salt[] = {
     0x63, 0xB6, 0xA0, 0x4D, 0x2C, 0x07, 0x7F, 0xC1, 0x0F, 0x63, 0x9F,
     0x21, 0xDA, 0x79, 0x38, 0x44, 0x35, 0x6C, 0xC2, 0xB0, 0xB4, 0x41,
@@ -3334,8 +3339,8 @@ static keymaster_error_t mbedTLS_gen_att_extension(keymaster_key_characteristics
 	{
 		MBEDTLS_ASN1_CHK_ADD(len_ret,
 		                     mbedtls_asn1_write_octet_string(&p, start,
-		                                                         unique_id_stub,
-		                                                         sizeof(unique_id_stub)));
+		                                                         unique_id,
+		                                                         sizeof(unique_id)));
 	} else {
 		MBEDTLS_ASN1_CHK_ADD(len_ret,
 		                     mbedtls_asn1_write_octet_string(&p, start,
