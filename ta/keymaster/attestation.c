@@ -19,6 +19,7 @@
 #include "generator.h"
 #include "mbedtls_proxy.h"
 #include "crypto_aes.h"
+#include "hmac.h"
 
 //Attestation root keys - RSA and EC
 static uint8_t RsaAttKeyID[] = {0xb7U, 0x6aU, 0xb0U, 0xdcU};
@@ -1107,7 +1108,7 @@ TEE_Result TA_generate_UniqueID(uint64_t T, uint8_t *appID, uint32_t appIDlen,
 		goto exit;
 	}
 
-	res = TA_open_secret_key(&key);
+	res = TA_open_hmac_key(&key);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to read secret key, res=%x", res);
 		goto free_op;

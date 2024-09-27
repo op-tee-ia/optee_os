@@ -917,6 +917,10 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	keymaster_blob_t *attest_app_id = NULL;
 	keymaster_error_t res = KM_ERROR_OK;
 	TEE_Result result = TEE_SUCCESS;
+	uint8_t R = 0;
+	uint64_t creation_datetime = 0;
+	uint64_t tem_counter_value = 0;
+	TEE_Time time;
 
 	/* Key blob for root key */
 	start += TA_deserialize_key_blob_akms(start, end, &root_key_blob, &res);
@@ -1002,6 +1006,7 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 		case KM_TAG_RESET_SINCE_ID_ROTATION:
 			resetSinceIDRotation =
 				attest_params->params[i].key_param.boolean;
+			R = 1;
 			break;
 		case KM_TAG_ATTESTATION_APPLICATION_ID:
 			attest_app_id =
@@ -1020,6 +1025,10 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 			    attest_params->params[i].tag);
 			res = KM_ERROR_CANNOT_ATTEST_IDS;
 			goto exit;
+		case KM_TAG_CREATION_DATETIME:
+			creation_datetime =
+				attest_params->params[i].key_param.date_time;
+			break;
 		default:
 			DMSG("Unused attestation parameter tag %x",
 			     attest_params->params[i].tag);
@@ -1038,8 +1047,22 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	}
 
 	if (includeUniqueID == true) {
-		/* TODO TA_generate_UniqueID(...); */
-		IMSG("Unique id is missing");
+		uint32_t uniqueIDlen = UNIQUE_ID_BUFFER_SIZE;
+		extern uint8_t unique_id[UNIQUE_ID_BUFFER_SIZE];
+		if (creation_datetime == 0)
+		{
+			TEE_GetSystemTime(&time);
+			creation_datetime = (time.seconds * 1000) + time.millis;
+		}
+		// T changes every 30 days (2592000000 = 30 * 24 * 60 * 60 * 1000).
+		tem_counter_value = creation_datetime / 2592000000;
+
+		res = TA_generate_UniqueID(tem_counter_value, attest_app_id->data, attest_app_id->data_length, R, unique_id, &uniqueIDlen);
+		if (res != TEE_SUCCESS) {
+			EMSG("Failed to generate Unique ID, res=%x", res);
+			goto exit;
+		}
+		DMSG("Unique ID generated successfully");
 	}
 
 	/* Allocate memory for chain of certificates */
@@ -1356,7 +1379,6 @@ out:
 	if (key_obj_h != TEE_HANDLE_NULL)
 		TEE_FreeTransientObject(key_obj_h);
 	free_attrs(attrs_in, attrs_in_count);
-
 	return res;
 }
 
