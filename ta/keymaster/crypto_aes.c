@@ -145,6 +145,7 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 	TEE_Result tee_res = TEE_SUCCESS;
 	keymaster_error_t res = KM_ERROR_OK;
 	uint8_t *tag = NULL;
+	uint32_t pos = 0;
 
 	if (operation->padding == KM_PAD_PKCS7 &&
 			operation->purpose == KM_PURPOSE_ENCRYPT) {
@@ -163,11 +164,17 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 		res = KM_ERROR_INVALID_INPUT_LENGTH;
 		goto out;
 	} else if (operation->padding == KM_PAD_PKCS7 &&
-			operation->purpose == KM_PURPOSE_DECRYPT &&
-			input->data_length % BLOCK_SIZE != 0) {
-		EMSG("Input data size for AES PKCS7 must be a multiple of block size");
-		res = KM_ERROR_INVALID_INPUT_LENGTH;
-		goto out;
+			operation->purpose == KM_PURPOSE_DECRYPT) {
+		if (input->data_length % BLOCK_SIZE != 0) {
+			EMSG("Input data size for AES PKCS7 must be a multiple of block size");
+			res = KM_ERROR_INVALID_INPUT_LENGTH;
+			goto out;
+		} else if (operation->last_block.data != NULL
+					&& operation->last_block.data_length != 0) {
+				TEE_MemMove(output->data, operation->last_block.data,
+										operation->last_block.data_length);
+				pos += operation->last_block.data_length;
+		}
 	}
 	if (operation->mode == KM_MODE_GCM) {
 		/* For KM_MODE_GCM */
@@ -213,14 +220,16 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 		}
 	} else {
 		res = TEE_CipherDoFinal(*operation->operation, input->data,
-					input->data_length, output->data,
+					input->data_length, output->data + pos,
 					out_size);
 	}
 
+	output->data_length = *out_size;
 	if (res == KM_ERROR_OK && operation->padding == KM_PAD_PKCS7
 			&& operation->purpose == KM_PURPOSE_DECRYPT) {
-		if (*out_size > 0) {
-			output->data_length = *out_size;
+		output->data_length = *out_size + operation->last_block.data_length;
+		*out_size = output->data_length;
+		if (output->data_length > 0) {
 			res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
 			if (res == KM_ERROR_OK)
 				operation->padded = true;
@@ -230,22 +239,8 @@ keymaster_error_t TA_aes_finish(keymaster_operation_t *operation,
 				res = KM_ERROR_INVALID_ARGUMENT;
 			}
 		} else {
-			if (operation->last_block.data != NULL
-					&& operation->last_block.data_length != 0) {
-				output->data_length = operation->last_block.data_length;
-				TEE_MemMove(output->data, operation->last_block.data, output->data_length);
-				res = TA_remove_pkcs7_pad(BLOCK_SIZE, output, out_size);
-				if (res == KM_ERROR_OK)
-					operation->padded = true;
-
-				if (!operation->padded) {
-					EMSG("Padding removal failed");
-					res = KM_ERROR_INVALID_ARGUMENT;
-				}
-			} else {
-				EMSG("Unsupported padding mode");
-				res = KM_ERROR_INVALID_ARGUMENT;
-			}
+			EMSG("Unsupported padding mode");
+			res = KM_ERROR_INVALID_ARGUMENT;
 		}
 	}
 out:
@@ -262,7 +257,8 @@ static keymaster_error_t TA_store_last_block(keymaster_blob_t *output,
 		EMSG("Output is too smal to be stored");
 		return KM_ERROR_UNKNOWN_ERROR;
 	}
-	op->last_block.data = TEE_Malloc(BLOCK_SIZE, TEE_MALLOC_FILL_ZERO);
+	if (!op->last_block.data)
+		op->last_block.data = TEE_Malloc(BLOCK_SIZE, TEE_MALLOC_FILL_ZERO);
 	if (!op->last_block.data) {
 		EMSG("Failed to allocate memory for last block buffer");
 		return KM_ERROR_MEMORY_ALLOCATION_FAILED;
