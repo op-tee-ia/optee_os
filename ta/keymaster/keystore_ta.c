@@ -2671,6 +2671,13 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 			goto out;
 		}
 	}
+	if (operation.purpose == KM_PURPOSE_SIGN) {
+		res = TA_do_confirm(in_params, params_t);
+		if (res != KM_ERROR_OK) {
+			EMSG("Confirmation failed");
+			goto out;
+		}
+	}
 	if (type == TEE_TYPE_AES && operation.mode == KM_MODE_GCM)
 		tag_len = operation.mac_length / 8; /* from bits to bytes */
 
