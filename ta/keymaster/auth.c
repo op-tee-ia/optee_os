@@ -256,6 +256,50 @@ exit:
 }
 
 /*
+ * This function checks that @in_params meet all necessary
+ * requirements. After that, it checks confirmation_token signature.
+ */
+keymaster_error_t TA_do_confirm(const keymaster_key_param_set_t in_params,
+				const keymaster_key_param_set_t key_params)
+{
+	bool require_token = false;
+	bool found_token = false;
+	uint8_t confirmation_token[32];
+	keymaster_error_t res = KM_ERROR_OK;
+
+	for (size_t i = 0; i < key_params.length; i++) {
+		if (key_params.params[i].tag == KM_TAG_TRUSTED_CONFIRMATION_REQUIRED) {
+			require_token = true;
+			break;
+		}
+	}
+
+	if (require_token) {
+		for (size_t i = 0; i < in_params.length; i++) {
+			if (in_params.params[i].tag == KM_TAG_CONFIRMATION_TOKEN) {
+				if (in_params.params[i].key_param.blob.data_length ==
+					sizeof(confirmation_token)) {
+					found_token = true;
+					TEE_MemMove(&confirmation_token,
+						in_params.params[i].key_param.blob.data,
+						sizeof(confirmation_token));
+					break;
+				}
+			}
+		}
+
+		if (!found_token) {
+			EMSG("Confirmation failed. No user confirmation. ");
+			res = KM_ERROR_NO_USER_CONFIRMATION;
+			goto exit;
+		}
+		//TODO: res = TA_check_confirmation_token(&confirmation_token);
+	}
+exit:
+	return res;
+}
+
+/*
  * Compute HMAC for @message buffer that has @length byte size. Operation key
  * is @key. The output will be stored in @signature and will be truncated if it
  * will be greater than @signature_length.

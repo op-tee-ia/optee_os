@@ -44,6 +44,9 @@ keymaster_error_t TA_do_auth(const keymaster_key_param_set_t in_params,
 				const keymaster_key_param_set_t key_params,
 				const keymaster_operation_handle_t operation_handle);
 
+keymaster_error_t TA_do_confirm(const keymaster_key_param_set_t in_params,
+				const keymaster_key_param_set_t key_params);
+
 #define HMAC_SHA256_KEY_SIZE_BYTE 32
 #define HMAC_SHA256_KEY_SIZE_BIT (8*HMAC_SHA256_KEY_SIZE_BYTE)
 #define HW_AUTH_TOKEN_VERSION 0
