@@ -1789,7 +1789,7 @@ static TEE_Result mbedTLS_attest_key_cert_with_rootkey(
 					  unsigned int key_usage,
 					  keymaster_blob_t *attest_cert,
 					  keymaster_blob_t *attest_ext,
-					  char *cert_issuer,
+					  keymaster_blob_t *cert_issuer,
 					  uint64_t not_before_val,
 					  uint64_t not_after_val)
 {
@@ -1885,7 +1885,39 @@ static TEE_Result mbedTLS_attest_key_cert_with_rootkey(
 		goto out;
 	}
 
-	ret = mbedtls_x509write_crt_set_issuer_name(&crt, cert_issuer);
+	memset(&subject_name, 0, sizeof(subject_name));
+	if (cert_issuer->data == NULL) {
+		EMSG("cert_issuer is NULL!!!");
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto out;
+	} else {
+		p = cert_issuer->data;
+		ret = mbedtls_asn1_get_tag(&p, p+cert_issuer->data_length, &len,
+                                    MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE);
+		if (ret != 0) {
+			EMSG("mbedtls_asn1_get_tag: failed -%#x", -ret);
+			res = TEE_ERROR_BAD_PARAMETERS;
+			goto out;
+		}
+
+		ret = mbedtls_x509_get_name(&p, p + len, &subject_name);
+		if (ret != 0) {
+			EMSG("mbedtls_x509_get_name: failed -%#x", -ret);
+			res = TEE_ERROR_BAD_PARAMETERS;
+			goto out;
+		}
+
+		ret = mbedtls_x509_dn_gets(cert_subject, sizeof(cert_subject) - 1,
+				   &subject_name);
+		if (ret < 0) {
+			EMSG("mbedtls_x509_dn_gets: failed: -%#x", -ret);
+			res = TEE_ERROR_SHORT_BUFFER;
+			goto out;
+		}
+	}
+	DMSG("issuer info: %s", cert_subject);
+
+	ret = mbedtls_x509write_crt_set_issuer_name(&crt, cert_subject);
 	if (ret) {
 		EMSG("mbedtls_x509write_crt_set_issuer_name: failed: -%#x",
 				-ret);
@@ -2013,44 +2045,18 @@ TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(
 				       unsigned int key_usage,
 				       keymaster_cert_chain_t *cert_chain,
 				       keymaster_blob_t *attest_ext,
+				       keymaster_blob_t *cert_issuer,
 				       uint64_t not_before_val,
 				       uint64_t not_after_val)
 {
 	int ret;
 	TEE_Result res = TEE_SUCCESS;
 	keymaster_blob_t *attest_cert = &cert_chain->entries[KEY_ATT_CERT_INDEX];
-	mbedtls_x509_crt *cert = NULL;
 	mbedtls_pk_context issuer_key = {NULL,NULL};
 	mbedtls_pk_context subject_key = {NULL,NULL};
-	char cert_subject[1024];
-	const unsigned char *p = (unsigned char*)cert_chain->entries[ROOT_ATT_CERT_INDEX].data;
 	size_t cert_len = cert_chain->entries[ROOT_ATT_CERT_INDEX].data_length;
 
 	DMSG("%s %d", __func__, __LINE__);
-
-	cert = (mbedtls_x509_crt*)TEE_Malloc(sizeof(mbedtls_x509_crt),
-					     TEE_MALLOC_FILL_ZERO);
-	if( cert == NULL )
-		return TEE_ERROR_OUT_OF_MEMORY;
-
-	mbedtls_x509_crt_init(cert);
-
-	DMSG("root certificate: \n");
-	DHEXDUMP(p,cert_len);
-
-	if ((mbedtls_x509_crt_parse_der(cert, p, cert_len)) != 0) {
-		EMSG("mbedtls_x509_crt_parse_der: failed");
-		res = TEE_ERROR_BAD_PARAMETERS;
-		goto out;
-	}
-
-	ret = mbedtls_x509_dn_gets(cert_subject, sizeof(cert_subject) - 1,
-				   &cert->subject);
-	if (ret < 0) {
-		EMSG("mbedtls_x509_dn_gets: failed: -%#x", -ret);
-		res = TEE_ERROR_SHORT_BUFFER;
-		goto out;
-	}
 
 	res = (root_alg == KM_ALGORITHM_RSA) ?
 		mbedTLS_import_rsa_pk(&issuer_key, root_key) :
@@ -2070,7 +2076,7 @@ TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(
 
 	res = mbedTLS_attest_key_cert_with_rootkey(input_set,
 					  &issuer_key, &subject_key, key_usage, attest_cert,
-				      attest_ext, cert_subject, not_before_val, not_after_val);
+				      attest_ext, cert_issuer, not_before_val, not_after_val);
 	if (res) {
 		EMSG("mbedTLS_attest_key_cert_with_rootkey: failed: %#x", res);
 		goto out;
@@ -2079,8 +2085,6 @@ out:
 
 	mbedtls_pk_free(&issuer_key);
 	mbedtls_pk_free(&subject_key);
-	mbedtls_x509_crt_free(cert);
-	TEE_Free( cert );
 
 	return res;
 
@@ -3812,6 +3816,7 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
                               keymaster_algorithm_t root_alg,
                               keymaster_algorithm_t alg,
                               keymaster_cert_chain_t *cert_chain,
+                              keymaster_blob_t *cert_issuer,
                               uint64_t not_before_val,
                               uint64_t not_after_val)
 {
@@ -3855,7 +3860,7 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
 
 	res = mbedTLS_gen_attest_key_cert_with_rootkey(attested_params,
 									  root_key, attested_key, root_alg, alg,
-									  key_usage, cert_chain, &attest_ext,
+									  key_usage, cert_chain, &attest_ext, cert_issuer,
 									  not_before_val, not_after_val);
 	if (res != TEE_SUCCESS) {
 		EMSG("Failed to generate key attestation, res=%x", res);
