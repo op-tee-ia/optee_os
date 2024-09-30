@@ -102,6 +102,7 @@ TEE_Result mbedTLS_gen_attest_key_cert_with_rootkey(
 				       unsigned int key_usage,
 				       keymaster_cert_chain_t *cert_chain,
 				       keymaster_blob_t *attest_ext,
+				       keymaster_blob_t *cert_issuer,
 				       uint64_t not_before_val, uint64_t not_after_val);
 
 keymaster_error_t mbedTLS_encode_ec_sign(uint8_t *out, uint32_t *out_l);
@@ -154,6 +155,7 @@ TEE_Result TA_gen_attest_cert_with_rootkey(TEE_ObjectHandle root_key,
                               keymaster_algorithm_t root_alg,
                               keymaster_algorithm_t alg,
                               keymaster_cert_chain_t *cert_chain,
+                              keymaster_blob_t *cert_issuer,
                               uint64_t not_before_val, uint64_t not_after_val);
 
 #endif /* MBEDTLS_PROXY_H_ */

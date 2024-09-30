@@ -87,6 +87,7 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 				keymaster_key_characteristics_t *key_chr,
 				keymaster_cert_chain_t *cert_chain,
 				bool includeUniqueID,
+				keymaster_blob_t *cert_issuer,
 				uint64_t not_before_val, uint64_t not_after_val);
 TEE_Result TA_gen_key_attest_cert(uint32_t root_type, uint32_t type,
 				TEE_ObjectHandle attestedKey,

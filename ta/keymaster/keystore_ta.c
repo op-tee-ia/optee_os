@@ -953,11 +953,6 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	if (res != KM_ERROR_OK)
 		goto exit;
 
-	/* Issue subject for attestation */
-	start += TA_deserialize_blob_akms(start, end, &issuer_subject, false, &res, false);
-	if (res != KM_ERROR_OK)
-		goto exit;
-
 	res = TA_get_client_info(&root_params, &root_app_id, &root_app_data);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to get client info, res=%x", res);
@@ -1081,11 +1076,25 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 		goto exit;
 	}
 
+	/* Issue subject for attestation */
+	start += TA_deserialize_blob_akms(start, end, &issuer_subject, false, &res, false);
+	if (res != KM_ERROR_OK) {
+		if (res == KM_ERROR_INSUFFICIENT_BUFFER_SPACE)
+			res = KM_ERROR_INVALID_ARGUMENT;
+		goto exit;
+	}
+
+	if (issuer_subject.data_length == 0) {
+		EMSG("Bad issuer subject blob: size is 0");
+		res = KM_ERROR_INVALID_ARGUMENT;
+		goto exit;
+	}
+
 	/* Generate key attestation certificate (using STA ASN.1) */
 	result = TA_gen_key_attest_cert_with_rootkey(root_algorithm, alg, root_key,
 					&params_t,
 					attested_key, attest_params, attest_key_chr, cert_chain,
-					includeUniqueID, not_before_val, not_after_val);
+					includeUniqueID, &issuer_subject, not_before_val, not_after_val);
 	if (result != TEE_SUCCESS) {
 		EMSG("Failed to gen key att cert, res=%x", result);
 		res = KM_ERROR_UNKNOWN_ERROR;

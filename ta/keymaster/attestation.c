@@ -828,6 +828,7 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 				  keymaster_key_characteristics_t *key_chr,
 				  keymaster_cert_chain_t *cert_chain,
 				  bool includeUniqueID,
+				  keymaster_blob_t *cert_issuer,
 				  uint64_t not_before_val,
 				  uint64_t not_after_val)
 {
@@ -839,8 +840,8 @@ TEE_Result TA_gen_key_attest_cert_with_rootkey(keymaster_algorithm_t root_alg,
 	res = TA_gen_attest_cert_with_rootkey(root_key, root_params, attested_key,
 		                        attest_params, key_chr,
 		                        includeUniqueID,
-		                        root_alg, alg,
-		                        cert_chain, not_before_val, not_after_val);
+		                        root_alg, alg, cert_chain,
+		                        cert_issuer, not_before_val, not_after_val);
 
 	return res;
 }
