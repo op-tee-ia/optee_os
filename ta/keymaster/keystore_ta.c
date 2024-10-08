@@ -1329,6 +1329,12 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 			}
 		} else {
 			DMSG("Generate fake cert for non-signing asymmetric key");
+			
+			res = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+			if (res != KM_ERROR_OK) {
+				EMSG("Failed to get validity info, res=%x", res);
+			}
+
 			result = TA_gen_fake_cert(&params_t, key_algorithm, key_obj_h, root_cert,
 						not_before_val, not_after_val);
 			if (result != TEE_SUCCESS) {
