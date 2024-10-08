@@ -279,15 +279,16 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 		EMSG("Min MAC length must be multiple of 8 in range from 96 to 128");
 		return KM_ERROR_UNSUPPORTED_MIN_MAC_LENGTH;
 	}
+	if (*key_algorithm == KM_ALGORITHM_HMAC && (digest_count != 1
+			|| get_digest_size(key_digest) == 0)) {
+		EMSG("For MAC algorithm only one digest must be specified");
+		return KM_ERROR_UNSUPPORTED_DIGEST;
+	}
 	if (*key_algorithm == KM_ALGORITHM_HMAC && (min_mac_length % 8 != 0
 			|| min_mac_length > get_digest_size(key_digest)
 			|| min_mac_length < MIN_MML_HMAC)) {
 		EMSG("Min MAC length must be multiple and at least 64");
 		return KM_ERROR_UNSUPPORTED_MIN_MAC_LENGTH;
-	}
-	if (*key_algorithm == KM_ALGORITHM_HMAC && digest_count != 1) {
-		EMSG("For MAC algorithm only one digest must be specified");
-		return KM_ERROR_UNSUPPORTED_DIGEST;
 	}
 	if (*key_algorithm == KM_ALGORITHM_EC) {
 		/*EC key generation requests may have tag EC_CURVE, KEY_SIZE or both*/
