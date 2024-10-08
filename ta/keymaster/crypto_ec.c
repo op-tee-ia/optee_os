@@ -28,19 +28,10 @@ static keymaster_error_t TA_check_ec_data_size(uint8_t **data, uint32_t *data_l,
 	 * If the data provided for signing
 	 * or verification is too long, truncate it
 	 */
-	if (*data_l >= key_size_bytes) {
-		/* assemed that data represented as big endian,
-		 * so first zero can be ignored
-		 */
-		while (*data_l > key_size_bytes && (*data)[0] == 0) {
-			(*data_l)--;
-			(*data)++;
-		}
-		*data_l = key_size_bytes;
-		if (key_size < *data_l * 8) {
-			TA_short_be_rshift(*data, *data_l,
-				8 - (key_size & 0x7));
-		}
+	if (*data_l > key_size_bytes) {
+                /* only for X86-platform, don't consider big endian
+                 */
+                *data_l = key_size_bytes;
 	}
 
 	return res;
