@@ -54,10 +54,11 @@ void TA_free_cert_chain(keymaster_cert_chain_t *cert_chain)
 
 void TA_add_to_params(keymaster_key_param_set_t *params,
 		      const uint32_t key_size,
-		      const uint64_t rsa_public_exponent)
+		      const uint64_t rsa_public_exponent,
+		      bool is_curve25519)
 {
 	bool was_added = false;
-	uint32_t curve = TA_get_curve_nist(key_size);
+	uint32_t curve = is_curve25519 ? KM_EC_CURVE_CURVE_25519 : TA_get_curve_nist(key_size);
 	DMSG("%s %d", __func__, __LINE__);
 
 	if (curve == UNDEFINED) {
@@ -103,7 +104,7 @@ void TA_add_to_params(keymaster_key_param_set_t *params,
 			if (params->params[i].tag == KM_TAG_EC_CURVE) {
 				was_added = true;
 					params->params[i].key_param.enumerated =
-							TA_size_to_ECcurve(key_size);
+							is_curve25519 ? KM_EC_CURVE_CURVE_25519 : TA_size_to_ECcurve(key_size);
 				break;
 			}
 		}
@@ -111,7 +112,7 @@ void TA_add_to_params(keymaster_key_param_set_t *params,
 			(params->params + params->length)->tag = KM_TAG_EC_CURVE;
 			(params->params + params->length)->
 					key_param.enumerated =
-							TA_size_to_ECcurve(key_size);
+							is_curve25519 ? KM_EC_CURVE_CURVE_25519 : TA_size_to_ECcurve(key_size);
 			params->length++;
 		}
 	}
@@ -150,6 +151,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				keymaster_algorithm_t *key_algorithm,
 				uint32_t *key_size,
 				uint64_t *key_rsa_public_exponent,
+				keymaster_ec_curve_t *key_curve,
+				bool *is_ed25519,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
 				keymaster_blob_t **challenge,
@@ -216,8 +219,11 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 						key_param.enumerated;
 			DMSG("key_purpose is %d", key_purpose);
 			if (key_purpose == KM_PURPOSE_ATTEST_KEY ||
-					key_purpose == KM_PURPOSE_SIGN) {
+			    key_purpose == KM_PURPOSE_SIGN) {
 				*attest_purpose = true;
+				purpose_count++;
+			}
+			if (key_purpose == KM_PURPOSE_AGREE_KEY) {
 				purpose_count++;
 			}
 			break;
@@ -300,6 +306,16 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			/*If the request only contains Tag::EC_CURVE, use the specified*/
 			*key_size = TA_ECcurve_to_size(ec_curve);
 		}
+		if (key_curve != NULL) {
+			*key_curve = ec_curve;
+		}
+		if (is_ed25519 != NULL && ec_curve == KM_EC_CURVE_CURVE_25519) {
+			if (key_purpose == KM_PURPOSE_AGREE_KEY) {
+				*is_ed25519 = false;
+			} else {
+				*is_ed25519 = true;
+			}
+		}
 	}
 
 	if (*attest_purpose == true || *challenge != NULL) {
@@ -326,7 +342,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 
 out:
 	if (purpose_count > 1) {
-		EMSG("ATTEST_KEY cannot be combined with any other purpose.");
+		EMSG("ATTEST_KEY or AGREE_KEY cannot be combined with any other purpose.");
 		return KM_ERROR_INCOMPATIBLE_PURPOSE;
 	}
 

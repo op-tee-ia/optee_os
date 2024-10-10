@@ -178,7 +178,7 @@ static TEE_Result TA_set_rsa_attest_key(keymaster_blob_t key_data)
 
 	if (mbedTLS_decode_pkcs8(key_data, &attrs,
 			&attrs_count, KM_ALGORITHM_RSA, &key_size,
-			&key_rsa_public_exponent) != KM_ERROR_OK) {
+			&key_rsa_public_exponent, NULL) != KM_ERROR_OK) {
 		goto error_1;
 	}
 
@@ -237,7 +237,7 @@ static TEE_Result TA_set_ec_attest_key(keymaster_blob_t key_data)
 
 	if (mbedTLS_decode_pkcs8(key_data, &attrs,
 			&attrs_count, KM_ALGORITHM_EC, &key_size,
-			&key_rsa_public_exponent) != KM_ERROR_OK) {
+			&key_rsa_public_exponent, NULL) != KM_ERROR_OK) {
 		goto error_1;
 	}
 

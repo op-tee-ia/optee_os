@@ -38,6 +38,7 @@ static keymaster_error_t TA_check_ec_data_size(uint8_t **data, uint32_t *data_l,
 }
 
 keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
+				const uint32_t type,
 				const keymaster_blob_t *input,
 				keymaster_blob_t *output,
 				size_t *input_consumed,
@@ -56,6 +57,13 @@ keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
 			 * blocks to use it in finish
 			 */
 			res = TA_store_sf_data(input, operation);
+			if (type == TEE_TYPE_ED25519_KEYPAIR) {
+				uint32_t size = 0;
+				size = TA_get_sf_data_size(operation);
+				if (size > 16 * 1024) {
+					res = KM_ERROR_INVALID_INPUT_LENGTH;
+				}
+			}
 		}
 		*input_consumed = input_provided;
 		output->data_length = 0;
@@ -67,6 +75,7 @@ keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
 }
 
 keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
+				const uint32_t type,
 				keymaster_blob_t *input,
 				keymaster_blob_t *output,
 				keymaster_blob_t *signature,
@@ -104,26 +113,33 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 			 */
 			in_buf = input->data;
 			in_buf_l = input->data_length;
+			if (type == TEE_TYPE_ED25519_KEYPAIR && in_buf_l > 16 * 1024) {
+				res = KM_ERROR_INVALID_INPUT_LENGTH;
+				goto out;
+			}
 		}
 		/* If the data provided for unpadded signing or
 		 * verification is too long, truncate it.
 		 */
-		res = TA_check_ec_data_size(&in_buf, &in_buf_l, key_size);
-		if (res != KM_ERROR_OK)
-			break;
-
+		if (type != TEE_TYPE_ED25519_KEYPAIR) {
+			res = TA_check_ec_data_size(&in_buf, &in_buf_l, key_size);
+			if (res != KM_ERROR_OK)
+				break;
+		}
 		if (operation->purpose == KM_PURPOSE_SIGN) {
 			res = TEE_AsymmetricSignDigest(*operation->operation,
 							NULL, 0, in_buf,
 							in_buf_l, output->data,
 							out_size);
 			if (res == TEE_SUCCESS && *out_size > 0) {
-				res = mbedTLS_encode_ec_sign(output->data,
-							     out_size);
-				if (res != KM_ERROR_OK) {
-					EMSG("Failed to encode EC sign, res=%x",
-					     res);
-					break;
+				if (type != TEE_TYPE_ED25519_KEYPAIR) {
+					res = mbedTLS_encode_ec_sign(output->data,
+								     out_size);
+					if (res != KM_ERROR_OK) {
+						EMSG("Failed to encode EC sign, res=%x",
+						     res);
+						break;
+					}
 				}
 			}
 		} else {
@@ -146,5 +162,6 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 	default:
 		res = KM_ERROR_UNSUPPORTED_PURPOSE;
 	}
+out:
 	return res;
 }

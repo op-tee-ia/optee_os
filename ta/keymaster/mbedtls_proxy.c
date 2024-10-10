@@ -38,6 +38,7 @@
 #include <mbedtls/asn1write.h>
 #include <mbedtls/hmac_drbg.h>
 #include <mbedtls/hkdf.h>
+#include <mbedtls/ecp.h>
 
 #define CERT_ROOT_ORG "Android"
 #define CERT_ROOT_ORG_UNIT_RSA "Attestation RSA root CA"
@@ -180,6 +181,47 @@ static int mpi_to_att(TEE_Attribute *att, const mbedtls_mpi *mpi,
 		return -1;
 	}
 
+	TEE_InitRefAttribute(att, tag, buf, length);
+
+	return 0;
+}
+
+static int mpi_to_att_curve25519(mbedtls_ecp_keypair *context,
+				 TEE_Attribute *att,
+				 uint32_t tag) {
+	uint32_t length = 0;
+	uint8_t *buf = NULL;
+	size_t raw_public_key_size = 0;
+
+	if (tag == TEE_ATTR_ED25519_PRIVATE_VALUE ||
+	    tag == TEE_ATTR_X25519_PRIVATE_VALUE) {
+		length = (uint32_t)mbedtls_mpi_size(&context->d);
+		buf = TEE_Malloc(length, TEE_MALLOC_FILL_ZERO);
+		if (!buf) {
+			EMSG("Failed to allocate memory");
+			return -1;
+		}
+
+		if (mbedtls_mpi_write_binary_le(&context->d, buf, length) != 0) {
+			EMSG ("Failed to write mpi to buffer");
+			TEE_Free(buf);
+			return -1;
+		}
+	} else {
+		length = 32;
+		buf = TEE_Malloc(length, TEE_MALLOC_FILL_ZERO);
+		if (!buf) {
+			EMSG("Failed to allocate memory");
+			return -1;
+		}
+
+		if(mbedtls_ecp_point_write_binary(&context->grp, &context->Q,  MBEDTLS_ECP_PF_COMPRESSED,
+						  &raw_public_key_size, buf, length) != 0) {
+			 EMSG ("Failed to write ecp point to buffer");
+			 TEE_Free(buf);
+			 return -1;
+		}
+	}
 	TEE_InitRefAttribute(att, tag, buf, length);
 
 	return 0;
@@ -440,12 +482,78 @@ out:
 	return KM_ERROR_OK;
 }
 
+/* Convert mbedtls_ecp_keypair* to TEE_Attributes array */
+static keymaster_error_t mbedtls_export_curve25519(TEE_Attribute **attrs,
+						   uint32_t *attrs_count,
+						   uint32_t *key_size,
+						   mbedtls_pk_context *context) {
+	mbedtls_ecp_keypair *ctx = context->pk_ctx;
+	mbedtls_pk_type_t pk_type;
+	uint32_t max_attrs = 0, count = 0;
+	keymaster_error_t ret = KM_ERROR_UNKNOWN_ERROR;
+	struct mpi_id mpis_ed25519[KM_ATTR_COUNT_ED25519] = {
+		{ TEE_ATTR_ED25519_PRIVATE_VALUE, &ctx->d },
+		{ TEE_ATTR_ED25519_PUBLIC_VALUE, NULL }
+	};
+	struct mpi_id mpis_x25519[KM_ATTR_COUNT_X25519] = {
+		{ TEE_ATTR_X25519_PRIVATE_VALUE, &ctx->d },
+		{ TEE_ATTR_X25519_PUBLIC_VALUE, NULL }
+	};
+
+	pk_type = mbedtls_pk_get_type(context);
+	if (pk_type == MBEDTLS_PK_EDDSA) {
+		max_attrs = KM_ATTR_COUNT_ED25519;
+	} else {
+		max_attrs = KM_ATTR_COUNT_X25519;
+	}
+
+	TEE_Attribute *att = TEE_Malloc(sizeof(TEE_Attribute) * max_attrs,
+					TEE_MALLOC_FILL_ZERO);
+
+	if (!att) {
+		EMSG("Failed to allocate memory");
+		return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+	}
+
+	for (uint32_t i = 0; i < max_attrs; i++) {
+		if (pk_type == MBEDTLS_PK_EDDSA) {
+			if (mpi_to_att_curve25519(ctx, &att[i], mpis_ed25519[i].att_id)) {
+				EMSG("Failed to write mpi to att");
+				goto out;
+			}
+		} else {
+			if (mpi_to_att_curve25519(ctx, &att[i], mpis_x25519[i].att_id)) {
+				EMSG("Failed to write mpi to att");
+				goto out;
+			}
+		}
+
+		count++;
+	}
+
+	*key_size = (uint32_t)mbedtls_pk_get_bitlen(context) + 1;
+
+	DMSG ("key_size = %u", *key_size);
+
+	*attrs = att;
+	*attrs_count = max_attrs;
+
+	ret = KM_ERROR_OK;
+
+out:
+	if (ret != KM_ERROR_OK)
+		free_attrs(att, count);
+
+	return KM_ERROR_OK;
+}
+
 keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 				       TEE_Attribute **attrs,
 				       uint32_t *attrs_count,
 				       const keymaster_algorithm_t algorithm,
 				       uint32_t *key_size,
-				       uint64_t *rsa_public_exponent)
+				       uint64_t *rsa_public_exponent,
+				       bool *is_ed25519)
 {
 	mbedtls_pk_context pk;
 	keymaster_error_t ret = KM_ERROR_UNKNOWN_ERROR;
@@ -466,7 +574,7 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 	pk_type = mbedtls_pk_get_type(&pk);
 
 	if ((algorithm == KM_ALGORITHM_RSA && pk_type != MBEDTLS_PK_RSA) ||
-	    (algorithm == KM_ALGORITHM_EC && pk_type != MBEDTLS_PK_ECKEY)) {
+	    (algorithm == KM_ALGORITHM_EC && (pk_type != MBEDTLS_PK_ECKEY && pk_type != MBEDTLS_PK_EDDSA))) {
 		EMSG ("Algorithm mismatch.");
 		ret = KM_ERROR_INVALID_KEY_BLOB;
 		goto out;
@@ -490,14 +598,100 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 	}
 
 	pfn_export_ctx = algorithm == KM_ALGORITHM_RSA ? mbedtls_export_rsa :
-							 mbedtls_export_ecdsa;
+							 (pk_type == MBEDTLS_PK_ECKEY ? mbedtls_export_ecdsa : mbedtls_export_curve25519);
+	ret = pfn_export_ctx(attrs, attrs_count, key_size, &pk);
+	if (ret) {
+		EMSG("Failed to export context");
+		goto out;
+	}
+	if (is_ed25519 != NULL && pk_type == MBEDTLS_PK_EDDSA) {
+		*is_ed25519 = true;
+	}
+out:
+	mbedtls_pk_free(&pk);
+	return ret;
+}
+
+keymaster_error_t mbedTLS_decode_raw(keymaster_blob_t key_data,
+				     TEE_Attribute **attrs,
+				     uint32_t *attrs_count,
+				     const keymaster_algorithm_t algorithm,
+				     uint32_t *key_size,
+				     uint64_t *rsa_public_exponent,
+				     bool is_ed25519)
+{
+	mbedtls_pk_context pk;
+	keymaster_error_t ret = KM_ERROR_UNKNOWN_ERROR;
+	mbedtls_pk_type_t pk_type = MBEDTLS_PK_NONE;
+	mbedtls_ecp_group_id ec_grp_id = MBEDTLS_ECP_DP_NONE;
+	const mbedtls_pk_info_t *pk_info = NULL;
+	mbedtls_ecp_keypair *ecc = NULL;
+        int mbedtls_ret = 1;
+
+	keymaster_error_t (*pfn_export_ctx)(TEE_Attribute **, uint32_t *,
+					    uint32_t *, mbedtls_pk_context *);
+
+	mbedtls_pk_init(&pk);
+
+	if (is_ed25519 == true) {
+		pk_type = MBEDTLS_PK_EDDSA;
+		ec_grp_id = MBEDTLS_ECP_DP_ED25519;
+	} else {
+		pk_type = MBEDTLS_PK_ECKEY;
+		ec_grp_id = MBEDTLS_ECP_DP_CURVE25519;
+	}
+	if (algorithm == KM_ALGORITHM_EC && (pk_type != MBEDTLS_PK_ECKEY && pk_type != MBEDTLS_PK_EDDSA)) {
+		EMSG ("Algorithm mismatch.");
+		ret = KM_ERROR_INVALID_KEY_BLOB;
+		goto out;
+	}
+
+	pk_info = mbedtls_pk_info_from_type(pk_type);
+	mbedtls_ret = mbedtls_pk_setup(&pk, pk_info);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_pk_setup returned -%#x", -mbedtls_ret);
+		ret = KM_ERROR_INVALID_KEY_BLOB;
+		goto out;
+	}
+
+	ecc = pk.pk_ctx;
+	mbedtls_ecp_keypair_init(ecc);
+
+	mbedtls_ret = mbedtls_ecp_group_load(&ecc->grp, ec_grp_id);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_ecp_group_load return -%#x", -mbedtls_ret);
+		ret = KM_ERROR_INVALID_KEY_BLOB;
+		goto out;
+	}
+
+	mbedtls_ret = mbedtls_ecp_read_key(ecc->grp.id, ecc, key_data.data, key_data.data_length);
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_ecp_read_key return -%#x", -mbedtls_ret);
+		ret = KM_ERROR_INVALID_KEY_BLOB;
+		goto out;
+	}
+
+	if (is_ed25519 == true) {
+		mbedtls_ret = mbedtls_ecp_point_edwards(&ecc->grp, &ecc->Q, &ecc->d, f_rng, NULL);
+	} else {
+		mbedtls_ret = mbedtls_ecp_mul(&ecc->grp, &ecc->Q, &ecc->d, &ecc->grp.G, f_rng, NULL);
+	}
+	if (mbedtls_ret != 0) {
+		EMSG("mbedtls_ecp_mul return -%#x", -mbedtls_ret);
+		ret = KM_ERROR_INVALID_KEY_BLOB;
+		goto out;
+	}
+
+	pfn_export_ctx = mbedtls_export_curve25519;
 	ret = pfn_export_ctx(attrs, attrs_count, key_size, &pk);
 	if (ret) {
 		EMSG("Failed to export context");
 		goto out;
 	}
 out:
+	mbedtls_ecp_keypair_free(ecc);
 	mbedtls_pk_free(&pk);
+
 	return ret;
 }
 
@@ -510,26 +704,52 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	uint32_t read_size = 0;
 	uint8_t key_attr_buf[EC_MAX_KEY_BUFFER_SIZE] = {0};
 	uint32_t key_attr_buf_size = EC_MAX_KEY_BUFFER_SIZE;
-	const uint32_t attr_ids[KM_ATTR_COUNT_EC] = { TEE_ATTR_ECC_PRIVATE_VALUE,
-						      TEE_ATTR_ECC_PUBLIC_VALUE_X,
-						      TEE_ATTR_ECC_PUBLIC_VALUE_Y };
-
+	const uint32_t attr_ids_ec[KM_ATTR_COUNT_EC] = { TEE_ATTR_ECC_PRIVATE_VALUE,
+							 TEE_ATTR_ECC_PUBLIC_VALUE_X,
+							 TEE_ATTR_ECC_PUBLIC_VALUE_Y };
+	const uint32_t attr_ids_ed25519[KM_ATTR_COUNT_ED25519] = { TEE_ATTR_ED25519_PRIVATE_VALUE,
+								   TEE_ATTR_ED25519_PUBLIC_VALUE };
+	const uint32_t attr_ids_x25519[KM_ATTR_COUNT_X25519] = { TEE_ATTR_X25519_PRIVATE_VALUE,
+								 TEE_ATTR_X25519_PUBLIC_VALUE };
+	uint32_t *attr_ids = NULL;
 	mbedtls_ecdsa_context      *ecc = NULL;
+	mbedtls_ecp_keypair      *curve25519 = NULL;
+	mbedtls_ecp_point        Q;
 	mbedtls_mpi              attrs[KM_ATTR_COUNT_EC - 1] = {{0}};
 	mbedtls_entropy_context  entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
+	mbedtls_pk_type_t pk_type;
 	mbedtls_ecp_group_id grp_id;
 	const mbedtls_pk_info_t *pk_info = NULL;
 	int                      mbedtls_ret = 1;
 	uint32_t grp_id_sz;
+	uint32_t attrs_count = 0;
+	uint8_t raw_public_key[32] = { 0 };
 
 	DMSG("%s %d", __func__, __LINE__);
 
 	mbedtls_pk_init(pk);
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_entropy_init(&entropy);
+	mbedtls_ecp_point_init(&Q);
 
 	TEE_GetObjectInfo1(key_obj, &obj_info);
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		pk_type = MBEDTLS_PK_ECKEY;
+		attrs_count = KM_ATTR_COUNT_EC - 1;
+		attr_ids = attr_ids_ec;
+	} else if (obj_info.objectType == TEE_TYPE_ED25519_KEYPAIR) {
+		pk_type = MBEDTLS_PK_EDDSA;
+		grp_id = MBEDTLS_ECP_DP_ED25519;
+		attrs_count = KM_ATTR_COUNT_ED25519;
+		attr_ids = attr_ids_ed25519;
+	} else if (obj_info.objectType == TEE_TYPE_X25519_KEYPAIR) {
+		pk_type = MBEDTLS_PK_ECKEY;
+		grp_id = MBEDTLS_ECP_DP_CURVE25519;
+		attrs_count = KM_ATTR_COUNT_X25519;
+		attr_ids = attr_ids_x25519;
+	}
+	DMSG("object_type: %x", obj_info.objectType);
 	mbedtls_ret = mbedtls_ctr_drbg_seed(&ctr_drbg, f_rng,
 					    &entropy, NULL, 0);
 	if (mbedtls_ret != 0) {
@@ -539,7 +759,7 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		goto out;
 	}
 
-	pk_info = mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY);
+	pk_info = mbedtls_pk_info_from_type(pk_type);
 	if ((mbedtls_ret = mbedtls_pk_setup(pk, pk_info)) != 0) {
 		EMSG("mbedtls_pk_setup returned %d\n",
 		     mbedtls_ret);
@@ -548,9 +768,13 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		goto out;
 	}
 
-	ecc = pk->pk_ctx;
-
-	mbedtls_ecdsa_init(ecc);
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		ecc = pk->pk_ctx;
+		mbedtls_ecdsa_init(ecc);
+	} else {
+		curve25519 = pk->pk_ctx;
+		mbedtls_ecp_keypair_init(curve25519);
+	}
 
 	/* check if we work with persistent object, as transient API differs */
 	if (obj_info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
@@ -563,11 +787,13 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		}
 
 		/* Read Curve ID TEE_ATTR_ECC_CURVE */
-		res = TEE_ReadObjectData(key_obj, &grp_id,
-					 sizeof(uint32_t), &read_size);
-		if (res != TEE_SUCCESS || read_size != sizeof(uint32_t)) {
-			EMSG("Failed to read EC Curve id, res=%x", res);
-			return res;
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+			res = TEE_ReadObjectData(key_obj, &grp_id,
+						 sizeof(uint32_t), &read_size);
+			if (res != TEE_SUCCESS || read_size != sizeof(uint32_t)) {
+				EMSG("Failed to read EC Curve id, res=%x", res);
+				return res;
+			}
 		}
 
 		/*
@@ -577,7 +803,7 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		 * TEE_ATTR_ECC_PUBLIC_VALUE_Y
 		 */
 
-		for (uint32_t i = 0; i < (KM_ATTR_COUNT_EC - 1); i++) {
+		for (uint32_t i = 0; i < attrs_count; i++) {
 			res = TEE_ReadObjectData(key_obj, &key_attr_buf_size,
 					sizeof(uint32_t), &read_size);
 			if (res) {
@@ -615,15 +841,16 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		}
 	} else {
 		/* User transient object API */
-
-		res = TEE_GetObjectValueAttribute(key_obj, TEE_ATTR_ECC_CURVE,
-						  &grp_id, &grp_id_sz);
-		if (res != TEE_SUCCESS) {
-			EMSG("Failed to get curve attribute, res=%x", res);
-			goto out;
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+			res = TEE_GetObjectValueAttribute(key_obj, TEE_ATTR_ECC_CURVE,
+							  &grp_id, &grp_id_sz);
+			if (res != TEE_SUCCESS) {
+				EMSG("Failed to get curve attribute, res=%x", res);
+				goto out;
+			}
 		}
 
-		for (uint32_t i = 0; i < (KM_ATTR_COUNT_EC - 1); i++) {
+		for (uint32_t i = 0; i < attrs_count; i++) {
 			key_attr_buf_size = EC_MAX_KEY_BUFFER_SIZE;
 
 			res = TEE_GetObjectBufferAttribute(key_obj,
@@ -639,14 +866,27 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 			mbedtls_mpi_init(&attrs[i]);
 
 			/* convert to mbedtls mpi structure from binary data */
-			if ((mbedtls_ret = mbedtls_mpi_read_binary(&attrs[i],
-								  key_attr_buf,
-								  key_attr_buf_size)) != 0) {
-				EMSG("mbedtls_mpi_read_binary returned %d\n\n",
-				     mbedtls_ret);
-				res = TEE_ERROR_BAD_FORMAT;
+                        if (attr_ids[i] == TEE_ATTR_ED25519_PRIVATE_VALUE ||
+			    attr_ids[i] == TEE_ATTR_X25519_PRIVATE_VALUE) {
+				if ((mbedtls_ret = mbedtls_mpi_read_binary_le(&attrs[i],
+									      key_attr_buf,
+									      key_attr_buf_size)) != 0) {
+					EMSG("mbedtls_mpi_read_binary returned %d\n\n",
+					     mbedtls_ret);
+					res = TEE_ERROR_BAD_FORMAT;
 
-				goto out;
+					goto out;
+				}
+			} else {
+				if ((mbedtls_ret = mbedtls_mpi_read_binary(&attrs[i],
+									   key_attr_buf,
+									   key_attr_buf_size)) != 0) {
+					EMSG("mbedtls_mpi_read_binary returned %d\n\n",
+					     mbedtls_ret);
+					res = TEE_ERROR_BAD_FORMAT;
+
+					goto out;
+				}
 			}
 		}
 	}
@@ -661,6 +901,7 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	 * #define TEE_ECC_CURVE_NIST_P256             0x00000003
 	 * #define TEE_ECC_CURVE_NIST_P384             0x00000004
 	 * #define TEE_ECC_CURVE_NIST_P521             0x00000005
+	 * #define TEE_ECC_CURVE_25519                 0x00000300
 	 *
 	 * enum mbedtls_ecp_group_id {
 	 *   MBEDTLS_ECP_DP_NONE = 0,
@@ -670,35 +911,74 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	 *   MBEDTLS_ECP_DP_SECP384R1,
 	 *   MBEDTLS_ECP_DP_SECP521R1,
 	 *              ...
+	 *   MBEDTLS_ECP_DP_CURVE25519,
+	 *              ...
 	 * }
 	 *
 	 */
-	mbedtls_ret = mbedtls_ecp_group_load(&ecc->grp, grp_id);
-	if (mbedtls_ret) {
-		EMSG("mbedtls_ecp_group_load: failed: -%#x",
-				-mbedtls_ret);
-		res = TEE_ERROR_BAD_FORMAT;
-		goto out;
-	}
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		mbedtls_ret = mbedtls_ecp_group_load(&ecc->grp, grp_id);
+		if (mbedtls_ret) {
+			EMSG("mbedtls_ecp_group_load: failed: -%#x",
+					-mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
 
-	if ((mbedtls_ret = mbedtls_mpi_copy(&ecc->Q.X, &attrs[1]) != 0) ||
-	    (mbedtls_ret = mbedtls_mpi_copy(&ecc->Q.Y, &attrs[2]) != 0) ||
-	    (mbedtls_ret = mbedtls_mpi_copy(&ecc->d, &attrs[0]) != 0) ||
-	    (mbedtls_ret = mbedtls_mpi_lset(&ecc->Q.Z, 1 ) != 0)) {
-		EMSG("mbedtls_ecc import failed returned %d\n\n", mbedtls_ret);
-		res = TEE_ERROR_BAD_FORMAT;
-		goto out;
-	}
+		if ((mbedtls_ret = mbedtls_mpi_copy(&ecc->Q.X, &attrs[1]) != 0) ||
+		    (mbedtls_ret = mbedtls_mpi_copy(&ecc->Q.Y, &attrs[2]) != 0) ||
+		    (mbedtls_ret = mbedtls_mpi_copy(&ecc->d, &attrs[0]) != 0) ||
+		    (mbedtls_ret = mbedtls_mpi_lset(&ecc->Q.Z, 1) != 0)) {
+			EMSG("mbedtls_ecc import failed returned %d\n\n", mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
+	} else {
+		mbedtls_ret = mbedtls_ecp_group_load(&curve25519->grp, grp_id);
+		if (mbedtls_ret) {
+			EMSG("mbedtls_ecp_group_load: failed: -%#x",
+					-mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
 
+		mbedtls_ret = mbedtls_mpi_write_binary(&attrs[1], raw_public_key, 32);
+		if (mbedtls_ret) {
+			EMSG("mbedtls_mpi_write_binary: failed: -%#x",
+					-mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
+
+		mbedtls_ret = mbedtls_ecp_point_read_binary(&curve25519->grp, &Q, raw_public_key, 32);
+		if (mbedtls_ret) {
+			EMSG("mbedtls_ecp_point_read_binary: failed: -%#x",
+					-mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
+
+		if ((mbedtls_ret = mbedtls_ecp_copy(&curve25519->Q, &Q) != 0) ||
+		    (mbedtls_ret = mbedtls_mpi_copy(&curve25519->d, &attrs[0]) != 0)) {
+			EMSG("mbedtls_ecc import failed returned %d\n\n", mbedtls_ret);
+			res = TEE_ERROR_BAD_FORMAT;
+			goto out;
+		}
+	}
 out:
 	mbedtls_ctr_drbg_free(&ctr_drbg);
 	mbedtls_entropy_free(&entropy);
+	mbedtls_ecp_point_free(&Q);
 
-	for (uint32_t i = 0; i < KM_ATTR_COUNT_EC - 1; i++)
+	for (uint32_t i = 0; i < attrs_count; i++)
 		mbedtls_mpi_free(&attrs[i]);
 
 	if (res != TEE_SUCCESS) {
-		mbedtls_ecp_keypair_free(ecc);
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+			mbedtls_ecp_keypair_free(ecc);
+		} else {
+			mbedtls_ecp_keypair_free(curve25519);
+		}
 	}
 
 	return res;

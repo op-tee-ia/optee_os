@@ -44,7 +44,17 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 				       uint32_t *attrs_count,
 				       const keymaster_algorithm_t algorithm,
 				       uint32_t *key_size,
-				       uint64_t *rsa_public_exponent);
+				       uint64_t *rsa_public_exponent,
+				       bool *is_ed25519);
+
+
+keymaster_error_t mbedTLS_decode_raw(keymaster_blob_t key_data,
+				     TEE_Attribute **attrs,
+				     uint32_t *attrs_count,
+				     const keymaster_algorithm_t algorithm,
+				     uint32_t *key_size,
+				     uint64_t *rsa_public_exponent,
+				     bool is_ed25519);
 
 keymaster_error_t mbedTLS_encode_key(keymaster_blob_t *export_data,
                                      const uint32_t type,

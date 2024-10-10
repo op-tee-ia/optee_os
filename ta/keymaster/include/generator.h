@@ -22,6 +22,8 @@
 #define KM_ATTR_COUNT_DES 1
 #define KM_ATTR_COUNT_RSA 8
 #define KM_ATTR_COUNT_EC 4
+#define KM_ATTR_COUNT_ED25519 2
+#define KM_ATTR_COUNT_X25519 2
 #define KM_AES_ATTR_SIZE 32
 #define KM_DES_ATTR_SIZE 32
 #define KM_HMAC_ATTR_SIZE 128
@@ -62,6 +64,8 @@ typedef struct tee_key_attributes
 /* Operations with keys */
 keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 				const uint32_t key_size,
+				const keymaster_ec_curve_t ec_curve,
+				bool is_ed25519,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
 				const TEE_Attribute *attrs_in,
@@ -72,6 +76,8 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
 				const uint64_t rsa_public_exponent,
+				const keymaster_ec_curve_t ec_curve,
+				bool is_ed25519,
 				bool release_object_h,
 				TEE_ObjectHandle *object_h,
 				TEE_Attribute **attrs);
@@ -88,6 +94,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 				const TEE_ObjectHandle obj_h,
 				const keymaster_purpose_t purpose,
 				const keymaster_algorithm_t algorithm,
+				const uint32_t type,
 				const uint32_t key_size,
 				const keymaster_blob_t nonce,
 				const keymaster_digest_t digest,

@@ -137,6 +137,11 @@ int mbedtls_pk_ecc_set_pubkey_from_prv(mbedtls_pk_context *pk,
     (void) prv_len;
 
     mbedtls_ecp_keypair *eck = (mbedtls_ecp_keypair *) pk->pk_ctx;
+#ifdef MBEDTLS_ECP_EDWARDS_ENABLED
+    if (mbedtls_ecp_get_type(&eck->grp) == MBEDTLS_ECP_TYPE_EDWARDS) {
+        return mbedtls_ecp_point_edwards(&eck->grp, &eck->Q, &eck->d, f_rng, p_rng);
+    } else
+#endif
     return mbedtls_ecp_mul(&eck->grp, &eck->Q, &eck->d, &eck->grp.G, f_rng, p_rng);
 
 #endif /* MBEDTLS_USE_PSA_CRYPTO */

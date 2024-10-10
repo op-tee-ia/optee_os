@@ -69,6 +69,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				keymaster_algorithm_t *key_algorithm,
 				uint32_t *key_size,
 				uint64_t *key_rsa_public_exponent,
+				keymaster_ec_curve_t *key_curve,
+				bool *is_ed25519,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
 				keymaster_blob_t **challenge,
@@ -114,7 +116,8 @@ bool is_origination_purpose(const keymaster_purpose_t purpose);
 
 void TA_add_to_params(keymaster_key_param_set_t *params,
 				const uint32_t key_size,
-				const uint64_t rsa_public_exponent);
+				const uint64_t rsa_public_exponent,
+				bool is_curve25519);
 
 void TA_free_params(keymaster_key_param_set_t *params);
 
@@ -155,6 +158,8 @@ static inline uint32_t TA_ECcurve_to_size(keymaster_ec_curve_t curve)
 		return 384;
 	case KM_EC_CURVE_P_521:
 		return 521;
+	case KM_EC_CURVE_CURVE_25519:
+		return 256;
 	default:
 		return UNDEFINED;
 	}

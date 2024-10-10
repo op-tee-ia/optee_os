@@ -118,6 +118,8 @@ keymaster_error_t TA_append_sf_data(keymaster_blob_t *input,
 				const keymaster_operation_t *operation,
 				bool *is_input_ext);
 
+uint32_t TA_get_sf_data_size(const keymaster_operation_t *operation);
+
 void TA_add_to_nonce(keymaster_operation_t *operation, const uint64_t value);
 
 void TA_decriment_nonce(keymaster_operation_t *operation);
