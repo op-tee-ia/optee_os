@@ -135,7 +135,7 @@ uint64_t GetTimestamp(void)
 {
 	TEE_Time secure_time;
 	TEE_GetSystemTime(&secure_time);
-	return secure_time.seconds*1000 + secure_time.millis;
+	return (uint64_t)secure_time.seconds*1000 + secure_time.millis;
 }
 
 

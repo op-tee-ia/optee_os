@@ -318,6 +318,8 @@ static void e32_relocate(struct ta_elf *elf, unsigned int rel_sidx)
 		err(TEE_ERROR_BAD_FORMAT, "Overflow");
 	if (sh_end >= (elf->max_addr - elf->load_addr))
 		err(TEE_ERROR_BAD_FORMAT, ".rel.*/REL out of range");
+	if (!sym_tab)
+            err(TEE_ERROR_BAD_FORMAT, "sym_tab is NULL");
 	rel = (Elf32_Rel *)(elf->load_addr + shdr[rel_sidx].sh_addr);
 
 	rel_end = rel + shdr[rel_sidx].sh_size / sizeof(Elf32_Rel);
