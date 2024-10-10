@@ -403,7 +403,7 @@ static keymaster_error_t TA_verifyAuthorization(TEE_Param params[TEE_NUM_PARAMS]
 	out += sizeof(uint64_t);
 
 	TEE_GetSystemTime(&time);
-	millis = (time.seconds * 1000) + time.millis;
+	millis = ((uint64_t)time.seconds * 1000) + time.millis;
 	TEE_MemMove(out, &millis, sizeof(uint64_t));
 	out += sizeof(uint64_t);
 

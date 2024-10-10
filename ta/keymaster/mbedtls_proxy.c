@@ -3418,6 +3418,7 @@ static int asn1_add_to_sequence(asn1_sequence **dst, void *p,
 
 	if (mbedtls_mpi_read_binary(mpi, p, cur->buf.len)) {
 		EMSG("Faield to read mpi");
+		TEE_Free(mpi);
 		goto err;
 	}
 
