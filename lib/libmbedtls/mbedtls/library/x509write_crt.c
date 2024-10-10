@@ -447,6 +447,9 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
         pk_alg = MBEDTLS_PK_RSA;
     } else if (mbedtls_pk_can_do(ctx->issuer_key, MBEDTLS_PK_ECDSA)) {
         pk_alg = MBEDTLS_PK_ECDSA;
+    } else if (mbedtls_pk_can_do(ctx->issuer_key, MBEDTLS_PK_EDDSA)) {
+        pk_alg = MBEDTLS_PK_EDDSA;
+        ctx->md_alg = MBEDTLS_MD_SHA512;
     } else {
         return MBEDTLS_ERR_X509_INVALID_ALG;
     }
@@ -524,7 +527,8 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
     /*
      *  Signature   ::=  AlgorithmIdentifier
      */
-    if (pk_alg == MBEDTLS_PK_ECDSA) {
+    if (pk_alg == MBEDTLS_PK_ECDSA ||
+        pk_alg == MBEDTLS_PK_EDDSA) {
         /*
          * The AlgorithmIdentifier's parameters field must be absent for DSA/ECDSA signature
          * algorithms, see https://www.rfc-editor.org/rfc/rfc5480#page-17 and
@@ -606,17 +610,27 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
         return MBEDTLS_ERR_PLATFORM_HW_ACCEL_FAILED;
     }
 #else
-    if ((ret = mbedtls_md(mbedtls_md_info_from_type(ctx->md_alg), c,
-                          len, hash)) != 0) {
-        return ret;
+    if (pk_alg != MBEDTLS_PK_EDDSA) {
+        if ((ret = mbedtls_md(mbedtls_md_info_from_type(ctx->md_alg), c,
+                              len, hash)) != 0) {
+            return ret;
+        }
     }
 #endif /* MBEDTLS_USE_PSA_CRYPTO */
 
 
-    if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
-                               hash, hash_length, sig, sizeof(sig), &sig_len,
-                               f_rng, p_rng)) != 0) {
-        return ret;
+    if (pk_alg == MBEDTLS_PK_EDDSA) {
+        if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
+                                   c, len, sig, sizeof(sig), &sig_len,
+                                   f_rng, p_rng)) != 0) {
+            return ret;
+        }
+    } else {
+        if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
+                                   hash, hash_length, sig, sizeof(sig), &sig_len,
+                                   f_rng, p_rng)) != 0) {
+            return ret;
+        }
     }
 
     /* Move CRT to the front of the buffer to have space

@@ -487,7 +487,11 @@ static int pk_get_pk_alg(unsigned char **p,
     if (ret == MBEDTLS_ERR_OID_NOT_FOUND) {
         ret = mbedtls_oid_get_ec_grp_algid(&alg_oid, ec_grp_id);
         if (ret == 0) {
-            *pk_alg = MBEDTLS_PK_ECKEY;
+            if (*ec_grp_id == MBEDTLS_ECP_DP_ED25519) {
+                *pk_alg = MBEDTLS_PK_EDDSA;
+            } else {
+                *pk_alg = MBEDTLS_PK_ECKEY;
+            }
         }
     }
 #else
@@ -568,7 +572,7 @@ int mbedtls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
     } else
 #endif /* MBEDTLS_RSA_C */
 #if defined(MBEDTLS_PK_HAVE_ECC_KEYS)
-    if (pk_alg == MBEDTLS_PK_ECKEY_DH || pk_alg == MBEDTLS_PK_ECKEY) {
+    if (pk_alg == MBEDTLS_PK_ECKEY_DH || pk_alg == MBEDTLS_PK_ECKEY || pk_alg == MBEDTLS_PK_EDDSA) {
 #if defined(MBEDTLS_PK_HAVE_RFC8410_CURVES)
         if (MBEDTLS_PK_IS_RFC8410_GROUP_ID(ec_grp_id)) {
             ret = pk_use_ecparams_rfc8410(&alg_params, ec_grp_id, pk);
@@ -819,7 +823,7 @@ static int pk_parse_key_pkcs8_unencrypted_der(
     } else
 #endif /* MBEDTLS_RSA_C */
 #if defined(MBEDTLS_PK_HAVE_ECC_KEYS)
-    if (pk_alg == MBEDTLS_PK_ECKEY || pk_alg == MBEDTLS_PK_ECKEY_DH) {
+    if (pk_alg == MBEDTLS_PK_ECKEY || pk_alg == MBEDTLS_PK_ECKEY_DH || pk_alg == MBEDTLS_PK_EDDSA) {
 #if defined(MBEDTLS_PK_HAVE_RFC8410_CURVES)
         if (MBEDTLS_PK_IS_RFC8410_GROUP_ID(ec_grp_id)) {
             if ((ret =

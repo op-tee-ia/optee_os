@@ -26,6 +26,9 @@
 #if defined(MBEDTLS_ECDSA_C)
 #include "mbedtls/ecdsa.h"
 #endif
+#if defined(MBEDTLS_EDDSA_C)
+#include "mbedtls/eddsa.h"
+#endif
 
 #if defined(MBEDTLS_PSA_CRYPTO_CLIENT)
 #include "psa_util_internal.h"
@@ -123,6 +126,8 @@ const mbedtls_pk_info_t *mbedtls_pk_info_from_type(mbedtls_pk_type_t pk_type)
             return &mbedtls_eckey_info;
         case MBEDTLS_PK_ECKEY_DH:
             return &mbedtls_eckeydh_info;
+	case MBEDTLS_PK_EDDSA:
+            return &mbedtls_eddsa_info; 
 #endif /* MBEDTLS_PK_HAVE_ECC_KEYS */
 #if defined(MBEDTLS_PK_CAN_ECDSA_SOME)
         case MBEDTLS_PK_ECDSA:

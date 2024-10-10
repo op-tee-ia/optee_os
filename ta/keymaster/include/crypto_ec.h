@@ -29,12 +29,14 @@
 #include "mbedtls_proxy.h"
 
 keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
+				const uint32_t type,
 				const keymaster_blob_t *input,
 				keymaster_blob_t *output,
 				size_t *input_consumed,
 				const uint32_t input_provided);
 
 keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
+				const uint32_t type,
 				keymaster_blob_t *input,
 				keymaster_blob_t *output,
 				keymaster_blob_t *signature,

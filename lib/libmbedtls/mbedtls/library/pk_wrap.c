@@ -26,6 +26,10 @@
 #include "mbedtls/ecdsa.h"
 #endif
 
+#if defined(MBEDTLS_EDDSA_C)
+#include "mbedtls/eddsa.h"
+#endif
+
 #if defined(MBEDTLS_USE_PSA_CRYPTO)
 #include "psa_util_internal.h"
 #include "psa/crypto.h"
@@ -1125,6 +1129,71 @@ const mbedtls_pk_info_t mbedtls_eckey_info = {
 #else /* MBEDTLS_PK_CAN_ECDSA_VERIFY */
     .sign_func = NULL,
 #endif /* MBEDTLS_PK_CAN_ECDSA_VERIFY */
+#if defined(MBEDTLS_ECDSA_C) && defined(MBEDTLS_ECP_RESTARTABLE)
+    .verify_rs_func = eckey_verify_rs_wrap,
+    .sign_rs_func = eckey_sign_rs_wrap,
+    .rs_alloc_func = eckey_rs_alloc,
+    .rs_free_func = eckey_rs_free,
+#endif /* MBEDTLS_ECDSA_C && MBEDTLS_ECP_RESTARTABLE */
+    .decrypt_func = NULL,
+    .encrypt_func = NULL,
+    .check_pair_func = eckey_check_pair_wrap,
+#if defined(MBEDTLS_PK_USE_PSA_EC_DATA)
+    .ctx_alloc_func = NULL,
+    .ctx_free_func = NULL,
+#else /* MBEDTLS_PK_USE_PSA_EC_DATA */
+    .ctx_alloc_func = eckey_alloc_wrap,
+    .ctx_free_func = eckey_free_wrap,
+#endif /* MBEDTLS_PK_USE_PSA_EC_DATA */
+    .debug_func = eckey_debug,
+};
+
+/*
+ * EDDSA key
+ */
+static int eddsa_can_do(mbedtls_pk_type_t type)
+{
+    return type == MBEDTLS_PK_EDDSA;
+}
+
+static int eddsa_sign_wrap(mbedtls_pk_context *pk, mbedtls_md_type_t md_alg,
+                           const unsigned char *hash, size_t hash_len,
+                           unsigned char *sig, size_t sig_size, size_t *sig_len,
+                           int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+{
+    ((void) md_alg);
+    return mbedtls_eddsa_write_signature((mbedtls_ecp_keypair *) pk->pk_ctx,
+                                         hash, hash_len,
+                                         sig, sig_size, sig_len,
+                                         MBEDTLS_EDDSA_PURE, NULL, 0,
+                                         f_rng, p_rng);
+}
+
+static int eddsa_verify_wrap(mbedtls_pk_context *pk, mbedtls_md_type_t md_alg,
+                             const unsigned char *hash, size_t hash_len,
+                             const unsigned char *sig, size_t sig_len)
+{
+    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    ((void) md_alg);
+
+    ret = mbedtls_eddsa_read_signature((mbedtls_ecp_keypair *) pk->pk_ctx,
+                                       hash, hash_len, sig, sig_len,
+                                       MBEDTLS_EDDSA_PURE, NULL, 0);
+
+    if (ret == MBEDTLS_ERR_ECP_SIG_LEN_MISMATCH) {
+        return MBEDTLS_ERR_PK_SIG_LEN_MISMATCH;
+    }
+
+    return ret;
+}
+
+const mbedtls_pk_info_t mbedtls_eddsa_info = {
+    .type = MBEDTLS_PK_EDDSA,
+    .name = "EDDSA",
+    .get_bitlen = eckey_get_bitlen,
+    .can_do = eddsa_can_do,
+    .verify_func = eddsa_verify_wrap,   /* Compatible key structures */
+    .sign_func = eddsa_sign_wrap,   /* Compatible key structures */
 #if defined(MBEDTLS_ECDSA_C) && defined(MBEDTLS_ECP_RESTARTABLE)
     .verify_rs_func = eckey_verify_rs_wrap,
     .sign_rs_func = eckey_sign_rs_wrap,

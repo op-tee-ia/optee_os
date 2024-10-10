@@ -63,6 +63,7 @@ static inline const mbedtls_ecp_keypair *mbedtls_pk_ec_ro(const mbedtls_pk_conte
         case MBEDTLS_PK_ECKEY:
         case MBEDTLS_PK_ECKEY_DH:
         case MBEDTLS_PK_ECDSA:
+        case MBEDTLS_PK_EDDSA:
             return (const mbedtls_ecp_keypair *) (pk).MBEDTLS_PRIVATE(pk_ctx);
         default:
             return NULL;
@@ -75,6 +76,7 @@ static inline mbedtls_ecp_keypair *mbedtls_pk_ec_rw(const mbedtls_pk_context pk)
         case MBEDTLS_PK_ECKEY:
         case MBEDTLS_PK_ECKEY_DH:
         case MBEDTLS_PK_ECDSA:
+        case MBEDTLS_PK_EDDSA:	
             return (mbedtls_ecp_keypair *) (pk).MBEDTLS_PRIVATE(pk_ctx);
         default:
             return NULL;
@@ -114,12 +116,12 @@ static inline mbedtls_ecp_group_id mbedtls_pk_get_ec_group_id(const mbedtls_pk_c
 }
 
 /* Helper for Montgomery curves */
-#if defined(MBEDTLS_ECP_HAVE_CURVE25519) || defined(MBEDTLS_ECP_HAVE_CURVE448)
+#if defined(MBEDTLS_ECP_HAVE_CURVE25519) || defined(MBEDTLS_ECP_HAVE_CURVE448) || defined(MBEDTLS_ECP_HAVE_ED25519)
 #define MBEDTLS_PK_HAVE_RFC8410_CURVES
-#endif /* MBEDTLS_ECP_HAVE_CURVE25519 || MBEDTLS_ECP_DP_CURVE448 */
+#endif /* MBEDTLS_ECP_HAVE_CURVE25519 || MBEDTLS_ECP_DP_CURVE448 || MBEDTLS_ECP_HAVE_ED25519 */
 
 #define MBEDTLS_PK_IS_RFC8410_GROUP_ID(id)  \
-    ((id == MBEDTLS_ECP_DP_CURVE25519) || (id == MBEDTLS_ECP_DP_CURVE448))
+    ((id == MBEDTLS_ECP_DP_CURVE25519) || (id == MBEDTLS_ECP_DP_CURVE448) || (id == MBEDTLS_ECP_DP_ED25519))
 
 static inline int mbedtls_pk_is_rfc8410(const mbedtls_pk_context *pk)
 {

@@ -464,6 +464,12 @@ static const oid_sig_alg_t oid_sig_alg[] =
         MBEDTLS_MD_NONE,     MBEDTLS_PK_RSASSA_PSS,
     },
 #endif /* MBEDTLS_RSA_C */
+#if defined(MBEDTLS_EDDSA_C)
+    {
+        OID_DESCRIPTOR(MBEDTLS_OID_ED25519,           "eddsa-with-SHA512",    "EDDSA with SHA512"),
+        MBEDTLS_MD_SHA512,   MBEDTLS_PK_EDDSA,
+    },
+#endif /* MBEDTLS_EDDSA_C */
     {
         NULL_OID_DESCRIPTOR,
         MBEDTLS_MD_NONE, MBEDTLS_PK_NONE,
@@ -645,6 +651,12 @@ static const oid_ecp_grp_algid_t oid_ecp_grp_algid[] =
         MBEDTLS_ECP_DP_CURVE448,
     },
 #endif /* MBEDTLS_ECP_HAVE_CURVE448 */
+#if defined(MBEDTLS_ECP_HAVE_ED25519)
+    {
+        OID_DESCRIPTOR(MBEDTLS_OID_ED25519,               "Ed25519",       "Ed25519"),
+        MBEDTLS_ECP_DP_ED25519,
+    },
+#endif /* MBEDTLS_ECP_HAVE_ED25519 */
     {
         NULL_OID_DESCRIPTOR,
         MBEDTLS_ECP_DP_NONE,

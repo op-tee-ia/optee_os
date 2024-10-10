@@ -37,6 +37,12 @@ uint32_t attributes_ec_short[KM_ATTR_COUNT_EC - 1] = {
 						TEE_ATTR_ECC_PRIVATE_VALUE,
 						TEE_ATTR_ECC_PUBLIC_VALUE_X,
 						TEE_ATTR_ECC_PUBLIC_VALUE_Y};
+uint32_t attributes_ed25519[KM_ATTR_COUNT_ED25519] = {
+						TEE_ATTR_ED25519_PRIVATE_VALUE,
+						TEE_ATTR_ED25519_PUBLIC_VALUE};
+uint32_t attributes_x25519[KM_ATTR_COUNT_X25519] = {
+						TEE_ATTR_X25519_PRIVATE_VALUE,
+						TEE_ATTR_X25519_PUBLIC_VALUE};
 
 uint32_t *TA_get_attrs_list_short(const keymaster_algorithm_t algorithm,
 						const bool short_list)
@@ -210,6 +216,8 @@ keymaster_error_t TA_check_hmac_key_size(keymaster_blob_t *key_data,
 
 keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 				const uint32_t key_size,
+				const keymaster_ec_curve_t ec_curve,
+				bool is_ed25519,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
 				const TEE_Attribute *attrs_in,
@@ -254,7 +262,23 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 		type = TEE_TYPE_RSA_KEYPAIR;
 		break;
 	case KM_ALGORITHM_EC:
-		type = TEE_TYPE_ECDSA_KEYPAIR;
+		switch (ec_curve) {
+		case KM_EC_CURVE_P_224:
+		case KM_EC_CURVE_P_256:
+		case KM_EC_CURVE_P_384:
+		case KM_EC_CURVE_P_521:
+			type = TEE_TYPE_ECDSA_KEYPAIR;
+			break;
+		case KM_EC_CURVE_CURVE_25519:
+			if (is_ed25519) {
+				type = TEE_TYPE_ED25519_KEYPAIR;
+			} else {
+				type = TEE_TYPE_X25519_KEYPAIR;
+			}
+			break;
+		default:
+			return KM_ERROR_UNSUPPORTED_EC_CURVE;
+		}
 		break;
 	default:
 		return KM_ERROR_UNSUPPORTED_ALGORITHM;
@@ -315,6 +339,8 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 					uint8_t *key_material,
 					const keymaster_digest_t digest,
 					const uint64_t rsa_public_exponent,
+					const keymaster_ec_curve_t ec_curve,
+					bool is_ed25519,
 					bool release_object_h,
 					TEE_ObjectHandle *object_h,
 					TEE_Attribute **attrs)
@@ -399,26 +425,49 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 					sizeof(rsa_public_exponent));
 		break;
 	case KM_ALGORITHM_EC:
-		attributes = attributes_ec;
-		attr_count = KM_ATTR_COUNT_EC;
-		type = TEE_TYPE_ECDSA_KEYPAIR;
-		attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
-							TEE_MALLOC_FILL_ZERO);
-		if (!attrs_in) {
-			EMSG("Failed to allocate memory for attributes");
-			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
-			goto gk_out;
-		}
-		attrs_in_count = 1;
-		curve = TA_get_curve_nist(key_size);
-		if (curve == UNDEFINED) {
-			EMSG("Failed to get curve nist");
+		switch (ec_curve) {
+		case KM_EC_CURVE_P_224:
+		case KM_EC_CURVE_P_256:
+		case KM_EC_CURVE_P_384:
+		case KM_EC_CURVE_P_521:
+			attributes = attributes_ec;
+			attr_count = KM_ATTR_COUNT_EC;
+			type = TEE_TYPE_ECDSA_KEYPAIR;
+			attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
+								TEE_MALLOC_FILL_ZERO);
+			if (!attrs_in) {
+				EMSG("Failed to allocate memory for attributes");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto gk_out;
+			}
+			attrs_in_count = 1;
+			curve = TA_get_curve_nist(key_size);
+			if (curve == UNDEFINED) {
+				EMSG("Failed to get curve nist");
+				res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+				goto gk_out;
+			}
+			TEE_InitValueAttribute(attrs_in,
+					TEE_ATTR_ECC_CURVE,
+					curve, 0);
+
+			break;
+		case KM_EC_CURVE_CURVE_25519:
+			if (is_ed25519) {
+				attributes = attributes_ed25519;
+				attr_count = KM_ATTR_COUNT_ED25519;
+				type = TEE_TYPE_ED25519_KEYPAIR;
+			} else {
+				attributes = attributes_x25519;
+				attr_count = KM_ATTR_COUNT_X25519;
+				type = TEE_TYPE_X25519_KEYPAIR;
+			}
+			break;
+		default:
+			/* KM_EC_CURVE_UNKNOWN */
 			res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 			goto gk_out;
 		}
-		TEE_InitValueAttribute(attrs_in,
-				TEE_ATTR_ECC_CURVE,
-				curve, 0);
 		break;
 	default:
 		return KM_ERROR_UNSUPPORTED_ALGORITHM;
@@ -607,6 +656,18 @@ keymaster_error_t TA_populate_key_attrs(uint8_t *key_material,
 		att->attrs_count = KM_ATTR_COUNT_EC;
 		att->alg = KM_ALGORITHM_EC;
 		DMSG("EC attrs_count = %u algorithm = %d",
+		     att->attrs_count, att->alg);
+		break;
+	case TEE_TYPE_ED25519_KEYPAIR:
+		att->attrs_count = KM_ATTR_COUNT_ED25519;
+		att->alg = KM_ALGORITHM_EC;
+		DMSG("ED25519 attrs_count = %u algorithm = %d",
+		     att->attrs_count, att->alg);
+		break;
+	case TEE_TYPE_X25519_KEYPAIR:
+		att->attrs_count = KM_ATTR_COUNT_X25519;
+		att->alg = KM_ALGORITHM_EC;
+		DMSG("X25519 attrs_count = %u algorithm = %d",
 		     att->attrs_count, att->alg);
 		break;
 	default: /* HMAC */
@@ -837,6 +898,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 					const TEE_ObjectHandle obj_h,
 					const keymaster_purpose_t purpose,
 					const keymaster_algorithm_t algorithm,
+					const uint32_t type,
 					const uint32_t key_size,
 					const keymaster_blob_t nonce,
 					const keymaster_digest_t digest,
@@ -1005,7 +1067,13 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 			algo = TEE_ALG_ECDSA_P224;
 			break;
 		case 256:
-			algo = TEE_ALG_ECDSA_P256;
+			if (type == TEE_TYPE_ED25519_KEYPAIR) {
+				algo = TEE_ALG_ED25519;
+			} else if (type == TEE_TYPE_X25519_KEYPAIR) {
+				algo = TEE_ALG_X25519;
+			} else {
+				algo = TEE_ALG_ECDSA_P256;
+			}
 			break;
 		case 384:
 			algo = TEE_ALG_ECDSA_P384;

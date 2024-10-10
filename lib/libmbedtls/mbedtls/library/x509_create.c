@@ -491,7 +491,8 @@ int mbedtls_x509_write_sig(unsigned char **p, unsigned char *start,
 
     // Write OID
     //
-    if (pk_alg == MBEDTLS_PK_ECDSA) {
+    if (pk_alg == MBEDTLS_PK_ECDSA ||
+        pk_alg == MBEDTLS_PK_EDDSA) {
         /*
          * The AlgorithmIdentifier's parameters field must be absent for DSA/ECDSA signature
          * algorithms, see https://www.rfc-editor.org/rfc/rfc5480#page-17 and

@@ -434,6 +434,19 @@ keymaster_error_t TA_append_sf_data(keymaster_blob_t *input,
 	return KM_ERROR_OK;
 }
 
+uint32_t TA_get_sf_data_size(const keymaster_operation_t *operation)
+{
+	uint32_t size = 0;
+	keymaster_blob_list_item_t *current = operation->sf_item;
+
+	while (current != NULL) {
+		size += current->data.data_length;
+		current = current->next;
+	}
+
+	return size;
+}
+
 void TA_add_to_nonce(keymaster_operation_t *operation, const uint64_t value)
 {
 	uint8_t mask = 0xff;

@@ -266,6 +266,8 @@ static uint32_t TA_possibe_size(const uint32_t type, const uint32_t key_size,
 	case TEE_TYPE_RSA_KEYPAIR:
 		return (key_size + 7) / 8;
 	case TEE_TYPE_ECDSA_KEYPAIR:
+	case TEE_TYPE_ED25519_KEYPAIR:
+	case TEE_TYPE_X25519_KEYPAIR:
 		/*
 		 * Output is a sign with r and s parameters each sized as
 		 * a key in ASN.1 format
@@ -981,7 +983,8 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	/* Check root key type */
 	if (key_type == TEE_TYPE_RSA_KEYPAIR) {
 		root_algorithm = KM_ALGORITHM_RSA;
-	} else if (key_type == TEE_TYPE_ECDSA_KEYPAIR) {
+	} else if (key_type == TEE_TYPE_ECDSA_KEYPAIR ||
+		   key_type == TEE_TYPE_ED25519_KEYPAIR) {
 		root_algorithm = KM_ALGORITHM_EC;
 	} else {
 		EMSG("Key attestation supports only asymmetric key pairs, "
@@ -1152,6 +1155,8 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_blob_t *challenge = NULL;
 	keymaster_blob_t *root_cert = NULL;
 	bool early_boot_only = false;
+	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
+	bool is_ed25519 = false;
 
 	in = (uint8_t *)params[0].memref.buffer;
 	in_end = in + params[0].memref.size;
@@ -1183,7 +1188,7 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
-			      &key_rsa_public_exponent, &key_digest, &attest_purpose,
+			      &key_rsa_public_exponent, &ec_curve, &is_ed25519, &key_digest, &attest_purpose,
 				&challenge, false, &early_boot_only);
 	if (res != KM_ERROR_OK)
 		goto exit;
@@ -1235,7 +1240,7 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 	res = TA_generate_key(key_algorithm, key_size, key_material,
-			      key_digest, key_rsa_public_exponent,
+			      key_digest, key_rsa_public_exponent, ec_curve, is_ed25519,
 			      false, &key_obj_h, &attrs_in);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to generate key, res=%x", res);
@@ -1562,6 +1567,10 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	uint32_t type = 0;
 	keymaster_blob_t *root_cert = NULL;
 	bool early_boot_only = false;
+	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
+	bool is_ed25519 = false;
+	bool is_ed25519_oid = false;
+	bool is_curve25519 = false;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -1605,7 +1614,7 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* Parse mandatory and optional parameters */
 	res = TA_parse_params(params_t, &key_algorithm, &key_size,
-			      &key_rsa_public_exponent, &key_digest, &attest_purpose, 
+			      &key_rsa_public_exponent, &ec_curve, &is_ed25519, &key_digest, &attest_purpose,
 				  &challenge, true, &early_boot_only);
 	if (res != KM_ERROR_OK)
 		goto out;
@@ -1616,11 +1625,12 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	if (key_format == KM_KEY_FORMAT_RAW) {
 		if (key_algorithm != KM_ALGORITHM_AES &&
 		    key_algorithm != KM_ALGORITHM_HMAC &&
-		    key_algorithm != KM_ALGORITHM_TRIPLE_DES) {
+		    key_algorithm != KM_ALGORITHM_TRIPLE_DES &&
+		    (key_algorithm == KM_ALGORITHM_EC && ec_curve != KM_EC_CURVE_CURVE_25519)) {
 			EMSG("Only DES3, HMAC and AES keys can imported in raw "
 			     "format");
 			res = KM_ERROR_UNSUPPORTED_KEY_FORMAT;
-			/* goto out; */
+			goto out;
 		}
 		if (key_size == UNDEFINED)
 			key_size = key_data.data_length * 8;
@@ -1657,25 +1667,53 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			 res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 			 goto out;
 		}
+		if (key_algorithm == KM_ALGORITHM_EC && ec_curve == KM_EC_CURVE_CURVE_25519) {
+			asymmetric_alg = true;
+			is_curve25519 = true;
 
-		attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
-							TEE_MALLOC_FILL_ZERO);
-		if (!attrs_in) {
-			EMSG("Failed to allocate memory for attributes");
-			res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
-			goto out;
+			if (key_data.data_length > 32) {
+				uint32_t temp_key_size = key_size;
+				uint64_t temp_key_rsa_public_exponent = key_rsa_public_exponent;
+
+				res = mbedTLS_decode_pkcs8(key_data, &attrs_in,
+							   &attrs_in_count, key_algorithm,
+							   &temp_key_size,
+							   &temp_key_rsa_public_exponent,
+							   &is_ed25519_oid);
+
+				if (res == KM_ERROR_OK) {
+					EMSG("Input raw key is pkcs#8 format");
+				}
+				res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
+				goto out;
+			}
+			res = mbedTLS_decode_raw(key_data, &attrs_in,
+						 &attrs_in_count, key_algorithm,
+						 &key_size,
+						 &key_rsa_public_exponent,
+						 is_ed25519);
+			if (res != KM_ERROR_OK)
+				goto out;
+		} else {
+			attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
+								TEE_MALLOC_FILL_ZERO);
+			if (!attrs_in) {
+				EMSG("Failed to allocate memory for attributes");
+				res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
+				goto out;
+			}
+			attrs_in_count = 1;
+
+			TEE_InitRefAttribute(attrs_in, TEE_ATTR_SECRET_VALUE,
+					(void *) key_data.data, key_data.data_length);
 		}
-		attrs_in_count = 1;
-
-		TEE_InitRefAttribute(attrs_in, TEE_ATTR_SECRET_VALUE,
-				(void *) key_data.data, key_data.data_length);
 	} else { /* KM_KEY_FORMAT_PKCS8 */
 		if (key_algorithm != KM_ALGORITHM_RSA &&
 		    key_algorithm != KM_ALGORITHM_EC) {
 			EMSG("Only RSA and EC keys can be imported in PKCS8 "
 			     "format");
 			res = KM_ERROR_UNSUPPORTED_KEY_FORMAT;
-			/* goto out; */
+			goto out;
 		}
 
 		if (key_algorithm == KM_ALGORITHM_RSA ||
@@ -1687,7 +1725,8 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		res = mbedTLS_decode_pkcs8(key_data, &attrs_in,
 					   &attrs_in_count, key_algorithm,
 					   &key_size,
-					   &key_rsa_public_exponent);
+					   &key_rsa_public_exponent,
+					   &is_ed25519_oid);
 
 		if (res != KM_ERROR_OK)
 			goto out;
@@ -1715,8 +1754,18 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				goto out;
 			}
 		}
+		if (key_algorithm == KM_ALGORITHM_EC && ec_curve == KM_EC_CURVE_CURVE_25519) {
+			is_curve25519 = true;
+			if (is_ed25519 == false && is_ed25519_oid == true) {
+				EMSG("Key purpose: %s setting in TAG::KM_TAG_PURPOSE is mismatch "
+				     "with key material: %s", (is_ed25519 == true ? ("SIGN") : ("AGREE_KEY")),
+				     (is_ed25519_oid == true ? ("SIGN") : ("AGREE_KEY")));
+				res = KM_ERROR_INCOMPATIBLE_PURPOSE;
+				goto out;
+			}
+		}
 	}
-	TA_add_to_params(&params_t, key_size, key_rsa_public_exponent);
+	TA_add_to_params(&params_t, key_size, key_rsa_public_exponent, is_curve25519);
 	res = TA_fill_characteristics(&characts, &params_t, &characts_size);
 	if (res != KM_ERROR_OK)
 		goto out;
@@ -1731,7 +1780,7 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	}
 
-	res = TA_import_key(key_algorithm, key_size, key_material, key_digest,
+	res = TA_import_key(key_algorithm, key_size, ec_curve, is_ed25519, key_material, key_digest,
 			    attrs_in, attrs_in_count);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to import key");
@@ -2307,6 +2356,8 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 		algorithm = KM_ALGORITHM_RSA;
 		break;
 	case TEE_TYPE_ECDSA_KEYPAIR:
+	case TEE_TYPE_ED25519_KEYPAIR:
+	case TEE_TYPE_X25519_KEYPAIR:
 		algorithm = KM_ALGORITHM_EC;
 		break;
 	default:/* HMAC */
@@ -2356,7 +2407,7 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 		nonce.data = secretIV;
 	}
 
-	res = TA_create_operation(operation, obj_h, purpose, algorithm,
+	res = TA_create_operation(operation, obj_h, purpose, algorithm, type,
 				  key_size, nonce, digest, mode, padding,
 				  mac_length);
 	if (res != KM_ERROR_OK)
@@ -2523,7 +2574,9 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 				    &input_consumed, input_provided, obj_h);
 		break;
 	case TEE_TYPE_ECDSA_KEYPAIR:
-		res = TA_ec_update(&operation, &input, &output,
+	case TEE_TYPE_ED25519_KEYPAIR:
+	case TEE_TYPE_X25519_KEYPAIR:
+		res = TA_ec_update(&operation, type, &input, &output,
 				   &input_consumed, input_provided);
 		break;
 	default:/* HMAC */
@@ -2704,7 +2757,9 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 				    signature, obj_h, &is_input_ext);
 		break;
 	case TEE_TYPE_ECDSA_KEYPAIR:
-		res = TA_ec_finish(&operation, &input, &output, &signature,
+	case TEE_TYPE_ED25519_KEYPAIR:
+	case TEE_TYPE_X25519_KEYPAIR:
+		res = TA_ec_finish(&operation, type, &input, &output, &signature,
 				   &keyblob_out_size, key_size, &is_input_ext);
 		break;
 	default: /* HMAC */
@@ -3455,6 +3510,8 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 	bool result = false;
 	keymaster_blob_t *challenge = NULL;
 	bool early_boot_only = false;
+	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
+	bool is_ed25519 = false;
 
 	DMSG("%s %d", __func__, __LINE__);
 
@@ -3517,7 +3574,7 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* Parse mandatory and optional parameters */
 	error = TA_parse_params(params_t, &key_algorithm, &key_size,
-			        &key_rsa_public_exponent, &key_digest,
+			        &key_rsa_public_exponent, &ec_curve, &is_ed25519, &key_digest,
 				&attest_purpose, &challenge, false, &early_boot_only);
 	if (error != KM_ERROR_OK)
 		goto exit;
@@ -3562,7 +3619,7 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 	error = TA_generate_key(key_algorithm, key_size, key_material, key_digest,
-				key_rsa_public_exponent, false, &obj_h, &attrs_in);
+				key_rsa_public_exponent, ec_curve, is_ed25519, false, &obj_h, &attrs_in);
 	if (error != KM_ERROR_OK) {
 		EMSG("Failed to generate key, error=%x", error);
 		goto exit;
