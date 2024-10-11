@@ -108,7 +108,8 @@ void TA_add_version_patchlevel(keymaster_key_param_set_t *params_t,
 				  uint32_t os_version, uint32_t os_patchlevel,
 				  uint32_t vendor_patchlevel, uint32_t boot_patchlevel);
 
-void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size);
+void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size,
+				  bool is_curve25519);
 
 bool cmpBlobParam(const keymaster_blob_t blob,
 			const keymaster_key_param_t param);
@@ -132,13 +133,17 @@ keymaster_error_t TA_get_serial_info(
 				const keymaster_key_param_set_t *input_set,
 				keymaster_blob_t *serial);
 
-static inline keymaster_ec_curve_t TA_size_to_ECcurve(uint32_t key_size)
+static inline keymaster_ec_curve_t TA_size_to_ECcurve(uint32_t key_size,
+				bool is_curve_25519)
 {
 	switch (key_size) {
 	case 224:
 		return KM_EC_CURVE_P_224;
 	case 256:
-		return KM_EC_CURVE_P_256;
+		if (is_curve_25519)
+			return KM_EC_CURVE_CURVE_25519;
+		else
+			return KM_EC_CURVE_P_256;
 	case 384:
 		return KM_EC_CURVE_P_384;
 	case 521:
