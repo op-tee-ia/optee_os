@@ -734,7 +734,8 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	mbedtls_ecp_point_init(&Q);
 
 	TEE_GetObjectInfo1(key_obj, &obj_info);
-	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+		obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 		pk_type = MBEDTLS_PK_ECKEY;
 		attrs_count = KM_ATTR_COUNT_EC - 1;
 		attr_ids = attr_ids_ec;
@@ -768,10 +769,11 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		goto out;
 	}
 
-	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+		obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 		ecc = pk->pk_ctx;
 		mbedtls_ecdsa_init(ecc);
-	} else {
+	}else {
 		curve25519 = pk->pk_ctx;
 		mbedtls_ecp_keypair_init(curve25519);
 	}
@@ -787,7 +789,8 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		}
 
 		/* Read Curve ID TEE_ATTR_ECC_CURVE */
-		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+			obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 			res = TEE_ReadObjectData(key_obj, &grp_id,
 						 sizeof(uint32_t), &read_size);
 			if (res != TEE_SUCCESS || read_size != sizeof(uint32_t)) {
@@ -841,7 +844,8 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		}
 	} else {
 		/* User transient object API */
-		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+			obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 			res = TEE_GetObjectValueAttribute(key_obj, TEE_ATTR_ECC_CURVE,
 							  &grp_id, &grp_id_sz);
 			if (res != TEE_SUCCESS) {
@@ -916,7 +920,8 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	 * }
 	 *
 	 */
-	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+		obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 		mbedtls_ret = mbedtls_ecp_group_load(&ecc->grp, grp_id);
 		if (mbedtls_ret) {
 			EMSG("mbedtls_ecp_group_load: failed: -%#x",
@@ -974,7 +979,8 @@ out:
 		mbedtls_mpi_free(&attrs[i]);
 
 	if (res != TEE_SUCCESS) {
-		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR) {
+		if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
+			obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 			mbedtls_ecp_keypair_free(ecc);
 		} else {
 			mbedtls_ecp_keypair_free(curve25519);

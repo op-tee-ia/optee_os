@@ -28,6 +28,8 @@
 #include "crypto_rsa.h"
 #include "mbedtls_proxy.h"
 
+#define TA_SHARED_SECRET_MAX_SIZE  128
+
 keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
 				const uint32_t type,
 				const keymaster_blob_t *input,

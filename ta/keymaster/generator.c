@@ -120,6 +120,7 @@ uint32_t purpose_to_mode(const keymaster_purpose_t purpose)
 	case KM_PURPOSE_VERIFY:
 		return TEE_MODE_VERIFY;
 	case KM_PURPOSE_DERIVE_KEY:
+	case KM_PURPOSE_AGREE_KEY:
 		return TEE_MODE_DERIVE;
 	default:
 		return UINT32_MAX;
@@ -221,7 +222,8 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
 				const TEE_Attribute *attrs_in,
-				const uint32_t attrs_in_count)
+				const uint32_t attrs_in_count,
+				bool key_agree_purpose)
 {
 	uint32_t type;
 	uint32_t padding = 0;
@@ -267,7 +269,10 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 		case KM_EC_CURVE_P_256:
 		case KM_EC_CURVE_P_384:
 		case KM_EC_CURVE_P_521:
-			type = TEE_TYPE_ECDSA_KEYPAIR;
+			if (key_agree_purpose)
+				type = TEE_TYPE_ECDH_KEYPAIR;
+			else
+				type = TEE_TYPE_ECDSA_KEYPAIR;
 			break;
 		case KM_EC_CURVE_CURVE_25519:
 			if (is_ed25519) {
@@ -342,6 +347,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 					const keymaster_ec_curve_t ec_curve,
 					bool is_ed25519,
 					bool release_object_h,
+					bool key_agree_purpose,
 					TEE_ObjectHandle *object_h,
 					TEE_Attribute **attrs)
 {
@@ -432,7 +438,10 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 		case KM_EC_CURVE_P_521:
 			attributes = attributes_ec;
 			attr_count = KM_ATTR_COUNT_EC;
-			type = TEE_TYPE_ECDSA_KEYPAIR;
+			if (key_agree_purpose)
+				type = TEE_TYPE_ECDH_KEYPAIR;
+			else
+				type = TEE_TYPE_ECDSA_KEYPAIR;
 			attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
 								TEE_MALLOC_FILL_ZERO);
 			if (!attrs_in) {
@@ -653,6 +662,7 @@ keymaster_error_t TA_populate_key_attrs(uint8_t *key_material,
 		     att->attrs_count, att->alg);
 		break;
 	case TEE_TYPE_ECDSA_KEYPAIR:
+	case TEE_TYPE_ECDH_KEYPAIR:
 		att->attrs_count = KM_ATTR_COUNT_EC;
 		att->alg = KM_ALGORITHM_EC;
 		DMSG("EC attrs_count = %u algorithm = %d",
@@ -1061,10 +1071,16 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 	case (KM_ALGORITHM_EC):
 		switch (key_size) {
 		case 192:
-			algo = TEE_ALG_ECDSA_P192;
+			if (purpose == KM_PURPOSE_AGREE_KEY)
+				algo = TEE_ALG_ECDH_P192;
+			else
+				algo = TEE_ALG_ECDSA_P192;
 			break;
 		case 224:
-			algo = TEE_ALG_ECDSA_P224;
+			if (purpose == KM_PURPOSE_AGREE_KEY)
+				algo = TEE_ALG_ECDH_P224;
+			else
+				algo = TEE_ALG_ECDSA_P224;
 			break;
 		case 256:
 			if (type == TEE_TYPE_ED25519_KEYPAIR) {
@@ -1072,14 +1088,23 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 			} else if (type == TEE_TYPE_X25519_KEYPAIR) {
 				algo = TEE_ALG_X25519;
 			} else {
-				algo = TEE_ALG_ECDSA_P256;
+				if (purpose == KM_PURPOSE_AGREE_KEY)
+					algo = TEE_ALG_ECDH_P256;
+				else
+					algo = TEE_ALG_ECDSA_P256;
 			}
 			break;
 		case 384:
-			algo = TEE_ALG_ECDSA_P384;
+			if (purpose == KM_PURPOSE_AGREE_KEY)
+				algo = TEE_ALG_ECDH_P384;
+			else
+				algo = TEE_ALG_ECDSA_P384;
 			break;
 		case 521:
-			algo = TEE_ALG_ECDSA_P521;
+			if (purpose == KM_PURPOSE_AGREE_KEY)
+				algo = TEE_ALG_ECDH_P521;
+			else
+				algo = TEE_ALG_ECDSA_P521;
 			break;
 		default:
 			EMSG("Unsupported key size for EC");

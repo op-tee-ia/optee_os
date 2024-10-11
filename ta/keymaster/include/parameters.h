@@ -73,6 +73,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				bool *is_ed25519,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
+				bool *key_agree_purpose,
 				keymaster_blob_t **challenge,
 				const bool import,
 				bool *early_boot_only);
