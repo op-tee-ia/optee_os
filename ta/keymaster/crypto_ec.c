@@ -72,6 +72,7 @@ keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
 		res = TA_store_sf_data(input, operation);
 		*input_consumed = input_provided;
 		output->data_length = 0;
+		break;
 	default:
 		res = KM_ERROR_UNSUPPORTED_PURPOSE;
 	}
@@ -92,6 +93,7 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 	uint8_t digest_out[KM_MAX_DIGEST_SIZE];
 	uint8_t *in_buf = NULL;
 	uint32_t in_buf_l = 0;
+	uint32_t attr_count = 0;
 	TEE_Attribute *attrs = NULL;
 	TEE_ObjectHandle derivedKey = TEE_HANDLE_NULL;
 
@@ -175,7 +177,12 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 		in_buf = input->data;
 		in_buf_l = input->data_length;
 
-		attrs = TEE_Malloc(sizeof(TEE_Attribute) * 2,
+		if (type == TEE_TYPE_X25519_KEYPAIR)
+			attr_count = 1;
+		else
+			attr_count = 2;
+
+		attrs = TEE_Malloc(sizeof(TEE_Attribute) * attr_count,
 											TEE_MALLOC_FILL_ZERO);
 
 		if (!attrs) {
@@ -184,7 +191,8 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 		}
 
 		res = mbedTLS_decode_ecc_subpubkey(in_buf, in_buf_l,
-						&attrs[0], &attrs[1]);
+						attrs, type == TEE_TYPE_X25519_KEYPAIR);
+
 		if (res != KM_ERROR_OK) {
 			EMSG("Failed to decode EC subject public key, res=%x", res);
 			break;
@@ -196,7 +204,7 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 			break;
 		}
 
-		TEE_DeriveKey(*operation->operation, attrs, 2, derivedKey);
+		TEE_DeriveKey(*operation->operation, attrs, attr_count, derivedKey);
 
 		res = TEE_GetObjectBufferAttribute(derivedKey, TEE_ATTR_SECRET_VALUE,
 						output->data, out_size);
@@ -212,6 +220,6 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 	}
 out:
 	TEE_FreeTransientObject(derivedKey);
-	free_attrs(attrs, 2);
+	free_attrs(attrs, attr_count);
 	return res;
 }

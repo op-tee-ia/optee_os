@@ -482,7 +482,7 @@ out:
 	if (ret != KM_ERROR_OK)
 		free_attrs(att, count);
 
-	return KM_ERROR_OK;
+	return ret;
 }
 
 /* Convert mbedtls_ecp_keypair* to TEE_Attributes array */
@@ -547,7 +547,7 @@ out:
 	if (ret != KM_ERROR_OK)
 		free_attrs(att, count);
 
-	return KM_ERROR_OK;
+	return ret;
 }
 
 keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
@@ -2477,11 +2477,15 @@ err:
 
 keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 					 uint32_t len,
-					 TEE_Attribute * att_x,
-					 TEE_Attribute * att_y) {
+					 TEE_Attribute * attrs,
+					 bool is_curve25519) {
 	TEE_Result res = TEE_SUCCESS;
 
 	DMSG("%s %d", __func__, __LINE__);
+	if (attrs == NULL) {
+		DMSG("X/Y value pointer is NULL for EC");
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
 
 	mbedtls_pk_context pk;
 	mbedtls_pk_init(&pk);
@@ -2494,15 +2498,21 @@ keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 
     mbedtls_ecp_keypair *ec_key = (mbedtls_ecp_keypair *) pk.pk_ctx;
 
-	if ((res = mpi_to_att(att_x, &ec_key->Q.X,
-						TEE_ATTR_ECC_PUBLIC_VALUE_X) != 0)) {
-		EMSG("Failed to write Q.X to att");
-		goto out;
-	}
+	if (!is_curve25519) {
+		if ((res = mpi_to_att(&attrs[0], &ec_key->Q.X,
+				  TEE_ATTR_ECC_PUBLIC_VALUE_X) != 0)) {
+			EMSG("Failed to write Q.X to att");
+			goto out;
+		}
 
-	if ((res = mpi_to_att(att_y, &ec_key->Q.Y,
-						TEE_ATTR_ECC_PUBLIC_VALUE_Y)) != 0) {
-		EMSG("Failed to write Q.Y to att");
+		if ((res = mpi_to_att(&attrs[1], &ec_key->Q.Y,
+				  TEE_ATTR_ECC_PUBLIC_VALUE_Y)) != 0) {
+			EMSG("Failed to write Q.Y to att");
+			goto out;
+		}
+	} else if ((res = mpi_to_att_curve25519(ec_key, attrs,
+				  TEE_ATTR_X25519_PUBLIC_VALUE)) != 0) {
+		EMSG("Failed to write X25519 public value X25519 public value to att");
 		goto out;
 	}
 
