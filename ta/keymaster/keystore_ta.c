@@ -1216,7 +1216,7 @@ static keymaster_error_t TA_generateKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	if (key_algorithm == KM_ALGORITHM_EC) {
 		DMSG("key_algorithm == KM_ALGORITHM_EC");
-		TA_add_ec_curve(&params_t, key_size);
+		TA_add_ec_curve(&params_t, key_size, is_ed25519);
 	}
 	
 	DMSG("key_algorithm=%d key_rsa_public_exponent=%lu",
@@ -3610,7 +3610,7 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	if (key_algorithm == KM_ALGORITHM_EC) {
 		DMSG("key_algorithm == KM_ALGORITHM_EC");
-		TA_add_ec_curve(&params_t, key_size);
+		TA_add_ec_curve(&params_t, key_size, is_ed25519);
 	}
 
 	DMSG("key_algorithm=%d key_rsa_public_exponent=%lu", key_algorithm,

@@ -103,8 +103,7 @@ void TA_add_to_params(keymaster_key_param_set_t *params,
 		for (size_t i = 0; i < params->length; i++) {
 			if (params->params[i].tag == KM_TAG_EC_CURVE) {
 				was_added = true;
-					params->params[i].key_param.enumerated =
-							is_curve25519 ? KM_EC_CURVE_CURVE_25519 : TA_size_to_ECcurve(key_size);
+					params->params[i].key_param.enumerated = TA_size_to_ECcurve(key_size, is_curve25519);
 				break;
 			}
 		}
@@ -112,7 +111,7 @@ void TA_add_to_params(keymaster_key_param_set_t *params,
 			(params->params + params->length)->tag = KM_TAG_EC_CURVE;
 			(params->params + params->length)->
 					key_param.enumerated =
-							is_curve25519 ? KM_EC_CURVE_CURVE_25519 : TA_size_to_ECcurve(key_size);
+							TA_size_to_ECcurve(key_size, is_curve25519);
 			params->length++;
 		}
 	}
@@ -167,6 +166,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	bool is_ec_curve = false;
 	bool rollback_resistance = false;
 	bool device_unique_attestation = false;
+	bool is_curve25519 = false;
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
@@ -213,6 +213,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			ec_curve = (keymaster_ec_curve_t)
 					(params_t.params + i)->
 						key_param.enumerated;
+			if (ec_curve == KM_EC_CURVE_CURVE_25519)
+				is_curve25519 = true;
 			break;
 		case KM_TAG_PURPOSE:
 			key_purpose = (keymaster_purpose_t)
@@ -298,7 +300,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			/*If the request contains both,
 			 * use the curve specified by Tag::EC_CURVE,
 			 * and validate that the specified key size is appropriate*/
-			if (ec_curve != TA_size_to_ECcurve(*key_size)) {
+			if (ec_curve != TA_size_to_ECcurve(*key_size, is_curve25519)) {
 				EMSG("For EC algorithm specified key size"
 						"is not appropriate for that curve");
 				return KM_ERROR_INVALID_ARGUMENT;
@@ -734,10 +736,10 @@ bool TA_upgrade_version_patchlevel(keymaster_key_param_set_t *params_t,
 	return true;
 }
 
-void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size)
+void TA_add_ec_curve(keymaster_key_param_set_t *params_t, uint32_t key_size, bool is_curve25519)
 {
 	bool tag_added = false;
-	keymaster_ec_curve_t curve = TA_size_to_ECcurve(key_size);
+	keymaster_ec_curve_t curve = TA_size_to_ECcurve(key_size, is_curve25519);
 	DMSG("%s %d", __func__, __LINE__);
 
 	for (size_t i = 0; i < params_t->length; i++) {
