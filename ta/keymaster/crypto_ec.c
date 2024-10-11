@@ -68,6 +68,10 @@ keymaster_error_t TA_ec_update(keymaster_operation_t *operation,
 		*input_consumed = input_provided;
 		output->data_length = 0;
 		break;
+	case KM_PURPOSE_AGREE_KEY:
+		res = TA_store_sf_data(input, operation);
+		*input_consumed = input_provided;
+		output->data_length = 0;
 	default:
 		res = KM_ERROR_UNSUPPORTED_PURPOSE;
 	}
@@ -88,6 +92,8 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 	uint8_t digest_out[KM_MAX_DIGEST_SIZE];
 	uint8_t *in_buf = NULL;
 	uint32_t in_buf_l = 0;
+	TEE_Attribute *attrs = NULL;
+	TEE_ObjectHandle derivedKey = TEE_HANDLE_NULL;
 
 	switch (operation->purpose) {
 	case KM_PURPOSE_VERIFY:
@@ -159,9 +165,53 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 				res = KM_ERROR_VERIFICATION_FAILED;
 		}
 		break;
+	case KM_PURPOSE_AGREE_KEY:
+		res = TA_append_sf_data(input, operation, is_input_ext);
+		if (res != KM_ERROR_OK)
+			break;
+		/* Output size wount change ahen
+		 * stored data is appended
+		 */
+		in_buf = input->data;
+		in_buf_l = input->data_length;
+
+		attrs = TEE_Malloc(sizeof(TEE_Attribute) * 2,
+											TEE_MALLOC_FILL_ZERO);
+
+		if (!attrs) {
+			EMSG("Failed to allocate memory for attribute");
+			return KM_ERROR_MEMORY_ALLOCATION_FAILED;
+		}
+
+		res = mbedTLS_decode_ecc_subpubkey(in_buf, in_buf_l,
+						&attrs[0], &attrs[1]);
+		if (res != KM_ERROR_OK) {
+			EMSG("Failed to decode EC subject public key, res=%x", res);
+			break;
+		}
+
+		res = TEE_AllocateTransientObject(TEE_TYPE_GENERIC_SECRET, 512, &derivedKey);
+		if (res != TEE_SUCCESS) {
+			EMSG("Allocate aes key object handle failed(%d)", res);
+			break;
+		}
+
+		TEE_DeriveKey(*operation->operation, attrs, 2, derivedKey);
+
+		res = TEE_GetObjectBufferAttribute(derivedKey, TEE_ATTR_SECRET_VALUE,
+						output->data, out_size);
+		if (res != TEE_SUCCESS) {
+			EMSG("Get object buffer failed(%d)", res);
+			break;
+		}
+		output->data_length = *out_size;
+
+		break;
 	default:
 		res = KM_ERROR_UNSUPPORTED_PURPOSE;
 	}
 out:
+	TEE_FreeTransientObject(derivedKey);
+	free_attrs(attrs, 2);
 	return res;
 }

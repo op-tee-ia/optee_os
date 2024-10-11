@@ -69,7 +69,8 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 				uint8_t *key_material,
 				const keymaster_digest_t digest,
 				const TEE_Attribute *attrs_in,
-				const uint32_t attrs_in_count);
+				const uint32_t attrs_in_count,
+				bool key_agree_purpose);
 
 keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 				const uint32_t key_size,
@@ -79,6 +80,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 				const keymaster_ec_curve_t ec_curve,
 				bool is_ed25519,
 				bool release_object_h,
+				bool key_agree_purpose,
 				TEE_ObjectHandle *object_h,
 				TEE_Attribute **attrs);
 

@@ -155,6 +155,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				bool *is_ed25519,
 				keymaster_digest_t *key_digest,
 				bool *attest_purpose,
+				bool *key_agree_purpose,
 				keymaster_blob_t **challenge,
 				const bool import,
 				bool *early_boot_only)
@@ -224,6 +225,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				purpose_count++;
 			}
 			if (key_purpose == KM_PURPOSE_AGREE_KEY) {
+				*key_agree_purpose = true;
 				purpose_count++;
 			}
 			break;
@@ -1190,7 +1192,8 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				*algorithm != KM_ALGORITHM_RSA &&
 				*op_padding != KM_PAD_NONE &&
 				op_purpose != KM_PURPOSE_ENCRYPT &&
-				op_purpose != KM_PURPOSE_DECRYPT) {
+				op_purpose != KM_PURPOSE_DECRYPT &&
+				op_purpose != KM_PURPOSE_AGREE_KEY) {
 			EMSG("Operation digest is not set");
 			res = KM_ERROR_UNSUPPORTED_DIGEST;
 			goto out_cp;
