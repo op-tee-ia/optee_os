@@ -2447,6 +2447,43 @@ err:
 	return ret;
 }
 
+keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
+					 uint32_t len,
+					 TEE_Attribute * att_x,
+					 TEE_Attribute * att_y) {
+	TEE_Result res = TEE_SUCCESS;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	mbedtls_pk_context pk;
+	mbedtls_pk_init(&pk);
+
+	res = mbedtls_pk_parse_subpubkey(&input, input + len, &pk);
+	if (res != TEE_SUCCESS) {
+		DMSG("mbedtls_pk_parse_subpubkey failed(%d)", res);
+		goto out;
+	}
+
+    mbedtls_ecp_keypair *ec_key = (mbedtls_ecp_keypair *) pk.pk_ctx;
+
+	if ((res = mpi_to_att(att_x, &ec_key->Q.X,
+						TEE_ATTR_ECC_PUBLIC_VALUE_X) != 0)) {
+		EMSG("Failed to write Q.X to att");
+		goto out;
+	}
+
+	if ((res = mpi_to_att(att_y, &ec_key->Q.Y,
+						TEE_ATTR_ECC_PUBLIC_VALUE_Y)) != 0) {
+		EMSG("Failed to write Q.Y to att");
+		goto out;
+	}
+
+out:
+	mbedtls_pk_free(&pk);
+
+	return res;
+}
+
 static int jacobian_coordinates_to_affine_coordinates(mbedtls_ecp_group *grp, mbedtls_ecp_point *P)
 {
 	int ret = 0;
