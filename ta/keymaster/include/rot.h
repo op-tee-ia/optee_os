@@ -20,10 +20,18 @@
 
 #define SHA256_DIGEST_LENGTH    32
 #define AVB_SHA512_DIGEST_SIZE  64
+#define KM_INFO_SLOT_NUM	4
+
+enum KM_SLOT_INDEX {
+	KM_OS_VERSION,
+	KM_OS_PATCH_LEVEL,
+	KM_VENDOR_PATCH_LEVEL,
+	KM_EARLY_BOOT_SET
+};
 
 /* Structure for RoT info (fields defined by Google Keymaster2)
 */
-struct rot_data_t{
+struct rot_data_t {
 	/* version 2 for current TEE keymaster2 */
 	uint32_t version;
 	/* 0:unlocked, 1:locked, others not used */
@@ -53,16 +61,20 @@ struct rot_data_t{
 	uint8_t  vbmetaDigest[AVB_SHA512_DIGEST_SIZE];
 };
 
+struct ex_rot_data_t {
+	struct rot_data_t rot_data;
+	uint32_t km_info[KM_INFO_SLOT_NUM];
+};
+
 typedef struct tee_km_context {
 	bool version_info_set;
 	bool rot_info_set;
 	bool vendor_patchlevel_set;
-	bool boot_patchlevel_set;
 	uint32_t os_version;
 	uint32_t os_patchlevel;
 	uint32_t vendor_patchlevel;
 	uint32_t boot_patchlevel;
-	struct rot_data_t rot;
+	struct ex_rot_data_t rot;
 } tee_km_context_t;
 
 #define DICE_CDI_SIZE 32
@@ -75,7 +87,8 @@ typedef struct tee_dice_context {
 	size_t cdi_certificate_actual_size;
 } tee_dice_context_t;
 
-void TA_init_km_context(void);
-keymaster_error_t TA_set_rot_data(void);
+keymaster_error_t TA_init_km_context(void);
+keymaster_error_t TA_get_rot_data(void);
+keymaster_error_t TA_configure_rot_info(enum KM_SLOT_INDEX index, uint32_t value);
 
 #endif/* ANDROID_OPTEE_ROT_H */
