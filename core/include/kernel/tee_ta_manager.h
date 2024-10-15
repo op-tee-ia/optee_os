@@ -119,6 +119,8 @@ TEE_Result tee_ta_cancel_command(TEE_ErrorOrigin *err,
 
 bool tee_ta_session_is_cancelled(struct tee_ta_session *s, TEE_Time *curr_time);
 
+void tee_ta_single_instance_reinit(void);
+
 /*-----------------------------------------------------------------------------
  * Function called to close a TA.
  * Parameters:

@@ -97,6 +97,14 @@ static bool has_single_instance_lock(void)
 }
 #endif
 
+void tee_ta_single_instance_reinit(void)
+{
+	tee_ta_cv.spin_lock = 0;
+	tee_ta_cv.m = NULL;
+	tee_ta_single_instance_thread = THREAD_ID_INVALID;
+	tee_ta_single_instance_count = 0;
+}
+
 struct tee_ta_session *__noprof to_ta_session(struct ts_session *sess)
 {
 	assert(is_ta_ctx(sess->ctx) || is_stmm_ctx(sess->ctx));

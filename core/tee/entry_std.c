@@ -490,9 +490,20 @@ out:
 uint32_t tee_get_opened_session(void)
 {
 	struct tee_ta_session *s = NULL;
+	struct ts_ctx *ts_ctx = NULL;
+	struct tee_ta_ctx *ctx = NULL;
 
 	TAILQ_FOREACH(s, &tee_open_sessions, link) {
 		IMSG("Get opened session %u", s->id);
+		s->lock_thread = THREAD_ID_INVALID;
+		ts_ctx = s->ts_sess.ctx;
+		if (ts_ctx != NULL) {
+			if (is_ta_ctx(ts_ctx)) {
+				ctx = container_of(ts_ctx, struct tee_ta_ctx, ts_ctx);
+				if (ctx != NULL)
+					ctx->busy = false;
+			}
+		}
 		return s->id;
 	}
 
