@@ -291,6 +291,8 @@ bool thread_enable_prealloc_rpc_cache(void)
 	}
 	IMSG("All of threads are initilized to free state");
 
+	tee_ta_single_instance_reinit();
+
 	thread_prealloc_rpc_cache = true;
 
 	thread_unlock_global();
