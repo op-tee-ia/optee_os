@@ -91,9 +91,11 @@ static struct ivshmem_device g_ivshmem_devs[TEE_MAX_IVSHMEM_DEVICE];
 #define SHA256_DIGEST_LENGTH    32
 #define AVB_SHA512_DIGEST_SIZE  64
 
+#define KEYMASTER_INFO_SLOT_NUM	4
+
 /* Structure for RoT info (fields defined by Google Keymaster2)
 */
-struct rot_data_t{
+struct rot_data_t {
 	/* version 2 for current TEE keymaster2 */
 	uint32_t version;
 	/* 0:unlocked, 1:locked, others not used */
@@ -121,9 +123,17 @@ struct rot_data_t{
 
 	uint32_t digestSize;
 	uint8_t  vbmetaDigest[AVB_SHA512_DIGEST_SIZE];
+
 };
 
-static struct rot_data_t g_rot_data;
+struct ex_rot_data_t {
+	struct rot_data_t rot;
+	/* ROT info specific for keymaster */
+	uint32_t km_info[KEYMASTER_INFO_SLOT_NUM];
+};
+
+
+static struct ex_rot_data_t g_rot_data;
 
 static bool g_rot_already_set = false;
 
@@ -144,9 +154,10 @@ static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 
 		memset(&g_rot_data, 0, sizeof(g_rot_data));
 
-		memcpy(&g_rot_data, (void *)g_ivshmem_devs[0].rot_addr, sizeof(g_rot_data));
+		memcpy(&g_rot_data.rot, (void *)g_ivshmem_devs[0].rot_addr,
+						sizeof(struct rot_data_t));
 
-		memzero_explicit((void *)g_ivshmem_devs[0].rot_addr, sizeof(g_rot_data));
+		memzero_explicit((void *)g_ivshmem_devs[0].rot_addr, sizeof(struct rot_data_t));
 
 		g_rot_already_set = true;
 	}
@@ -667,5 +678,15 @@ TEE_Result ivshmem_rot_copy(uint8_t dev __unused, void *dest, size_t size)
 		return TEE_ERROR_BAD_PARAMETERS;
 
 	memcpy(dest, (void *)&g_rot_data, size);
+	return TEE_SUCCESS;
+}
+
+TEE_Result ivshmem_rot_set(uint8_t dev __unused, uint32_t a, uint32_t b)
+{
+	if (a >= KEYMASTER_INFO_SLOT_NUM)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	g_rot_data.km_info[a] = b;
+
 	return TEE_SUCCESS;
 }
