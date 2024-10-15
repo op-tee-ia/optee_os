@@ -151,6 +151,9 @@ static unsigned int add_key_usage(keymaster_key_param_set_t *params)
 			key_usage |= MBEDTLS_X509_KU_KEY_ENCIPHERMENT |
 			             MBEDTLS_X509_KU_DATA_ENCIPHERMENT;
 			break;
+		case KM_PURPOSE_AGREE_KEY:
+			key_usage |= MBEDTLS_X509_KU_KEY_AGREEMENT;
+			break;
 		default:
 			break;
 		}
@@ -557,7 +560,9 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 {
 	mbedtls_pk_context pk;
 	keymaster_error_t ret = KM_ERROR_UNKNOWN_ERROR;
-	mbedtls_pk_type_t pk_type;
+	mbedtls_pk_type_t pk_type = MBEDTLS_PK_NONE;
+	mbedtls_ecp_keypair *curve25519 = NULL;
+	mbedtls_ecp_group_id id = MBEDTLS_ECP_DP_NONE;
 	uint64_t rsa_exp = 0;
 
 	keymaster_error_t (*pfn_export_ctx)(TEE_Attribute **, uint32_t *,
@@ -597,8 +602,20 @@ keymaster_error_t mbedTLS_decode_pkcs8(keymaster_blob_t key_data,
 		*rsa_public_exponent = TEE_U64_FROM_BIG_ENDIAN(rsa_exp);
 	}
 
-	pfn_export_ctx = algorithm == KM_ALGORITHM_RSA ? mbedtls_export_rsa :
-							 (pk_type == MBEDTLS_PK_ECKEY ? mbedtls_export_ecdsa : mbedtls_export_curve25519);
+	if (pk_type == MBEDTLS_PK_ECKEY ||
+	    pk_type == MBEDTLS_PK_ECDSA ||
+	    pk_type == MBEDTLS_PK_EDDSA) {
+		curve25519 = (const mbedtls_ecp_keypair *) (pk).MBEDTLS_PRIVATE(pk_ctx);
+		if (curve25519 != NULL) {
+			id = curve25519->grp.id;
+		}
+	}
+	if (id == MBEDTLS_ECP_DP_CURVE25519 ||
+	    id == MBEDTLS_ECP_DP_ED25519) {
+		pfn_export_ctx = mbedtls_export_curve25519;
+	} else {
+		pfn_export_ctx = algorithm == KM_ALGORITHM_RSA ? mbedtls_export_rsa : mbedtls_export_ecdsa;
+	}
 	ret = pfn_export_ctx(attrs, attrs_count, key_size, &pk);
 	if (ret) {
 		EMSG("Failed to export context");
@@ -1502,8 +1519,9 @@ static TEE_Result mbedTLS_gen_self_signed_cert(const keymaster_key_param_set_t *
 	}
 
 	ret = mbedtls_x509write_crt_set_key_usage(&crt,
-					    MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
-					    MBEDTLS_X509_KU_KEY_CERT_SIGN);
+						  MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+						  MBEDTLS_X509_KU_KEY_CERT_SIGN |
+						  MBEDTLS_X509_KU_KEY_AGREEMENT);
 	if (ret) {
 		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
 				-ret);
