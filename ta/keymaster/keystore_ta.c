@@ -174,7 +174,12 @@ TEE_Result TA_CreateEntryPoint(void)
 
 	DMSG("%s %d", __func__, __LINE__);
 
-	TA_init_km_context();
+	res = TA_init_km_context();
+	if (res != TEE_SUCCESS) {
+		EMSG("TA_init_km_context failed(%x)", res);
+		goto exit;
+	}
+
 	TA_reset_operations_table();
 
 	res = TA_create_secret_key();
@@ -238,7 +243,7 @@ TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 	if (param_types != exp_param_types)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	return TEE_SUCCESS;
+	return KM_ERROR_OK;
 }
 
 void TA_CloseSessionEntryPoint(void *sess_ctx __unused)
@@ -297,7 +302,7 @@ static uint32_t tee_get_vendor_patchlevel(void)
 
 static uint32_t tee_get_boot_patchlevel(void)
 {
-	optee_km_context.boot_patchlevel = optee_km_context.rot.patchMonthYearDay;
+	optee_km_context.boot_patchlevel = optee_km_context.rot.rot_data.patchMonthYearDay;
 	return optee_km_context.boot_patchlevel;
 }
 
@@ -570,7 +575,7 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 
 	/* set rot data if not */
 	if (!optee_km_context.rot_info_set) {
-		res = TA_set_rot_data();
+		res = TA_get_rot_data();
 		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
 			EMSG("Failed(%d) to get root of trust data", res);
 			goto err;
@@ -579,8 +584,8 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 	}
 
 	/* copy rot.deviceLocked to hidden */
-	rot.data = (uint8_t*)&optee_km_context.rot.deviceLocked;
-	rot.data_length = sizeof(optee_km_context.rot.deviceLocked);
+	rot.data = (uint8_t*)&optee_km_context.rot.rot_data.deviceLocked;
+	rot.data_length = sizeof(optee_km_context.rot.rot_data.deviceLocked);
 	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
 	if (oob) {
 		EMSG("Out of output buffer space");
@@ -589,8 +594,8 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 	}
 
 	/* copy rot.verifiedBootState to hidden */
-	rot.data = (uint8_t*)&optee_km_context.rot.verifiedBootState;
-	rot.data_length = sizeof(optee_km_context.rot.verifiedBootState);
+	rot.data = (uint8_t*)&optee_km_context.rot.rot_data.verifiedBootState;
+	rot.data_length = sizeof(optee_km_context.rot.rot_data.verifiedBootState);
 	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
 	if (oob) {
 		EMSG("Out of output buffer space");
@@ -599,8 +604,8 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 	}
 
 	/* copy rot.keyHash256 to hidden */
-	rot.data = (uint8_t*)optee_km_context.rot.keyHash256;
-	rot.data_length = optee_km_context.rot.keySize;
+	rot.data = (uint8_t*)optee_km_context.rot.rot_data.keyHash256;
+	rot.data_length = optee_km_context.rot.rot_data.keySize;
 	out += TA_serialize_blob_akms(out, out_end, &rot, &oob);
 	if (oob) {
 		EMSG("Out of output buffer space");
@@ -693,6 +698,17 @@ static keymaster_error_t TA_configure(TEE_Param params[TEE_NUM_PARAMS])
 		       sizeof(optee_km_context.os_patchlevel));
 		in += 4;
 		optee_km_context.version_info_set = true;
+
+		if ((res = TA_configure_rot_info(KM_OS_VERSION,
+							optee_km_context.os_version))) {
+			DMSG("Configure KM_OS_VERSION to rot failed");
+			goto out;
+		}
+		if ((res = TA_configure_rot_info(KM_OS_PATCH_LEVEL,
+							optee_km_context.os_patchlevel))) {
+			DMSG("Configure KM_OS_PATCH_LEVEL to rot failed");
+			goto out;
+		}
 	}
 
 out:
@@ -734,6 +750,12 @@ static keymaster_error_t TA_configure_vendor_patchlevel(TEE_Param params[TEE_NUM
 		TEE_MemMove(&optee_km_context.vendor_patchlevel, in,
 		       sizeof(optee_km_context.vendor_patchlevel));
 		optee_km_context.vendor_patchlevel_set = true;
+
+		if ((res = TA_configure_rot_info(KM_VENDOR_PATCH_LEVEL,
+						optee_km_context.vendor_patchlevel))) {
+			DMSG("Configure KM_VENDOR_PATCH_LEVEL to rot failed");
+			goto out;
+		}
 	}
 
 out:
@@ -3342,8 +3364,13 @@ exit:
 
 static keymaster_error_t TA_earlyBootEnded()
 {
+	keymaster_error_t res = KM_ERROR_OK;
 	g_isEarlyBootEnded = true;
-	return KM_ERROR_OK;
+
+	if ((res = TA_configure_rot_info(KM_EARLY_BOOT_SET, 1)))
+		DMSG("Configure KM_EARLY_BOOT_SET to rot failed");
+
+	return res;
 }
 
 static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
@@ -3386,7 +3413,7 @@ static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* set rot data if not */
 	if (!optee_km_context.rot_info_set) {
-		error = TA_set_rot_data();
+		error = TA_get_rot_data();
 		if (error != KM_ERROR_OK && error != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
 			EMSG("Failed(%d) to get root of trust data", error);
 			goto exit;
@@ -3401,8 +3428,8 @@ static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 	result = cbor_array_push(root_of_trust_array,
-			cbor_move(cbor_build_bytestring(optee_km_context.rot.keyHash256, optee_km_context.rot.keySize)));
-	if (!optee_km_context.rot.deviceLocked) {
+			cbor_move(cbor_build_bytestring(optee_km_context.rot.rot_data.keyHash256, optee_km_context.rot.rot_data.keySize)));
+	if (!optee_km_context.rot.rot_data.deviceLocked) {
 		device_locked = false;
 	} else {
 		device_locked = true;
@@ -3410,9 +3437,9 @@ static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
 	result &= cbor_array_push(root_of_trust_array,
 			cbor_move(cbor_build_bool(device_locked)));
 	result &= cbor_array_push(root_of_trust_array,
-			cbor_move(cbor_build_uint8(optee_km_context.rot.verifiedBootState)));
+			cbor_move(cbor_build_uint8(optee_km_context.rot.rot_data.verifiedBootState)));
 	result &= cbor_array_push(root_of_trust_array,
-			cbor_move(cbor_build_bytestring(optee_km_context.rot.vbmetaDigest, optee_km_context.rot.digestSize)));
+			cbor_move(cbor_build_bytestring(optee_km_context.rot.rot_data.vbmetaDigest, optee_km_context.rot.rot_data.digestSize)));
 	result &= cbor_array_push(root_of_trust_array,
 			cbor_move(cbor_build_uint8(optee_km_context.boot_patchlevel)));
 	if (!result) {
@@ -3927,7 +3954,7 @@ static keymaster_error_t TA_generateCsrV2(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* set rot data if not */
 	if (!optee_km_context.rot_info_set) {
-		res = TA_set_rot_data();
+		res = TA_get_rot_data();
 		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
 			EMSG("Failed(%d) to get root of trust data", res);
 			goto out;

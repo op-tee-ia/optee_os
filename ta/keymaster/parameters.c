@@ -965,10 +965,10 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			break;
 		case KM_TAG_BOOT_PATCHLEVEL:
 			if (key_params->params[i].key_param.integer <
-				optee_km_context.rot.patchMonthYearDay) {
+				optee_km_context.rot.rot_data.patchMonthYearDay) {
 				return KM_ERROR_KEY_REQUIRES_UPGRADE;
 			} else if (key_params->params[i].key_param.integer >
-				optee_km_context.rot.patchMonthYearDay) {
+				optee_km_context.rot.rot_data.patchMonthYearDay) {
 				return KM_ERROR_INVALID_KEY_BLOB;
 			}
 			break;

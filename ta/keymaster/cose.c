@@ -375,7 +375,7 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("product")),
 						   .value = cbor_move(cbor_build_string("Fake Product"))});
 
-	switch(optee_km_context->rot.verifiedBootState) {
+	switch(optee_km_context->rot.rot_data.verifiedBootState) {
 	case KM_VERIFIED_BOOT_VERIFIED:
 		vb_state_str = "green";
 		break;
@@ -393,7 +393,7 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("vb_state")),
 						   .value = cbor_move(cbor_build_string(vb_state_str))});
 	memset(os_version_str, 0, 6);
-	snprintf((char *)os_version_str, 6, "%06u", optee_km_context->rot.osVersion);
+	snprintf((char *)os_version_str, 6, "%06u", optee_km_context->rot.rot_data.osVersion);
 
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("os_version")),
@@ -403,7 +403,7 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 						   .value = cbor_move(cbor_build_string("Intel"))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("vbmeta_digest")),
-						   .value = cbor_move(cbor_build_bytestring(optee_km_context->rot.vbmetaDigest, optee_km_context->rot.digestSize))});
+						   .value = cbor_move(cbor_build_bytestring(optee_km_context->rot.rot_data.vbmetaDigest, optee_km_context->rot.rot_data.digestSize))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("security_level")),
 						   .value = cbor_move(cbor_build_string("tee"))});
@@ -412,7 +412,7 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 						   .value = cbor_move(cbor_build_uint32(optee_km_context->boot_patchlevel))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("bootloader_state")),
-						   .value = cbor_move(cbor_build_string(optee_km_context->rot.deviceLocked ? "locked" : "unlocked"))});
+						   .value = cbor_move(cbor_build_string(optee_km_context->rot.rot_data.deviceLocked ? "locked" : "unlocked"))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("system_patch_level")),
 						   .value = cbor_move(cbor_build_uint32(optee_km_context->os_patchlevel))});
