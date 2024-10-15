@@ -37,5 +37,8 @@ void ivshmem_doorbell_ring(uint8_t dev, uint32_t peer);
 /* ROT infomation copy basedon ivshmem */
 TEE_Result ivshmem_rot_copy(uint8_t dev, void *dest, size_t size);
 
+/* OsPatchLevel, VendorPatchLevel and EarlyBootSet info will be set
+ * by keymaster ta */
+TEE_Result ivshmem_rot_set(uint8_t dev __unused, uint32_t a, uint32_t b);
 
 #endif

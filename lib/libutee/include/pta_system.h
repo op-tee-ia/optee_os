@@ -209,8 +209,8 @@
  */
 #define PTA_SYSTEM_GET_ROT	14
 
+#define PTA_SYSTEM_SET_ROT	15
 
-#define PTA_SYSTEM_GET_DICE      15
-
+#define PTA_SYSTEM_GET_DICE      16
 
 #endif /* __PTA_SYSTEM_H */
