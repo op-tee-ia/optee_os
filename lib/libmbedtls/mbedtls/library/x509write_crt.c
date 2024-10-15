@@ -424,12 +424,13 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
     unsigned char sig[MBEDTLS_PK_SIGNATURE_MAX_SIZE];
     size_t hash_length = 0;
     unsigned char hash[MBEDTLS_MD_MAX_SIZE];
+    mbedtls_ecdsa_context * ecc_ctx = (mbedtls_ecdsa_context *)ctx->issuer_key->pk_ctx;
 #if defined(MBEDTLS_USE_PSA_CRYPTO)
     psa_status_t status = PSA_ERROR_CORRUPTION_DETECTED;
     psa_algorithm_t psa_algorithm;
 #endif /* MBEDTLS_USE_PSA_CRYPTO */
 
-    size_t sub_len = 0, pub_len = 0, sig_and_oid_len = 0, sig_len;
+    size_t sub_len = 0, pub_len = 0, sig_and_oid_len = 0, sig_len = 0;
     size_t len = 0;
     mbedtls_pk_type_t pk_alg;
     int write_sig_null_par;
@@ -626,11 +627,23 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
             return ret;
         }
     } else {
-        if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
+#ifdef MBEDTLS_ECP_DP_CURVE25519_ENABLED
+        if(ecc_ctx->grp.id != MBEDTLS_ECP_DP_CURVE25519){
+            if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
                                    hash, hash_length, sig, sizeof(sig), &sig_len,
                                    f_rng, p_rng)) != 0) {
+                return ret;
+            }
+        }else {
+            sig_len = 0; // Skip signature if mbedtls_ecdsa_can_do returns 0
+        }
+#else
+        if ((ret = mbedtls_pk_sign(ctx->issuer_key, ctx->md_alg,
+                                hash, hash_length, sig, sizeof(sig), &sig_len,
+                                f_rng, p_rng)) != 0) {
             return ret;
         }
+#endif
     }
 
     /* Move CRT to the front of the buffer to have space
@@ -643,8 +656,8 @@ int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx,
      * into the CRT buffer. */
     c2 = buf + size;
     MBEDTLS_ASN1_CHK_ADD(sig_and_oid_len, mbedtls_x509_write_sig(&c2, c,
-                                                                 sig_oid, sig_oid_len,
-                                                                 sig, sig_len, pk_alg));
+                                                                sig_oid, sig_oid_len,
+                                                                sig, sig_len, pk_alg));
 
     /*
      * Memory layout after this step:
