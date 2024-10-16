@@ -375,6 +375,27 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("product")),
 						   .value = cbor_move(cbor_build_string("Fake Product"))});
 
+	DMSG("version_info_set: %d", optee_km_context->version_info_set);
+	DMSG("rot_info_set: %d", optee_km_context->rot_info_set);
+	DMSG("vendor_patchlevel_set: %d", optee_km_context->vendor_patchlevel_set);
+	DMSG("os_version: %d", optee_km_context->os_version);
+	DMSG("os_patchlevel: %d", optee_km_context->os_patchlevel);
+	DMSG("vendor_patchlevel: %d", optee_km_context->vendor_patchlevel);
+	DMSG("boot_patchlevel: %d", optee_km_context->boot_patchlevel);
+	DMSG("rot.version: %d", optee_km_context->rot.rot_data.version);
+	DMSG("rot.deviceLocked: %d", optee_km_context->rot.rot_data.deviceLocked);
+	DMSG("rot.verifiedBootState: %d", optee_km_context->rot.rot_data.verifiedBootState);
+	DMSG("rot.osVersion: %d", optee_km_context->rot.rot_data.osVersion);
+	DMSG("rot.patchMonthYearDay: %d", optee_km_context->rot.rot_data.patchMonthYearDay);
+	printf("rot.keyHash256: ");
+	for (uint32_t i = 0; i < SHA256_DIGEST_LENGTH; i++)
+		printf("%02x", optee_km_context->rot.rot_data.keyHash256[i]);
+	printf("\n");
+	printf("rot.vbmetaDigest: ");
+	for (uint32_t i = 0; i < AVB_SHA512_DIGEST_SIZE; i++)
+		printf("%02x", optee_km_context->rot.rot_data.vbmetaDigest[i]);
+	printf("\n");
+
 	switch(optee_km_context->rot.rot_data.verifiedBootState) {
 	case KM_VERIFIED_BOOT_VERIFIED:
 		vb_state_str = "green";
