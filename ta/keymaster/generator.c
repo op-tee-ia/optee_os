@@ -269,10 +269,7 @@ keymaster_error_t TA_import_key(const keymaster_algorithm_t algorithm,
 		case KM_EC_CURVE_P_256:
 		case KM_EC_CURVE_P_384:
 		case KM_EC_CURVE_P_521:
-			if (key_agree_purpose)
-				type = TEE_TYPE_ECDH_KEYPAIR;
-			else
-				type = TEE_TYPE_ECDSA_KEYPAIR;
+			type = TEE_TYPE_ECDSA_KEYPAIR;
 			break;
 		case KM_EC_CURVE_CURVE_25519:
 			if (is_ed25519) {
@@ -438,10 +435,7 @@ keymaster_error_t TA_generate_key(const keymaster_algorithm_t algorithm,
 		case KM_EC_CURVE_P_521:
 			attributes = attributes_ec;
 			attr_count = KM_ATTR_COUNT_EC;
-			if (key_agree_purpose)
-				type = TEE_TYPE_ECDH_KEYPAIR;
-			else
-				type = TEE_TYPE_ECDSA_KEYPAIR;
+			type = TEE_TYPE_ECDSA_KEYPAIR;
 			attrs_in = TEE_Malloc(sizeof(TEE_Attribute),
 								TEE_MALLOC_FILL_ZERO);
 			if (!attrs_in) {
@@ -826,6 +820,7 @@ keymaster_error_t TA_restore_key(uint8_t *key_material,
 				const keymaster_key_blob_t *key_blob,
 				uint32_t *key_size, const uint8_t* hidden,
 				const size_t hidden_size, uint32_t *type,
+				bool is_agree_purpose,
 				TEE_ObjectHandle *obj_h,
 				keymaster_key_param_set_t *params_t)
 {
@@ -872,6 +867,9 @@ keymaster_error_t TA_restore_key(uint8_t *key_material,
 			goto out_rk;
 		}
 	}
+
+	if (is_agree_purpose && (attrs.type == TEE_TYPE_ECDSA_KEYPAIR))
+		attrs.type = TEE_TYPE_ECDH_KEYPAIR;
 
 	res = TA_key_from_attrs(obj_h, &attrs);
 	if (res != KM_ERROR_OK)	{

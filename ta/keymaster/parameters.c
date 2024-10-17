@@ -162,11 +162,13 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	bool check_min_mac_length = false;
 	uint32_t min_mac_length = UNDEFINED;
 	uint32_t digest_count = 0;
-	uint32_t purpose_count = 0;
 	bool is_ec_curve = false;
 	bool rollback_resistance = false;
 	bool device_unique_attestation = false;
 	bool is_curve25519 = false;
+	bool found_attest = false;
+	bool found_sign = false;
+	bool found_agree = false;
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
@@ -221,14 +223,14 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 					(params_t.params + i)->
 						key_param.enumerated;
 			DMSG("key_purpose is %d", key_purpose);
-			if (key_purpose == KM_PURPOSE_ATTEST_KEY ||
-			    key_purpose == KM_PURPOSE_SIGN) {
+			if (key_purpose == KM_PURPOSE_ATTEST_KEY) {
 				*attest_purpose = true;
-				purpose_count++;
-			}
-			if (key_purpose == KM_PURPOSE_AGREE_KEY) {
+				found_attest = true;
+			} else if (key_purpose == KM_PURPOSE_AGREE_KEY) {
+				found_agree = true;
+			} else if (key_purpose == KM_PURPOSE_SIGN) {
 				*key_agree_purpose = true;
-				purpose_count++;
+				found_sign = true;
 			}
 			break;
 		case KM_TAG_ATTESTATION_CHALLENGE:
@@ -346,8 +348,13 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	}
 
 out:
-	if (purpose_count > 1) {
-		EMSG("ATTEST_KEY or AGREE_KEY cannot be combined with any other purpose.");
+	if (found_attest && (found_sign || found_agree)) {
+		EMSG("keys with ATTEST_KEY must have no other purpose.");
+		return KM_ERROR_INCOMPATIBLE_PURPOSE;
+	}
+
+	if (is_curve25519 && found_agree && (found_sign || found_attest)) {
+		EMSG("curve25519 keys must be either SIGN/ATTEST_KEY or AGREE_KEY, not both.");
 		return KM_ERROR_INCOMPATIBLE_PURPOSE;
 	}
 
