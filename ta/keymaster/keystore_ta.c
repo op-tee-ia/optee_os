@@ -989,7 +989,8 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 
 	/* Restore root key */
 	res = TA_restore_key(key_material, &root_key_blob, &key_size,
-			     hidden, hidden_size, &key_type, &root_key, &params_t);
+			     hidden, hidden_size, &key_type, false,
+			     &root_key, &params_t);
 	if (res != KM_ERROR_OK)
 		goto exit;
 
@@ -1505,7 +1506,8 @@ static keymaster_error_t TA_getKeyCharacteristics(
 	}
 
 	res = TA_restore_key(key_material, &key_blob, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, false,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto exit;
 
@@ -1870,7 +1872,8 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material_restore, &key_blob, &key_size,
-			     hidden, hidden_size, &type, &key_obj_h, &params_restore);
+			     hidden, hidden_size, &type, false,
+			     &key_obj_h, &params_restore);
 	if (res != KM_ERROR_OK)
 		goto out;
 
@@ -2073,7 +2076,8 @@ static keymaster_error_t TA_exportKey(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material, &key_to_export, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, false,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 
@@ -2212,7 +2216,8 @@ static keymaster_error_t TA_upgradeKey(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material, &key_to_upgrade, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, false,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to restore the upgraded key, res=%x", res);
 		goto exit;
@@ -2385,7 +2390,8 @@ static keymaster_error_t TA_begin(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material, &key, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, purpose == KM_PURPOSE_AGREE_KEY,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	switch (type) {
@@ -2582,7 +2588,8 @@ static keymaster_error_t TA_update(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material, operation.key, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, false,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
@@ -2759,7 +2766,8 @@ static keymaster_error_t TA_finish(TEE_Param params[TEE_NUM_PARAMS])
 	}
 
 	res = TA_restore_key(key_material, operation.key, &key_size,
-				hidden, hidden_size, &type, &obj_h, &params_t);
+				hidden, hidden_size, &type, false,
+				&obj_h, &params_t);
 	if (res != KM_ERROR_OK)
 		goto out;
 	if (operation.do_auth) {
