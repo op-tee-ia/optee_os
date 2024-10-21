@@ -852,6 +852,18 @@ void vm_clean_param(struct user_mode_ctx *uctx)
 	}
 }
 
+void vm_clean_param_fast(struct user_mode_ctx *uctx)
+{
+	struct vm_region *next_r;
+	struct vm_region *r;
+
+	TAILQ_FOREACH_SAFE(r, &uctx->vm_info.regions, link, next_r) {
+		if (r->flags & VM_FLAG_EPHEMERAL) {
+			umap_remove_region(&uctx->vm_info, r);
+		}
+	}
+}
+
 static void check_param_map_empty(struct user_mode_ctx *uctx __maybe_unused)
 {
 	struct vm_region *r = NULL;
