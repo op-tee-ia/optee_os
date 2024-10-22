@@ -113,6 +113,7 @@ keymaster_error_t mbedTLS_decode_ec_sign(keymaster_blob_t *sig,
 keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 					uint32_t len,
 					TEE_Attribute* attrs,
+					uint32_t key_size,
 					bool is_curve25519);
 
 keymaster_error_t mbedTLS_get_ecdsa256_key_from_cert(const keymaster_blob_t *km_cert,

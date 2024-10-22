@@ -2478,8 +2478,10 @@ err:
 keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 					 uint32_t len,
 					 TEE_Attribute * attrs,
+					 uint32_t key_size,
 					 bool is_curve25519) {
 	TEE_Result res = TEE_SUCCESS;
+	uint32_t mpi_length = 0;
 
 	DMSG("%s %d", __func__, __LINE__);
 	if (attrs == NULL) {
@@ -2497,6 +2499,21 @@ keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 	}
 
     mbedtls_ecp_keypair *ec_key = (mbedtls_ecp_keypair *) pk.pk_ctx;
+
+	if (ec_key->grp.id == MBEDTLS_ECP_DP_CURVE25519)
+	{
+		mpi_length = 256;
+	}else
+	{
+		mpi_length = mbedtls_pk_get_bitlen(&pk);
+	}
+
+	if (TA_size_to_ECcurve(key_size, is_curve25519) != TA_size_to_ECcurve(mpi_length, ec_key->grp.id == MBEDTLS_ECP_DP_CURVE25519))
+	{
+		EMSG("Curve key size mismatch! %d != %d", key_size, mpi_length);
+		res = KM_ERROR_INVALID_ARGUMENT;
+		goto out;
+	}
 
 	if (!is_curve25519) {
 		if ((res = mpi_to_att(&attrs[0], &ec_key->Q.X,

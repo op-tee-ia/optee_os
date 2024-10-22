@@ -191,7 +191,7 @@ keymaster_error_t TA_ec_finish(const keymaster_operation_t *operation,
 		}
 
 		res = mbedTLS_decode_ecc_subpubkey(in_buf, in_buf_l,
-						attrs, type == TEE_TYPE_X25519_KEYPAIR);
+						attrs, key_size, type == TEE_TYPE_X25519_KEYPAIR);
 
 		if (res != KM_ERROR_OK) {
 			EMSG("Failed to decode EC subject public key, res=%x", res);
