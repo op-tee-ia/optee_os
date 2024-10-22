@@ -1956,28 +1956,28 @@ static TEE_Result mbedTLS_attest_key_cert_with_rootkey(
 	}
 
 	/* cA to false cause key_usage do not contain MBEDTLS_X509_KU_KEY_CERT_SIGN */
-	ret = mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
-	if (ret) {
-		EMSG("mbedtls_x509write_crt_set_basic_constraints: failed: -%#x", -ret);
-		res = TEE_ERROR_BAD_FORMAT;
-		goto out;
-	}
+	//ret = mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
+	//if (ret) {
+	//	EMSG("mbedtls_x509write_crt_set_basic_constraints: failed: -%#x", -ret);
+	//	res = TEE_ERROR_BAD_FORMAT;
+	//	goto out;
+	//}
 
-	ret = mbedtls_x509write_crt_set_subject_key_identifier(&crt);
-	if (ret) {
-		EMSG("mbedtls_x509write_crt_set_subject_key_identifier: failed: -%#x",
-				-ret);
-		res = TEE_ERROR_BAD_FORMAT;
-		goto out;
-	}
+	//ret = mbedtls_x509write_crt_set_subject_key_identifier(&crt);
+	//if (ret) {
+	//	EMSG("mbedtls_x509write_crt_set_subject_key_identifier: failed: -%#x",
+	//			-ret);
+	//	res = TEE_ERROR_BAD_FORMAT;
+	//	goto out;
+	//}
 
-	ret = mbedtls_x509write_crt_set_authority_key_identifier(&crt);
-	if (ret) {
-		EMSG("mbedtls_x509write_crt_set_authority_key_identifier: failed: -%#x",
-				-ret);
-		res = TEE_ERROR_BAD_FORMAT;
-		goto out;
-	}
+	//ret = mbedtls_x509write_crt_set_authority_key_identifier(&crt);
+	//if (ret) {
+	//	EMSG("mbedtls_x509write_crt_set_authority_key_identifier: failed: -%#x",
+	//			-ret);
+	//	res = TEE_ERROR_BAD_FORMAT;
+	//	goto out;
+	//}
 
 	ret = mbedtls_x509write_crt_set_key_usage(&crt,
 					    key_usage);
@@ -1991,7 +1991,7 @@ static TEE_Result mbedTLS_attest_key_cert_with_rootkey(
 	/* add attestation OID */
 	ret =  mbedtls_x509write_crt_set_extension(&crt, attestation_oid,
 						   MBEDTLS_OID_SIZE(MBEDTLS_OID_ATTESTATION),
-			                           1, attest_ext->data, attest_ext->data_length);
+			                           0, attest_ext->data, attest_ext->data_length);
 	if (ret) {
 		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
 				-ret);
@@ -2226,7 +2226,7 @@ static TEE_Result mbedTLS_attest_key_cert(mbedtls_pk_context *issuer_key,
 	/* add attestation OID */
 	ret =  mbedtls_x509write_crt_set_extension(&crt, attestation_oid,
 						   MBEDTLS_OID_SIZE(MBEDTLS_OID_ATTESTATION),
-			                           1, attest_ext->data, attest_ext->data_length);
+			                           0, attest_ext->data, attest_ext->data_length);
 	if (ret) {
 		EMSG("mbedtls_x509write_crt_set_key_usage: failed: -%#x",
 				-ret);
