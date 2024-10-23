@@ -82,7 +82,9 @@ static const keymaster_key_param_t ecdsap256_params[8] = {
 	{.tag = KM_TAG_EC_CURVE, .key_param.enumerated = KM_EC_CURVE_P_256},
 	{.tag = KM_TAG_NO_AUTH_REQUIRED, .key_param.boolean = false},
 	{.tag = KM_TAG_CERTIFICATE_NOT_BEFORE, .key_param.date_time = 0},
-	{.tag = KM_TAG_CERTIFICATE_NOT_AFTER, .key_param.date_time = 0},
+	// Per RFC 5280 4.1.2.5, an undefined expiration (not-after) field should be set to
+	// GeneralizedTime 999912312359559, which is 253402300799000 ms from Jan 1, 1970.
+	{.tag = KM_TAG_CERTIFICATE_NOT_AFTER, .key_param.date_time = 253402300799000},
 };
 
 static const keymaster_key_param_set_t ecdsap256_key_param_set = {
@@ -3538,11 +3540,14 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 	keymaster_key_characteristics_t characts = EMPTY_CHARACTS; /* OUT */
 	keymaster_algorithm_t key_algorithm = UNDEFINED;
 	keymaster_error_t error = KM_ERROR_OK;
+	TEE_Result res = TEE_SUCCESS;
 	keymaster_digest_t key_digest = UNDEFINED;
 	uint32_t key_buffer_size = 0; /* For serialization of generated key */
 	uint32_t characts_size = 0;
 	uint32_t key_size = UNDEFINED;
 	uint64_t key_rsa_public_exponent = UNDEFINED;
+	uint64_t not_before_val = UNDEFINED;
+	uint64_t not_after_val = UNDEFINED;
 	uint32_t os_version = 0xFFFFFFFF;
 	uint32_t os_patchlevel = 0xFFFFFFFF;
 	uint32_t vendor_patchlevel = 0xFFFFFFFF;
@@ -3628,7 +3633,6 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 
 	/* Add additional parameters */
 	TA_add_origin(&params_t, KM_ORIGIN_GENERATED, true);
-	TA_add_creation_datetime(&params_t, true);
 	TA_add_version_patchlevel(&params_t, os_version, os_patchlevel,
 				vendor_patchlevel, boot_patchlevel);
 
@@ -3687,9 +3691,16 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 
-	error = mbedTLS_gen_root_cert_ecc(obj_h, &ec_cert);
-	if (error != TEE_SUCCESS) {
-		EMSG("Failed to generate EC certificate, error=%x", error);
+	error = TA_get_validity_info(&params_t, &not_before_val, &not_after_val);
+	if (error != KM_ERROR_OK) {
+		EMSG("Failed to get validity info, res=%x", error);
+		goto exit;
+	}
+
+	res = mbedTLS_gen_self_signed_cert_ecc(&params_t, obj_h, &ec_cert,
+				not_before_val, not_after_val);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to generate EC certificate, error=%x", res);
 		goto exit;
 	}
 
@@ -3729,7 +3740,7 @@ static keymaster_error_t TA_generateRkpKey(TEE_Param params[TEE_NUM_PARAMS])
 		goto exit;
 	}
 
-        error = mbedTLS_get_ecdsa256_key_from_cert(&ec_cert,
+	error = mbedTLS_get_ecdsa256_key_from_cert(&ec_cert,
 						   x_coordinate,
 						   K_P256_AFFINE_POINT_SIZE,
 						   y_coordinate,
