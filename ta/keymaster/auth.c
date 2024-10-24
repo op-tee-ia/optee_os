@@ -508,7 +508,7 @@ keymaster_error_t TA_check_auth_token(const uint64_t *suid,
 		uint64_t timeout_ms = 1000 * (uint64_t)timeout;
 		TEE_Time time;
 		TEE_GetSystemTime(&time);
-		uint64_t timestamp = (time.seconds * 1000) + time.millis;
+		uint64_t timestamp = ((uint64_t)time.seconds * 1000) + time.millis;
 		if ((TEE_U64_FROM_BIG_ENDIAN(auth_token->timestamp) + timeout_ms) < timestamp) {
 			EMSG("authentication occurs timeout");
 			res = KM_ERROR_KEY_USER_NOT_AUTHENTICATED;
