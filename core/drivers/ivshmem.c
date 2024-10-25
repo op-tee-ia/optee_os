@@ -146,25 +146,6 @@ struct optee_smc_ring *smc_used_ring = NULL;
 struct optee_vm_ids *smc_vm_ids = NULL;
 uint32_t *smc_evt_src = NULL;
 
-static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
-{
-	/* TODO: currently only have one ivsh device */
-	if (!g_rot_already_set) {
-		assert(g_ivshmem_devs[0].rot_addr != 0);
-
-		memset(&g_rot_data, 0, sizeof(g_rot_data));
-
-		memcpy(&g_rot_data.rot, (void *)g_ivshmem_devs[0].rot_addr,
-						sizeof(struct rot_data_t));
-
-		memzero_explicit((void *)g_ivshmem_devs[0].rot_addr, sizeof(struct rot_data_t));
-
-		g_rot_already_set = true;
-	}
-
-	return ITRR_HANDLED;
-}
-
 #ifdef CFG_EDK2_TPM
 struct tpm2_int_req {
         uint32_t cmd;
@@ -207,6 +188,28 @@ static bool check_if_vm_reset(uint8_t vmid)
 		EMSG("g_tpm_nv_bootloader_lock(id:%d, val:%d) is still LOCKED! BLOCK TPM access!!!", vmid, val);
 
 	return !g_tpm_nv_bootloader_lock;
+}
+
+static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
+{
+	/* TODO: currently only have one ivsh device */
+
+	uint8_t vmid = 2; /* Hardcoded Android VMID*/
+
+	if (!g_rot_already_set || check_if_vm_reset(vmid)) {
+		assert(g_ivshmem_devs[0].rot_addr != 0);
+
+		memset(&g_rot_data, 0, sizeof(g_rot_data));
+
+		memcpy(&g_rot_data.rot, (void *)g_ivshmem_devs[0].rot_addr,
+						sizeof(struct rot_data_t));
+
+		memzero_explicit((void *)g_ivshmem_devs[0].rot_addr, sizeof(struct rot_data_t));
+
+		g_rot_already_set = true;
+	}
+
+	return ITRR_HANDLED;
 }
 
 static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
