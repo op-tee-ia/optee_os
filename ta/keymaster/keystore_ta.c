@@ -57,8 +57,7 @@ uint64_t identifier_ec[] = {1, 2, 840, 10045, 2, 1};
  *        XYValue BIT_STRING } }
  */
 
-static TEE_TASessionHandle session_rngSTA = TEE_HANDLE_NULL;
-static TEE_TASessionHandle session_diceSTA = TEE_HANDLE_NULL;
+TEE_TASessionHandle session_ptaSTA = TEE_HANDLE_NULL;
 const int k_rot_version1 = 40001;
 const int k_cose_mac0_semantic_tag = 17;
 
@@ -165,9 +164,6 @@ TEE_Result TA_CreateEntryPoint(void)
 {
 	TEE_Result res = TEE_SUCCESS;
 	TEE_Param params[TEE_NUM_PARAMS];
-	uint32_t ret_orig = 0;
-
-	const TEE_UUID rng_entropy_uuid = PTA_SYSTEM_UUID /*RNG_ENTROPY_UUID*/;
 
 	uint32_t exp_param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_NONE,
 						   TEE_PARAM_TYPE_NONE,
@@ -176,12 +172,7 @@ TEE_Result TA_CreateEntryPoint(void)
 
 	DMSG("%s %d", __func__, __LINE__);
 
-	res = TA_init_km_context();
-	if (res != TEE_SUCCESS) {
-		EMSG("TA_init_km_context failed(%x)", res);
-		goto exit;
-	}
-
+	TA_init_km_context();
 	TA_reset_operations_table();
 
 	res = TA_create_secret_key();
@@ -202,21 +193,14 @@ TEE_Result TA_CreateEntryPoint(void)
 		goto exit;
 	}
 
-	res = TEE_OpenTASession(&rng_entropy_uuid, TEE_TIMEOUT_INFINITE,
-				exp_param_types, params, &session_rngSTA,
+	res = TEE_OpenTASession(&(const TEE_UUID)PTA_SYSTEM_UUID,
+				TEE_TIMEOUT_INFINITE, exp_param_types,
+				params, &session_ptaSTA,
 				NULL);
 	if (res != TEE_SUCCESS) {
-		EMSG("Failed to create session with RNG static TA (%x)", res);
+		EMSG("Failed to create session with pta STA (%x)", res);
 		goto exit;
 	}
-
-        res = TEE_OpenTASession(&(const TEE_UUID)PTA_SYSTEM_UUID,
-                                TEE_TIMEOUT_INFINITE, 0, NULL, &session_diceSTA,
-                                &ret_orig);
-        if (res != TEE_SUCCESS) {
-                EMSG("Failed to creat session with DICE static TA (%x)", res);
-                goto exit;
-        }
 
 exit:
 	return res;
@@ -227,16 +211,15 @@ void TA_DestroyEntryPoint(void)
 	DMSG("%s %d", __func__, __LINE__);
 	TA_free_master_key();
 	TA_free_hmac_key();
-	TEE_CloseTASession(session_rngSTA);
-	session_rngSTA = TEE_HANDLE_NULL;
-	TEE_CloseTASession(session_diceSTA);
-	session_diceSTA = TEE_HANDLE_NULL;
+	TEE_CloseTASession(session_ptaSTA);
+	session_ptaSTA = TEE_HANDLE_NULL;
 }
 
 TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 				    TEE_Param params[TEE_NUM_PARAMS] __unused,
 				    void **sess_ctx __unused)
 {
+	TEE_Result res = TEE_SUCCESS;
 	uint32_t exp_param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_NONE,
 						   TEE_PARAM_TYPE_NONE,
 						   TEE_PARAM_TYPE_NONE,
@@ -245,7 +228,12 @@ TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 	if (param_types != exp_param_types)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	return KM_ERROR_OK;
+	res = TA_restore_km_info();
+	if (res != TEE_SUCCESS) {
+		EMSG("TA_restore_km_info failed(%x)", res);
+	}
+
+	return res;
 }
 
 void TA_CloseSessionEntryPoint(void *sess_ctx __unused)
@@ -462,7 +450,7 @@ static keymaster_error_t TA_get_dice_data(void)
 					       TEE_PARAM_TYPE_MEMREF_OUTPUT,
 					       TEE_PARAM_TYPE_NONE);
 
-	if (session_diceSTA == TEE_HANDLE_NULL) {
+	if (session_ptaSTA == TEE_HANDLE_NULL) {
 		EMSG("Session with DICE static TA is not opened");
 		res = KM_ERROR_SECURE_HW_COMMUNICATION_FAILED;
 		goto out;
@@ -475,7 +463,7 @@ static keymaster_error_t TA_get_dice_data(void)
 	params[2].memref.buffer = optee_dice_context.cdi_certificate;
 	params[2].memref.size = sizeof(optee_dice_context.cdi_certificate);
 
-	res = TEE_InvokeTACommand(session_diceSTA, TEE_TIMEOUT_INFINITE,
+	res = TEE_InvokeTACommand(session_ptaSTA, TEE_TIMEOUT_INFINITE,
 				  PTA_SYSTEM_GET_DICE,
 				  param_types, params, &ret_orig);
 	if (res) {
@@ -573,16 +561,6 @@ static keymaster_error_t TA_build_hidden_info(uint8_t **hidden, size_t* hidden_s
 		EMSG("Out of output buffer space");
 		res = KM_ERROR_INSUFFICIENT_BUFFER_SPACE;
 		goto err;
-	}
-
-	/* set rot data if not */
-	if (!optee_km_context.rot_info_set) {
-		res = TA_get_rot_data();
-		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
-			EMSG("Failed(%d) to get root of trust data", res);
-			goto err;
-		}
-		optee_km_context.rot_info_set = true;
 	}
 
 	/* copy rot.deviceLocked to hidden */
@@ -850,18 +828,18 @@ static keymaster_error_t TA_addRngEntropy(TEE_Param params[TEE_NUM_PARAMS])
 	}
 	/* oob check done before TEE_Malloc above */
 	TEE_MemMove(data, in, data_length);
-	if (session_rngSTA == TEE_HANDLE_NULL) {
-		EMSG("Session with RNG static TA is not opened");
+	if (session_ptaSTA == TEE_HANDLE_NULL) {
+		EMSG("Session with pta STA is not opened");
 		res = KM_ERROR_SECURE_HW_COMMUNICATION_FAILED;
 		goto out;
 	}
 	params_tee[0].memref.buffer = data;
 	params_tee[0].memref.size = data_length;
-	res = TEE_InvokeTACommand(session_rngSTA, TEE_TIMEOUT_INFINITE,
+	res = TEE_InvokeTACommand(session_ptaSTA, TEE_TIMEOUT_INFINITE,
 				  PTA_SYSTEM_ADD_RNG_ENTROPY, sta_param_types,
 				  params_tee, NULL);
 	if (res != TEE_SUCCESS) {
-		EMSG("Invoke command for RNG static TA failed, res=%x", res);
+		EMSG("Invoke command for pta STA failed, res=%x", res);
 		goto out;
 	}
 
@@ -3376,6 +3354,7 @@ static keymaster_error_t TA_earlyBootEnded()
 {
 	keymaster_error_t res = KM_ERROR_OK;
 	g_isEarlyBootEnded = true;
+	DMSG("### TA_earlyBootEnded");
 
 	if ((res = TA_configure_rot_info(KM_EARLY_BOOT_SET, 1)))
 		DMSG("Configure KM_EARLY_BOOT_SET to rot failed");
@@ -3420,16 +3399,6 @@ static keymaster_error_t TA_getRootOfTrust(TEE_Param params[TEE_NUM_PARAMS])
 			false);
 	if (error != KM_ERROR_OK)
 		goto exit;
-
-	/* set rot data if not */
-	if (!optee_km_context.rot_info_set) {
-		error = TA_get_rot_data();
-		if (error != KM_ERROR_OK && error != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
-			EMSG("Failed(%d) to get root of trust data", error);
-			goto exit;
-		}
-		optee_km_context.rot_info_set = true;
-	}
 
 	root_of_trust_array = cbor_new_definite_array(5);
 	if (!root_of_trust_array) {
@@ -3969,16 +3938,6 @@ static keymaster_error_t TA_generateCsrV2(TEE_Param params[TEE_NUM_PARAMS])
 	if (res != KM_ERROR_OK || !pubkeys) {
 		EMSG("Failed to validate and extract the public keys for the CSR");
 		goto out;
-	}
-
-	/* set rot data if not */
-	if (!optee_km_context.rot_info_set) {
-		res = TA_get_rot_data();
-		if (res != KM_ERROR_OK && res != KM_ERROR_ROOT_OF_TRUST_ALREADY_SET) {
-			EMSG("Failed(%d) to get root of trust data", res);
-			goto out;
-		}
-		optee_km_context.rot_info_set = true;
 	}
 
 	/* set DICE CDI data if not */

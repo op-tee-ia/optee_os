@@ -68,7 +68,6 @@ struct ex_rot_data_t {
 
 typedef struct tee_km_context {
 	bool version_info_set;
-	bool rot_info_set;
 	bool vendor_patchlevel_set;
 	uint32_t os_version;
 	uint32_t os_patchlevel;
@@ -87,8 +86,8 @@ typedef struct tee_dice_context {
 	size_t cdi_certificate_actual_size;
 } tee_dice_context_t;
 
-keymaster_error_t TA_init_km_context(void);
-keymaster_error_t TA_get_rot_data(void);
+keymaster_error_t TA_restore_km_info(void);
+void TA_init_km_context(void);
 keymaster_error_t TA_configure_rot_info(enum KM_SLOT_INDEX index, uint32_t value);
 
 #endif/* ANDROID_OPTEE_ROT_H */
