@@ -203,6 +203,7 @@ TEE_Result TA_execute(uint8_t *data, const size_t size,
 	uint8_t kekData[KEY_LENGTH];
 	TEE_ObjectHandle kek = TEE_HANDLE_NULL;
 	TEE_Attribute attr = { };
+	uint32_t tmp_len = 0;
 
 	DMSG("%s %d size = %zu", __func__, __LINE__, size);
 	res = TA_open_secret_key(&secretKey);
@@ -210,6 +211,16 @@ TEE_Result TA_execute(uint8_t *data, const size_t size,
 		EMSG("Failed to read secret key");
 		goto exit;
 	}
+
+#if (TRACE_LEVEL >= TRACE_DEBUG)
+	printf("hidden: ");
+	tmp_len = hidden_size > 16 ? 16 : hidden_size;
+	for (int i = 0; i < tmp_len; i++)
+		printf("%02x", hidden[i]);
+	printf("\n");
+#endif
+
+
 	outbuf = TEE_Malloc(size, TEE_MALLOC_FILL_ZERO);
 	if (!outbuf) {
 		EMSG("failed to allocate memory for out buffer");
@@ -238,6 +249,14 @@ TEE_Result TA_execute(uint8_t *data, const size_t size,
 		EMSG("Failed to derive kek, res=%x", res);
 		goto free_op;
 	}
+
+#if (TRACE_LEVEL >= TRACE_DEBUG)
+	printf("kekData: ");
+	tmp_len = KEY_LENGTH > 16 ? 16 : KEY_LENGTH;
+	for (int i = 0; i < tmp_len; i++)
+		printf("%02x", kekData[i]);
+	printf("\n");
+#endif
 
 	attr.attributeID = TEE_ATTR_SECRET_VALUE;
 	attr.content.ref.buffer = kekData;
