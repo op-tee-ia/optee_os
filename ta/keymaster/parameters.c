@@ -414,7 +414,6 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_ALL_APPLICATIONS:
 		case KM_TAG_ROOT_OF_TRUST:
 		case KM_TAG_RESET_SINCE_ID_ROTATION:
-		case KM_TAG_ALLOW_WHILE_ON_BODY:
 		case KM_TAG_ATTESTATION_CHALLENGE:
 			/* Ignore these. */
 			DMSG("Ignore these TAG %x", params->params[i].tag);
@@ -444,6 +443,8 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_VENDOR_PATCHLEVEL:
 		case KM_TAG_BOOT_PATCHLEVEL:
 		case KM_TAG_UNLOCKED_DEVICE_REQUIRED:
+		case KM_TAG_TRUSTED_USER_PRESENCE_REQUIRED:
+		case KM_TAG_TRUSTED_CONFIRMATION_REQUIRED:
 		case KM_TAG_EARLY_BOOT_ONLY:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->hw_enforced.length)
@@ -476,6 +477,13 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_CREATION_DATETIME:
 		case KM_TAG_INCLUDE_UNIQUE_ID:
 		case KM_TAG_EXPORTABLE:
+			if (MAX_ENFORCED_PARAMS_COUNT <=
+			    characteristics->sw_enforced.length)
+				return KM_ERROR_INVALID_KEY_BLOB;
+			TA_push_param(&characteristics->sw_enforced,
+				      params->params + i);
+			break;
+		case KM_TAG_ALLOW_WHILE_ON_BODY:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->sw_enforced.length)
 				return KM_ERROR_INVALID_KEY_BLOB;
