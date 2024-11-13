@@ -627,7 +627,7 @@ static keymaster_error_t TA_generate_certificate(tee_dice_context_t *optee_dice_
 	if (!x_coordinate || !y_coordinate || !signature) {
 		EMSG("Failed to allocate memory for x_coordinate, y_coordinate or signature");
 		error = KM_ERROR_MEMORY_ALLOCATION_FAILED;
-		return error;
+		goto exit;
 	}
 
 	error = mbedTLS_gen_ecdsa_p256_key_pair(subject_key_context,

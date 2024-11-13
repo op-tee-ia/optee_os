@@ -2267,6 +2267,8 @@ exit:
 		TEE_Free(upgraded_key.key_material);
 	if (key_material)
 		TEE_Free(key_material);
+        if(attrs.attrs)
+		TEE_Free(attrs.attrs);
 	return res;
 }
 
@@ -2668,6 +2670,8 @@ exit:
 		TEE_Free(app_data.data);
 	if (hidden)
 		TEE_Free(hidden);
+	if (operation.a_data)
+		TEE_Free(operation.a_data);
 
 	return res;
 }
@@ -2878,6 +2882,8 @@ exit:
 		TEE_Free(app_data.data);
 	if (hidden)
 		TEE_Free(hidden);
+	if (operation.a_data)
+		TEE_Free(operation.a_data);
 
 	return res;
 }

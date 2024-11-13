@@ -201,10 +201,12 @@ enum pkcs11_rc step_digest_operation(struct pkcs11_session *session,
 	}
 
 do_final:
-	res = TEE_DigestDoFinal(proc->tee_op_handle,
+	if (in_buf) {
+		res = TEE_DigestDoFinal(proc->tee_op_handle,
 				in_buf, in_size, out_buf,
 				&out_size);
-	rc = tee2pkcs_error(res);
+		rc = tee2pkcs_error(res);
+	}
 
 	if (rc == PKCS11_CKR_OK || rc == PKCS11_CKR_BUFFER_TOO_SMALL)
 		params[2].memref.size = out_size;
