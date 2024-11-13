@@ -194,7 +194,7 @@ static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 {
 	/* TODO: currently only have one ivsh device */
 
-	uint8_t vmid = 2; /* Hardcoded Android VMID*/
+	uint8_t vmid = smc_vm_ids->ree_id; /* TODO: only support one REE VM for now */
 
 	if (!g_rot_already_set || check_if_vm_reset(vmid)) {
 		assert(g_ivshmem_devs[0].rot_addr != 0);
@@ -234,7 +234,7 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
 	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
 
-	uint8_t vmid = 2; /* Hardcoded Android VMID*/
+	uint8_t vmid = smc_vm_ids->ree_id; /* TODO: only support one REE VM for now */
 	if (!check_if_vm_reset(vmid)) {
 		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
 		req->ret = EFI_DEVICE_ERROR;
