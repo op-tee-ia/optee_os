@@ -267,7 +267,7 @@ out:
 	if (ret == EFI_SUCCESS)
 		memcpy(Key, TempKey, secret_size);
 
-	mbedtls_platform_zeroize(TempKey, sizeof(TempKey));
+	mbedtls_platform_zeroize(TempKey, secret_size);
 	free(TempKey);
 
 	return ret;

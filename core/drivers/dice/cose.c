@@ -77,7 +77,7 @@ DiceResult DiceSignCertificate(void *context,
     if (!uds_x_coordinate || !uds_y_coordinate || !x_coordinate || !y_coordinate || !signature) {
         EMSG("Failed to allocate memory for uds_x_coordinate, uds_y_coordinate, x_coordinate, y_coordinate or signature");
         error = kDiceResultPlatformError;
-        return error;
+        goto exit;
     }
     memset(uds_x_coordinate, 0, DICE_PRIVATE_KEY_SEED_SIZE);
     memset(uds_y_coordinate, 0, DICE_PRIVATE_KEY_SEED_SIZE);

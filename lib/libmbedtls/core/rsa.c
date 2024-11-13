@@ -638,8 +638,10 @@ TEE_Result crypto_acipher_rsassa_sign(uint32_t algo, struct rsa_keypair *key,
 	}
 
 	res = rsa_complete_from_key_pair(rsa, key);
-	if (res)
+	if (res) {
+		mbedtls_pk_free(ctx.pk_ctx);
 		return res;
+	}
 
 	switch (algo) {
 	case TEE_ALG_RSASSA_PKCS1_V1_5_MD5:
