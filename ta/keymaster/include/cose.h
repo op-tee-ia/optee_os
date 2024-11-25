@@ -23,6 +23,7 @@
 #include "generator.h"
 #include "keystore_ta.h"
 #include "rot.h"
+#include "attestation.h"
 #include <cbor.h>
 
 #define KCOSE_MAC0_PROTECTED_PARAMS 0
@@ -99,6 +100,7 @@ keymaster_error_t TA_validate_and_extract_pubkeys(bool testMode,
 
 keymaster_error_t TA_build_csr(tee_km_context_t *optee_km_context,
 			       tee_dice_context_t *optee_dice_context,
+			       tee_att_ids_cxt_t *optee_att_ids,
 			       keymaster_blob_t *challenge,
 			       cbor_item_t *keys_to_sign,
 			       uint8_t **csr_blob_data,

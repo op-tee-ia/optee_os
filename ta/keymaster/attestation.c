@@ -27,6 +27,194 @@ static uint8_t EcAttKeyID[] = {0xf2U, 0xa0U, 0x37U, 0x80U};
 //Root attestation certificates
 static uint8_t RSARootAttCertID[] = {0xaeU, 0xc9U, 0x07U, 0x28U};
 static uint8_t ECRootAttCertID[] = {0x74U, 0xf4U, 0xa6U, 0x84U};
+//Attestation ids
+static uint8_t AttIdsStateID[] = {0xd0U, 0x5cU, 0x14U, 0xc6U};
+static uint8_t AttIdsID[] = {0xc0U, 0x6cU, 0x12U, 0xc7U};
+
+tee_att_ids_cxt_t optee_att_ids;
+
+TEE_Result TA_init_attestation_ids_context(void){
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_Result res = TEE_SUCCESS;
+	TEE_ObjectHandle AttIdsStateObj = TEE_HANDLE_NULL;
+	TEE_ObjectHandle AttIdsObj = TEE_HANDLE_NULL;
+	uint32_t actual_read = 0;
+	uint32_t att_data_buf_size = sizeof(optee_att_ids.att_data);
+	uint8_t att_data_buf[att_data_buf_size];
+	uint32_t att_state_buf_size = sizeof(optee_att_ids.att_state);
+	uint8_t att_state_buf[att_state_buf_size];
+
+	memset(&optee_att_ids.att_data, 0, att_data_buf_size);
+	optee_att_ids.att_state.att_des = false;
+	optee_att_ids.att_state.att_prov = false;
+
+	res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE, AttIdsStateID,
+			sizeof(AttIdsStateID), TEE_DATA_FLAG_ACCESS_READ, &AttIdsStateObj);
+	if (res != TEE_SUCCESS) {
+		if (res == TEE_ERROR_ITEM_NOT_FOUND) {
+			DMSG("Attestation_ids_state not found, set att_des and att_prov to false.");
+			return TEE_SUCCESS;
+		}
+		EMSG("Failed to open attestation_ids_state, res=%X", res);
+		return res;
+	}
+
+	res = TEE_ReadObjectData(AttIdsStateObj, att_state_buf,
+			att_state_buf_size, &actual_read);
+	if (res != TEE_SUCCESS || actual_read != att_state_buf_size) {
+		EMSG("Failed to read attestation_ids_state, res=%x", res);
+		goto error_1;
+	} else {
+		memcpy(&optee_att_ids.att_state, att_state_buf, att_state_buf_size);
+		DMSG("Read attestation_ids_state successfully, att_des is %d, att_prov is %d",
+				optee_att_ids.att_state.att_des, optee_att_ids.att_state.att_prov);
+	}
+
+	if(optee_att_ids.att_state.att_des == false && optee_att_ids.att_state.att_prov == true){
+		res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE, AttIdsID,
+				sizeof(AttIdsID), TEE_DATA_FLAG_ACCESS_READ, &AttIdsObj);
+		if (res != TEE_SUCCESS) {
+			EMSG("Failed to open attestation_ids_data, res=%X", res);
+			goto error_1;
+		}
+		res = TEE_ReadObjectData(AttIdsObj, att_data_buf,
+				att_data_buf_size, &actual_read);
+		if (res != TEE_SUCCESS || actual_read != att_data_buf_size) {
+			EMSG("Failed to read attestation_ids_data, res=%x", res);
+		} else {
+			memcpy(&optee_att_ids.att_data, att_data_buf, att_data_buf_size);
+			DMSG("Read attestation_ids_data successfully");
+		}
+		TEE_CloseObject(AttIdsObj);
+	}
+error_1:
+	TEE_CloseObject(AttIdsStateObj);
+	return res;
+}
+
+TEE_Result TA_save_attestation_ids_info(void)
+{
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_Result res = TEE_SUCCESS;
+	TEE_ObjectHandle AttIdsStateObj = TEE_HANDLE_NULL;
+	TEE_ObjectHandle AttIdsObj = TEE_HANDLE_NULL;
+
+	res = TEE_CreatePersistentObject(TEE_STORAGE_PRIVATE,
+			AttIdsID, sizeof(AttIdsID),
+			TEE_DATA_FLAG_ACCESS_WRITE,
+			TEE_HANDLE_NULL, NULL, 0U, &AttIdsObj);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to create attestation_ids data object, res=%x", res);
+		if (res == TEE_ERROR_ACCESS_CONFLICT)
+			EMSG("Attestation_ids_data already exists");
+		goto error_1;
+	} else {
+		DMSG("Create attestation_ids_data object successfully");
+	}
+
+	res = TEE_WriteObjectData(AttIdsObj, (void *)&optee_att_ids.att_data,
+			sizeof(optee_att_ids.att_data));
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to write attestation_ids_data, res=%x", res);
+		goto error_2;
+	} else {
+		DMSG("Write attestation_ids_data successfully");
+	}
+
+	res = TEE_CreatePersistentObject(TEE_STORAGE_PRIVATE,
+			AttIdsStateID, sizeof(AttIdsStateID),
+			TEE_DATA_FLAG_ACCESS_WRITE,
+			TEE_HANDLE_NULL, NULL, 0U, &AttIdsStateObj);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to create attestation_ids_state object, res=%x", res);
+		if (res == TEE_ERROR_ACCESS_CONFLICT)
+			EMSG("Attestation_ids_state already exists");
+		goto error_2;
+	} else {
+		DMSG("Create attestation_ids_state object successfully");
+	}
+
+	res = TEE_WriteObjectData(AttIdsStateObj, (void *)&optee_att_ids.att_state,
+			sizeof(optee_att_ids.att_state));
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to write attestation_ids_state, res=%x", res);
+		goto error_3;
+	} else {
+		DMSG("Write attestation_ids_state successfully");
+	}
+error_3:
+	(res == TEE_SUCCESS) ?
+			TEE_CloseObject(AttIdsStateObj) :
+			TEE_CloseAndDeletePersistentObject(AttIdsStateObj);
+
+error_2:
+	(res == TEE_SUCCESS) ?
+			TEE_CloseObject(AttIdsObj) :
+			TEE_CloseAndDeletePersistentObject(AttIdsObj);
+
+error_1:
+	return res;
+}
+
+TEE_Result TA_destroy_attestation_ids_info(void)
+{
+	DMSG("%s %d", __func__, __LINE__);
+	TEE_Result res = TEE_SUCCESS;
+	TEE_ObjectHandle AttIdsStateObj = TEE_HANDLE_NULL;
+	TEE_ObjectHandle AttIdsObj = TEE_HANDLE_NULL;
+	uint32_t flags = TEE_DATA_FLAG_ACCESS_READ |
+			TEE_DATA_FLAG_ACCESS_WRITE |
+			TEE_DATA_FLAG_ACCESS_WRITE_META |
+			TEE_DATA_FLAG_SHARE_READ |
+			TEE_DATA_FLAG_SHARE_WRITE;
+
+	res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE,
+			AttIdsID, sizeof(AttIdsID),
+			flags, &AttIdsObj);
+	if (res != TEE_SUCCESS) {
+		if (res == TEE_ERROR_ITEM_NOT_FOUND) {
+			EMSG("attestation_ids_data not found, nothing to destroy");
+		} else{
+			EMSG("Failed to open attestation_ids_data, res=%X", res);
+		}
+	} else {
+		TEE_CloseAndDeletePersistentObject1(AttIdsObj);
+		DMSG("Destroy attestation ids_data successfully!");
+	}
+
+	res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE,
+			AttIdsStateID, sizeof(AttIdsStateID),
+			flags, &AttIdsStateObj);
+
+	if (res == TEE_ERROR_ITEM_NOT_FOUND) {
+		DMSG("attestation_ids_state not found, creating new one");
+		res = TEE_CreatePersistentObject(TEE_STORAGE_PRIVATE,
+			AttIdsStateID, sizeof(AttIdsStateID),
+			TEE_DATA_FLAG_ACCESS_WRITE,
+			TEE_HANDLE_NULL, NULL, 0U, &AttIdsStateObj);
+		if (res != TEE_SUCCESS) {
+			EMSG("Failed to create attestation_ids_state object, res=%x", res);
+			goto error_1;
+		}
+		DMSG("Create attestation_ids_state object successfully");
+	} else if (res != TEE_SUCCESS) {
+		EMSG("Failed to open attestation_ids_state, res=%X", res);
+		goto error_1;
+	}
+
+	res = TEE_WriteObjectData(AttIdsStateObj, (void *)&optee_att_ids.att_state,
+			sizeof(optee_att_ids.att_state));
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to write attestation_ids_state, res=%x", res);
+		TEE_CloseAndDeletePersistentObject1(AttIdsStateObj);
+		goto error_1;
+	}else {
+		DMSG("Write attestation_ids_state successfully");
+	}
+	TEE_CloseObject(AttIdsStateObj);
+error_1:
+	return res;
+}
 
 #ifdef ENUM_PERS_OBJS
 void TA_enum_attest_objs(void)

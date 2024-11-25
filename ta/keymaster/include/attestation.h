@@ -49,6 +49,38 @@
 
 #define ROOT_ATT_CERT_INDEX 1U
 #define KEY_ATT_CERT_INDEX 0U
+#define ATTESTATION_ID_LENGTH_MAX_SIZE 64
+
+struct attestation_ids_state_t {
+	bool att_prov;
+	bool att_des;
+};
+
+struct attestation_ids_data_t {
+	uint32_t brand_size;
+	uint8_t brand[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t device_size;
+	uint8_t device[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t product_size;
+	uint8_t product[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t serial_size;
+	uint8_t serial[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t imei_size;
+	uint8_t imei[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t meid_size;
+	uint8_t meid[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t manufacturer_size;
+	uint8_t manufacturer[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t model_size;
+	uint8_t model[ATTESTATION_ID_LENGTH_MAX_SIZE];
+	uint32_t second_imei_size;
+	uint8_t second_imei[ATTESTATION_ID_LENGTH_MAX_SIZE];
+};
+
+typedef struct tee_attestation_ids_context {
+	struct attestation_ids_state_t att_state;
+	struct attestation_ids_data_t att_data;
+}tee_att_ids_cxt_t;
 
 #ifdef ENUM_PERS_OBJS
 void TA_enum_attest_objs(void);
@@ -58,6 +90,9 @@ void TA_enum_attest_objs(void);
 void TA_wipe_attest_objs(void);
 #endif
 
+TEE_Result TA_init_attestation_ids_context(void);
+TEE_Result TA_save_attestation_ids_info(void);
+TEE_Result TA_destroy_attestation_ids_info(void);
 TEE_Result TA_open_rsa_attest_key(TEE_ObjectHandle *rsaKey);
 TEE_Result TA_open_ec_attest_key(TEE_ObjectHandle *ecKey);
 TEE_Result TA_open_root_rsa_attest_cert(TEE_ObjectHandle *attCert);

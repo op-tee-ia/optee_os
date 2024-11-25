@@ -62,6 +62,7 @@ const int k_cose_mac0_semantic_tag = 17;
 
 extern tee_km_context_t optee_km_context;
 extern tee_dice_context_t optee_dice_context;
+extern tee_att_ids_cxt_t optee_att_ids;
 
 static const uint32_t k_rkp_version = 3;
 static const tee_km_rkp_hwinfo_t optee_km_rpk_hwinfo = {
@@ -172,6 +173,10 @@ TEE_Result TA_CreateEntryPoint(void)
 	DMSG("%s %d", __func__, __LINE__);
 
 	TA_init_km_context();
+	res = TA_init_attestation_ids_context();
+	if (res != TEE_SUCCESS) {
+		EMSG("Something wrong with attestation_ids (%x)", res);
+	}
 	TA_reset_operations_table();
 
 	res = TA_create_secret_key();
@@ -743,6 +748,235 @@ out:
 	return res;
 }
 
+static keymaster_error_t TA_SetAttestationIds(TEE_Param params[TEE_NUM_PARAMS], bool is_KM3)
+{
+	uint8_t *in = NULL;
+	uint8_t *in_end = NULL;
+	size_t  in_size = 0;
+	uint8_t *out = NULL;
+	keymaster_error_t res = KM_ERROR_OK;
+
+	in = (uint8_t *)params[0].memref.buffer;
+	in_size = (size_t)params[0].memref.size;
+	in_end = in + in_size;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	/* parse parameters */
+	if (optee_att_ids.att_state.att_des) {
+		EMSG("Attestation IDs already destroy. Cannot set again.");
+		res = KM_ERROR_INVALID_OPERATION_HANDLE;
+		goto out;
+	}
+
+	if (optee_att_ids.att_state.att_prov) {
+		EMSG("Attestation IDs already set. Cannot set again.");
+		res = KM_ERROR_INVALID_OPERATION_HANDLE;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.brand_size, in,
+			sizeof(optee_att_ids.att_data.brand_size));
+	in += sizeof(optee_att_ids.att_data.brand_size);
+	DMSG("attestation_ids.brand_size: %u", optee_att_ids.att_data.brand_size);
+
+	if (optee_att_ids.att_data.brand_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Brand size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.brand_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.brand, in,
+			optee_att_ids.att_data.brand_size);
+	in += optee_att_ids.att_data.brand_size;
+	DMSG("attestation_ids.brand: %s", optee_att_ids.att_data.brand);
+
+	TEE_MemMove(&optee_att_ids.att_data.device_size, in,
+			sizeof(optee_att_ids.att_data.device_size));
+	in += sizeof(optee_att_ids.att_data.device_size);
+	DMSG("attestation_ids.device_size: %u", optee_att_ids.att_data.device_size);
+
+	if (optee_att_ids.att_data.device_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Device size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.device_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.device, in,
+			optee_att_ids.att_data.device_size);
+	in += optee_att_ids.att_data.device_size;
+	DMSG("attestation_ids.device: %s", optee_att_ids.att_data.device);
+
+	TEE_MemMove(&optee_att_ids.att_data.product_size, in,
+			sizeof(optee_att_ids.att_data.product_size));
+	in += sizeof(optee_att_ids.att_data.product_size);
+	DMSG("attestation_ids.product_size: %u", optee_att_ids.att_data.product_size);
+
+	if (optee_att_ids.att_data.product_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Product size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.product_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.product, in,
+			optee_att_ids.att_data.product_size);
+	in += optee_att_ids.att_data.product_size;
+	DMSG("attestation_ids.product: %s", optee_att_ids.att_data.product);
+
+	TEE_MemMove(&optee_att_ids.att_data.serial_size, in,
+			sizeof(optee_att_ids.att_data.serial_size));
+	in += sizeof(optee_att_ids.att_data.serial_size);
+	DMSG("attestation_ids.serial_size: %u", optee_att_ids.att_data.serial_size);
+
+	if (optee_att_ids.att_data.serial_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Serial size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.serial_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.serial, in,
+			optee_att_ids.att_data.serial_size);
+	in += optee_att_ids.att_data.serial_size;
+	DMSG("attestation_ids.serial: %s", optee_att_ids.att_data.serial);
+
+	TEE_MemMove(&optee_att_ids.att_data.imei_size, in,
+			sizeof(optee_att_ids.att_data.imei_size));
+	in += sizeof(optee_att_ids.att_data.imei_size);
+	DMSG("attestation_ids.imei_size: %u", optee_att_ids.att_data.imei_size);
+
+	if (optee_att_ids.att_data.imei_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Imei size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.imei_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.imei, in,
+			optee_att_ids.att_data.imei_size);
+	in += optee_att_ids.att_data.imei_size;
+	DMSG("attestation_ids.imei: %s", optee_att_ids.att_data.imei);
+
+	TEE_MemMove(&optee_att_ids.att_data.meid_size, in,
+			sizeof(optee_att_ids.att_data.meid_size));
+	in += sizeof(optee_att_ids.att_data.meid_size);
+	DMSG("attestation_ids.meid_size: %u", optee_att_ids.att_data.meid_size);
+
+	if (optee_att_ids.att_data.meid_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Meid size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.meid_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.meid, in,
+			optee_att_ids.att_data.meid_size);
+	in += optee_att_ids.att_data.meid_size;
+	DMSG("attestation_ids.meid: %s", optee_att_ids.att_data.meid);
+
+	TEE_MemMove(&optee_att_ids.att_data.manufacturer_size, in,
+			sizeof(optee_att_ids.att_data.manufacturer_size));
+	in += sizeof(optee_att_ids.att_data.manufacturer_size);
+	DMSG("attestation_ids.manufacturer_size: %u", optee_att_ids.att_data.manufacturer_size);
+
+	if (optee_att_ids.att_data.manufacturer_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Manufacturer size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.manufacturer_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.manufacturer, in,
+			optee_att_ids.att_data.manufacturer_size);
+	in += optee_att_ids.att_data.manufacturer_size;
+	DMSG("attestation_ids.manufacturer: %s", optee_att_ids.att_data.manufacturer);
+
+	TEE_MemMove(&optee_att_ids.att_data.model_size, in,
+			sizeof(optee_att_ids.att_data.model_size));
+	in += sizeof(optee_att_ids.att_data.model_size);
+	DMSG("attestation_ids.model_size: %u", optee_att_ids.att_data.model_size);
+
+	if (optee_att_ids.att_data.model_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+		EMSG("Model size is too big, size: %u, max size: %u",
+				optee_att_ids.att_data.model_size,
+				ATTESTATION_ID_LENGTH_MAX_SIZE);
+		res = KM_ERROR_INVALID_INPUT_LENGTH;
+		goto out;
+	}
+
+	TEE_MemMove(&optee_att_ids.att_data.model, in,
+			optee_att_ids.att_data.model_size);
+	in += optee_att_ids.att_data.model_size;
+	DMSG("attestation_ids.model: %s", optee_att_ids.att_data.model);
+	if(is_KM3) {
+		TEE_MemMove(&optee_att_ids.att_data.second_imei_size, in,
+				sizeof(optee_att_ids.att_data.second_imei_size));
+		in += sizeof(optee_att_ids.att_data.second_imei_size);
+		DMSG("attestation_ids.second_imei_size: %u", optee_att_ids.att_data.second_imei_size);
+
+		if (optee_att_ids.att_data.second_imei_size > ATTESTATION_ID_LENGTH_MAX_SIZE) {
+			EMSG("Second imei size is too big, size: %u, max size: %u",
+					optee_att_ids.att_data.second_imei_size,
+					ATTESTATION_ID_LENGTH_MAX_SIZE);
+			res = KM_ERROR_INVALID_INPUT_LENGTH;
+			goto out;
+		}
+
+		TEE_MemMove(&optee_att_ids.att_data.second_imei, in,
+				optee_att_ids.att_data.second_imei_size);
+		in += optee_att_ids.att_data.second_imei_size;
+		DMSG("attestation_ids.second_imei: %s", optee_att_ids.att_data.second_imei);
+	}
+	optee_att_ids.att_state.att_prov = true;
+	DMSG("attestation_ids_set: %d", optee_att_ids.att_state.att_prov);
+	if ((res = TA_save_attestation_ids_info())) {
+		optee_att_ids.att_state.att_prov = false;
+		EMSG("Failed to save attestation ids, res=%x", res);
+		res = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	} else {
+		DMSG("Set attestation ids successfully");
+	}
+
+out:
+	return res;
+
+}
+
+static keymaster_error_t TA_DestroyAttestationIds(void)
+{
+	keymaster_error_t res = KM_ERROR_OK;
+
+	DMSG("%s %d", __func__, __LINE__);
+
+	if (optee_att_ids.att_state.att_des) {
+		EMSG("Attestation IDs already destroy. Don't need to destroy again.");
+		goto out;
+	}
+	optee_att_ids.att_state.att_des = true;
+	if ((res = TA_destroy_attestation_ids_info())) {
+		optee_att_ids.att_state.att_des = false;
+		EMSG("Failed to destroy attestation ids, res=%x", res);
+		res = KM_ERROR_UNKNOWN_ERROR;
+		goto out;
+	} else {
+		DMSG("Destroy attestation ids successfully");
+	}
+
+out:
+	return res;
+}
+
 static keymaster_error_t TA_getVersion(TEE_Param params[TEE_NUM_PARAMS])
 {
 	uint8_t *out = NULL;
@@ -894,6 +1128,24 @@ static bool attestation_key_purpose_check(const keymaster_key_param_set_t *input
 	return false;
 }
 
+static keymaster_error_t TA_CompareAttestationId(uint8_t *att_id, uint32_t att_id_size,
+		uint8_t *att_id_ctx, uint32_t att_id_ctx_size){
+	DMSG("%s %d", __func__, __LINE__);
+	keymaster_error_t res = KM_ERROR_OK;
+
+	if(att_id_ctx_size == 0){
+		EMSG("Attestation ID is not set. Cannot attest.");
+		res = KM_ERROR_ATTESTATION_IDS_NOT_PROVISIONED;
+		return res;
+	}
+
+	if (att_id_size != att_id_ctx_size || memcmp(att_id, att_id_ctx, att_id_size) != 0) {
+		EMSG("Attestation IDs are dismatch. Cannot attest.");
+		res = KM_ERROR_CANNOT_ATTEST_IDS;
+	}
+	return res;
+}
+
 static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 				keymaster_algorithm_t alg,
 				TEE_ObjectHandle attested_key,
@@ -926,6 +1178,15 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	uint64_t creation_datetime = 0;
 	uint64_t tem_counter_value = 0;
 	TEE_Time time;
+	keymaster_blob_t *brand = NULL;
+	keymaster_blob_t *device = NULL;
+	keymaster_blob_t *product = NULL;
+	keymaster_blob_t *serial = NULL;
+	keymaster_blob_t *imei = NULL;
+	keymaster_blob_t *meid = NULL;
+	keymaster_blob_t *manufacturer = NULL;
+	keymaster_blob_t *model = NULL;
+	keymaster_blob_t *second_imei = NULL;
 
 	/* Key blob for root key */
 	start += TA_deserialize_key_blob_akms(start, end, &root_key_blob, &res);
@@ -1015,18 +1276,41 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 				&attest_params->params[i].key_param.blob;
 			break;
 		case KM_TAG_ATTESTATION_ID_BRAND:
+			brand =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_DEVICE:
+			device =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_PRODUCT:
+			product =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_SERIAL:
+			serial =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_IMEI:
+			imei =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_MEID:
+			meid =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_MANUFACTURER:
+			manufacturer =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_MODEL:
+			model =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_ATTESTATION_ID_SECOND_IMEI:
-			DMSG("Cannot attest ids tag %x",
-			    attest_params->params[i].tag);
-			res = KM_ERROR_CANNOT_ATTEST_IDS;
-			goto exit;
+			second_imei =
+				&attest_params->params[i].key_param.blob;
+			break;
 		case KM_TAG_CREATION_DATETIME:
 			creation_datetime =
 				attest_params->params[i].key_param.date_time;
@@ -1041,6 +1325,76 @@ static keymaster_error_t TA_attestKey(uint8_t *start, uint8_t *end,
 	(void)resetSinceIDRotation;
 	(void)app_id;
 	(void)app_data;
+
+	if(brand != NULL || device != NULL || product != NULL || serial != NULL ||
+			imei != NULL || meid != NULL || manufacturer != NULL || model != NULL ||
+			second_imei != NULL) {
+		if (optee_att_ids.att_state.att_des == true) {
+			EMSG("Attestation IDs are destroyed. Cannot attest.");
+			res = KM_ERROR_CANNOT_ATTEST_IDS;
+			goto exit;
+		}
+		if (optee_att_ids.att_state.att_prov == false) {
+			EMSG("Attestation IDs are not set. Cannot attest.");
+			res = KM_ERROR_ATTESTATION_IDS_NOT_PROVISIONED;
+			goto exit;
+		}
+		if (brand != NULL) {
+			if (res = TA_CompareAttestationId(brand->data, brand->data_length,
+					optee_att_ids.att_data.brand, optee_att_ids.att_data.brand_size)){
+				goto exit;
+			}
+		}
+		if (device != NULL) {
+			if (res = TA_CompareAttestationId(device->data, device->data_length,
+					optee_att_ids.att_data.device, optee_att_ids.att_data.device_size)){
+				goto exit;
+			}
+		}
+		if (product != NULL) {
+			if (res = TA_CompareAttestationId(product->data, product->data_length,
+					optee_att_ids.att_data.product, optee_att_ids.att_data.product_size)){
+				goto exit;
+			}
+		}
+		if (serial != NULL) {
+			if (res = TA_CompareAttestationId(serial->data, serial->data_length,
+					optee_att_ids.att_data.serial, optee_att_ids.att_data.serial_size)){
+				goto exit;
+			}
+		}
+		if (imei != NULL) {
+			if (res = TA_CompareAttestationId(imei->data, imei->data_length,
+					optee_att_ids.att_data.imei, optee_att_ids.att_data.imei_size)){
+				goto exit;
+			}
+		}
+		if (meid != NULL) {
+			if (res = TA_CompareAttestationId(meid->data, meid->data_length,
+					optee_att_ids.att_data.meid, optee_att_ids.att_data.meid_size)){
+				goto exit;
+			}
+		}
+		if (manufacturer != NULL) {
+			if (res = TA_CompareAttestationId(manufacturer->data, manufacturer->data_length,
+					optee_att_ids.att_data.manufacturer, optee_att_ids.att_data.manufacturer_size)){
+				goto exit;
+			}
+		}
+		if (model != NULL) {
+			if (res = TA_CompareAttestationId(model->data, model->data_length,
+					optee_att_ids.att_data.model, optee_att_ids.att_data.model_size)){
+				goto exit;
+			}
+		}
+		if (second_imei != NULL) {
+			if (res = TA_CompareAttestationId(second_imei->data, second_imei->data_length,
+					optee_att_ids.att_data.second_imei, optee_att_ids.att_data.second_imei_size)){
+				goto exit;
+			}
+		}
+
+	}
 
 	if (attest_app_id == NULL) {
 		EMSG("Attestation application ID is missing");
@@ -3948,7 +4302,7 @@ static keymaster_error_t TA_generateCsrV2(TEE_Param params[TEE_NUM_PARAMS])
 		goto out;
 	}
 
-	res = TA_build_csr(&optee_km_context, &optee_dice_context, &challenge, pubkeys, &csr.data, &csr.data_length);
+	res = TA_build_csr(&optee_km_context, &optee_dice_context, &optee_att_ids, &challenge, pubkeys, &csr.data, &csr.data_length);
 	if (res != KM_ERROR_OK)
 		goto out;
 
@@ -4068,9 +4422,17 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 		DMSG("KM_DELETE_ALL_KEYS");
 		error = TA_stubOperation(params);
 		break;
+	case KM_SET_ATTESTATION_IDS:
+		DMSG("KM_SET_ATTESTATION_IDS");
+		error = TA_SetAttestationIds(params, 0);
+		break;
+	case KM_SET_ATTESTATION_IDS_KM3:
+		DMSG("KM_SET_ATTESTATION_IDS_KM3");
+		error = TA_SetAttestationIds(params, 1);
+		break;
 	case KM_DESTROY_ATTESTATION_IDS:
 		DMSG("KM_DESTROY_ATTESTATION_IDS");
-		error = TA_stubOperation(params);
+		error = TA_DestroyAttestationIds();
 		break;
 	case KM_GET_VERSION_2:
 		DMSG("KM_GET_VERSION_2");
@@ -4133,8 +4495,6 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused,
 	case KM_SET_PRODUCT_ID:
 	case KM_CLEAR_ATTESTATION_CERT_CHAIN:
 	case KM_SET_WRAPPED_ATTESTATION_KEY:
-	case KM_SET_ATTESTATION_IDS:
-	case KM_SET_ATTESTATION_IDS_KM3:
 	case KM_CONFIGURE_BOOT_PATCHLEVEL:
 		error = TA_unimplementedOperation(params);
 		break;

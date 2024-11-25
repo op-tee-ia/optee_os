@@ -16,6 +16,7 @@
 #include "hmac.h"
 #include <mbedtls/pk.h>
 #include <mbedtls/ecdsa.h>
+#include "attestation.h"
 
 static keymaster_error_t TA_generate_cose_mac0mac(uint8_t *external_aad,
 						  size_t external_aad_size,
@@ -340,6 +341,7 @@ exit:
 }
 
 static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_context,
+					       tee_att_ids_cxt_t *optee_att_ids,
 					       uint32_t csr_version,
 					       cbor_item_t **device_info_map)
 {
@@ -360,21 +362,41 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 	}
 
 	result = cbor_map_add(device_info,
-			      (struct cbor_pair) {.key = cbor_move(cbor_build_string("brand")),
-						  .value = cbor_move(cbor_build_string("Intel"))});
+			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("brand")),
+						   .value = cbor_move(cbor_build_string(optee_att_ids->att_data.brand))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("fused")),
 						   .value = cbor_move(cbor_build_uint8(0))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("model")),
-						   .value = cbor_move(cbor_build_string("Fake Model"))});
+						   .value = cbor_move(cbor_build_string(optee_att_ids->att_data.model))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("device")),
-						   .value = cbor_move(cbor_build_string("Fake Device"))});
+						   .value = cbor_move(cbor_build_string(optee_att_ids->att_data.device))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("product")),
-						   .value = cbor_move(cbor_build_string("Fake Product"))});
+						   .value = cbor_move(cbor_build_string(optee_att_ids->att_data.product))});
 
+	DMSG("attestation_ids.brand_size: %u", optee_att_ids->att_data.brand_size);
+	DMSG("attestation_ids.brand: %s", optee_att_ids->att_data.brand);
+	DMSG("attestation_ids.device_size: %u", optee_att_ids->att_data.device_size);
+	DMSG("attestation_ids.device: %s", optee_att_ids->att_data.device);
+	DMSG("attestation_ids.product_size: %u", optee_att_ids->att_data.product_size);
+	DMSG("attestation_ids.product: %s", optee_att_ids->att_data.product);
+	DMSG("attestation_ids.serial_size: %u", optee_att_ids->att_data.serial_size);
+	DMSG("attestation_ids.serial: %s", optee_att_ids->att_data.serial);
+	DMSG("attestation_ids.imei_size: %u", optee_att_ids->att_data.imei_size);
+	DMSG("attestation_ids.imei: %s", optee_att_ids->att_data.imei);
+	DMSG("attestation_ids.meid_size: %u", optee_att_ids->att_data.meid_size);
+	DMSG("attestation_ids.meid: %s", optee_att_ids->att_data.meid);
+	DMSG("attestation_ids.manufacturer_size: %u", optee_att_ids->att_data.manufacturer_size);
+	DMSG("attestation_ids.manufacturer: %s", optee_att_ids->att_data.manufacturer);
+	DMSG("attestation_ids.model_size: %u", optee_att_ids->att_data.model_size);
+	DMSG("attestation_ids.model: %s", optee_att_ids->att_data.model);
+	DMSG("attestation_ids.second_imei_size: %u", optee_att_ids->att_data.second_imei_size);
+	DMSG("attestation_ids.second_imei: %s", optee_att_ids->att_data.second_imei);
+	DMSG("att_des: %d", optee_att_ids->att_state.att_des);
+	DMSG("att_prov: %d", optee_att_ids->att_state.att_prov);
 	DMSG("version_info_set: %d", optee_km_context->version_info_set);
 	DMSG("vendor_patchlevel_set: %d", optee_km_context->vendor_patchlevel_set);
 	DMSG("os_version: %d", optee_km_context->os_version);
@@ -422,7 +444,7 @@ static keymaster_error_t TA_create_device_info(tee_km_context_t *optee_km_contex
 						   .value = cbor_move(cbor_build_string(os_version_str))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("manufacturer")),
-						   .value = cbor_move(cbor_build_string("Intel"))});
+						   .value = cbor_move(cbor_build_string(optee_att_ids->att_data.manufacturer))});
 	result &= cbor_map_add(device_info,
 			       (struct cbor_pair) {.key = cbor_move(cbor_build_string("vbmeta_digest")),
 						   .value = cbor_move(cbor_build_bytestring(optee_km_context->rot.rot_data.vbmetaDigest, optee_km_context->rot.rot_data.digestSize))});
@@ -870,6 +892,7 @@ exit:
 
 keymaster_error_t TA_build_csr(tee_km_context_t *optee_km_context,
 			       tee_dice_context_t *optee_dice_context,
+			       tee_att_ids_cxt_t *optee_att_ids,
 			       keymaster_blob_t *challenge,
 			       cbor_item_t *keys_to_sign,
 			       uint8_t **csr_blob_data,
@@ -893,7 +916,7 @@ keymaster_error_t TA_build_csr(tee_km_context_t *optee_km_context,
 
 	DMSG("%s %d", __func__, __LINE__);
 
-	error = TA_create_device_info(optee_km_context, csr_version, &device_info);
+	error = TA_create_device_info(optee_km_context, optee_att_ids, csr_version, &device_info);
 	if (error != KM_ERROR_OK) {
 		EMSG("Failed to create device info map");
 		goto exit;
