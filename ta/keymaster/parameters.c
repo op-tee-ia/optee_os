@@ -477,6 +477,7 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_CREATION_DATETIME:
 		case KM_TAG_INCLUDE_UNIQUE_ID:
 		case KM_TAG_EXPORTABLE:
+		case KM_TAG_MAX_BOOT_LEVEL:
 			if (MAX_ENFORCED_PARAMS_COUNT <=
 			    characteristics->sw_enforced.length)
 				return KM_ERROR_INVALID_KEY_BLOB;
