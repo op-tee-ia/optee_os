@@ -216,6 +216,12 @@ typedef enum {
 							    The value should interpreted as too's
 							    complement signed integer. Negative values
 							    indicate dates before Jan 1970 */
+	KM_TAG_MAX_BOOT_LEVEL = KM_UINT | 1010,  /*  Tag::MAX_BOOT_LEVEL specifies a maximum boot
+								level at which a key should function. Over the course of the
+								init process, the boot level will be raised to monotonically
+								increasing integer values. Implementations MUST NOT allow the key
+								to be used once the boot level advances beyond the value of this
+								tag. Cannot be hardware enforced in this version. */
 } keymaster_tag_t;
 
 typedef enum {

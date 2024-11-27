@@ -114,6 +114,7 @@ static keymaster_tag_type_t TA_get_km_tag_type(uint32_t km_tag) {
 		case TAG_VAL(KM_TAG_VENDOR_PATCHLEVEL):
 		case TAG_VAL(KM_TAG_BOOT_PATCHLEVEL):
 		case TAG_VAL(KM_TAG_MAC_LENGTH):
+		case TAG_VAL(KM_TAG_MAX_BOOT_LEVEL):
 			return KM_UINT;
 		case TAG_VAL(KM_TAG_USER_SECURE_ID):
 		case TAG_VAL(KM_TAG_RSA_PUBLIC_EXPONENT):

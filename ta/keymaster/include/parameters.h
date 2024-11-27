@@ -243,6 +243,7 @@ static inline const char *TA_tag_to_str (keymaster_tag_t tag) {
 	TAG_TO_STR(KM_TAG_UNLOCKED_DEVICE_REQUIRED)
 	TAG_TO_STR(KM_TAG_TRUSTED_CONFIRMATION_REQUIRED)
 	TAG_TO_STR(KM_TAG_TRUSTED_USER_PRESENCE_REQUIRED)
+	TAG_TO_STR(KM_TAG_MAX_BOOT_LEVEL)
 	default: return "Unknown tag";
 	}
 }
