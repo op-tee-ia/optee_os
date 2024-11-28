@@ -183,6 +183,7 @@ static bool check_if_vm_reset(uint8_t vmid)
 	uint8_t val = asm_in8(0x600U);
 	if (val == 1) {
 		g_tpm_nv_bootloader_lock = false;
+		g_rot_already_set = false;
 		IMSG("g_tpm_nv_bootloader_lock is changed to UNLOCKED due to Android reset.");
 	} else
 		EMSG("g_tpm_nv_bootloader_lock(id:%d, val:%d) is still LOCKED! BLOCK TPM access!!!", vmid, val);
@@ -194,9 +195,7 @@ static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 {
 	/* TODO: currently only have one ivsh device */
 
-	uint8_t vmid = smc_vm_ids->ree_id; /* TODO: only support one REE VM for now */
-
-	if (!g_rot_already_set || check_if_vm_reset(vmid)) {
+	if (!g_rot_already_set) {
 		assert(g_ivshmem_devs[0].rot_addr != 0);
 
 		memset(&g_rot_data, 0, sizeof(g_rot_data));

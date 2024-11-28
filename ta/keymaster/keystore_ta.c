@@ -33,7 +33,6 @@
 #include <cose.h>
 
 // todo: 1. multiple-Android support
-//       2. Android resets but tee does not
 bool g_isEarlyBootEnded = false;
 
 uint64_t identifier_rsa[] = {1, 2, 840, 113549, 1, 1, 1};
