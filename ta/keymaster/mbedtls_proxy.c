@@ -3581,7 +3581,7 @@ static int write_authorization_lists(keymaster_key_characteristics_t *chr,
 	param_enforcement params [] = {
 		{ &chr->sw_enforced,  false },
 		{ &chr->hw_enforced,  true },
-	        { attest_params, false }
+	        { attest_params, true }
 	};
 
 	for (i = 0; i < sizeof(auth_tag_list) / sizeof(auth_tag_list[0]); i++) {
@@ -3656,6 +3656,10 @@ static int write_authorization_lists(keymaster_key_characteristics_t *chr,
 
 		if (!par_count)
 			continue;
+
+		if (auth_tag_list[i].tag == KM_TAG_ATTESTATION_APPLICATION_ID) {
+			is_hw = false;
+		}
 
 		DMSG ("Tag %s, count = %zu, HW_ENFORCED = %d",
 		      TA_tag_to_str(auth_tag_list[i].tag), par_count,
