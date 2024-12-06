@@ -240,13 +240,13 @@ struct mpi_id {
  * Adapted from
  * https://github.com/sidsingh78/EPOCH-to-time-date-converter
  */
-static keymaster_error_t convert_epoch_to_date_str(uint32_t sec,
+static keymaster_error_t convert_epoch_to_date_str(uint64_t sec,
 						   unsigned char *t_str,
 						   size_t t_strlen)
 {
-	static unsigned char month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31,
-					       30, 31, 30, 31};
-	static unsigned char week_days[7] = {4, 5, 6, 0, 1, 2, 3};
+	static unsigned char month_days[12] = { 31, 28, 31, 30, 31, 30, 31, 31,
+					       30, 31, 30, 31 };
+	static unsigned char week_days[7] = { 4, 5, 6, 0, 1, 2, 3 };
 	/* Thu=4, Fri=5, Sat=6, Sun=0, Mon=1, Tue=2, Wed=3 */
 
 	unsigned char ntp_hour = 0;
@@ -258,14 +258,14 @@ static keymaster_error_t convert_epoch_to_date_str(uint32_t sec,
 	unsigned char leap_days = 0;
 	unsigned char leap_year_ind = 0;
 
-	uint16_t temp_days = 0;
+	uint64_t temp_days = 0;
 
-	uint32_t epoch = sec;
-	uint32_t ntp_year = 0;
-	uint32_t days_since_epoch  = 0;
-	uint32_t day_of_year = 0;
+	uint64_t epoch = sec;
+	uint64_t ntp_year = 0;
+	uint64_t days_since_epoch  = 0;
+	uint64_t day_of_year = 0;
 
-	uint32_t i = 0;
+	uint64_t i = 0;
 
 	if (!t_str) {
 		EMSG("Invalid buffer!");
@@ -295,27 +295,34 @@ static keymaster_error_t convert_epoch_to_date_str(uint32_t sec,
 	/* Calculating WeekDay */
 	ntp_week_day = week_days[days_since_epoch % 7];
 
-	/* ball parking year, may not be accurate! */
-	ntp_year = 1970 + (days_since_epoch / 365);
+	/* Calculate day of year - subtract days (and increment years) until days
+	are less than the year's total number of days...*/
+	day_of_year = days_since_epoch;
+	ntp_year = 1970;
+	leap_year_ind = 0;
 
-	/* Calculating number of leap days since epoch/1970 */
-	for (i = 1972; i < ntp_year; i += 4)
-		if (((i % 4 == 0) && (i % 100 != 0)) || (i % 400 == 0))
+	while (((day_of_year >= 365) && (leap_year_ind == 0)) || ((day_of_year >= 366) && (leap_year_ind == 1)))
+	{
+		if (leap_year_ind)
+		{
+			day_of_year -= 366;
 			leap_days++;
+		} else
+		{
+			day_of_year -= 365;
+		}
+		ntp_year++;
+		leap_year_ind = (((ntp_year % 4 == 0) && (ntp_year % 100 != 0)) || (ntp_year % 400 == 0));
+	}
+	day_of_year = day_of_year + 1;
 
-	/*
-	 * Calculating accurate current year by
-	 * (days_since_epoch - extra leap days)
-	 */
-	ntp_year = 1970 + ((days_since_epoch - leap_days) / 365);
-	day_of_year = ((days_since_epoch - leap_days) % 365) + 1;
-
-	if (((ntp_year % 4 == 0) && (ntp_year % 100 != 0)) ||
-	    (ntp_year % 400 == 0)) {
+	if (leap_year_ind) {
 		/* February = 29 days for leap years */
 		month_days[1] = 29;
-		/* if current year is leap, set indicator to 1 */
-		leap_year_ind = 1;
+		if (day_of_year >= 60)
+		{
+			leap_days++;
+		}
 	} else {
 		/* February = 28 days for non-leap years */
 		month_days[1] = 28;
@@ -329,7 +336,7 @@ static keymaster_error_t convert_epoch_to_date_str(uint32_t sec,
 	}
 
 	/* calculating current Date */
-	temp_days = temp_days - month_days[ntp_month-1];
+	temp_days = temp_days - month_days[ntp_month - 1];
 	ntp_date = day_of_year - temp_days;
 
 	memset(t_str, 0, TIME_STRLEN);
@@ -345,7 +352,7 @@ static keymaster_error_t convert_epoch_to_date_str(uint32_t sec,
 	snprintf((char *)(t_str + 10), 3, "%02u", ntp_minute);
 	snprintf((char *)(t_str + 12), 3, "%02u", ntp_second);
 
-	DMSG("seconds since epoch: %" PRIu32, sec);
+	DMSG("seconds since epoch: %" PRIu64, sec);
 	DMSG("Date string: %s", t_str);
 	switch (ntp_week_day) {
 	case 0:
