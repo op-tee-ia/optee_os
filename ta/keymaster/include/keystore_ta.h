@@ -51,6 +51,12 @@
 #define EMPTY_CHARACTS {					\
 			.hw_enforced = EMPTY_PARAM_SET,		\
 			.sw_enforced = EMPTY_PARAM_SET}
+#define EMPTY_ATTRS {					\
+			.attrs = NULL,		\
+			.attrs_count = 0,	\
+			.size = 0,	\
+			.type = 0, \
+			.alg = 0}
 #define EMPTY_OPERATION {					\
 			.key = NULL,				\
 			.nonce = EMPTY_BLOB,			\

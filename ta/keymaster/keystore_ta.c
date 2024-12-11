@@ -2520,7 +2520,7 @@ static keymaster_error_t TA_upgradeKey(TEE_Param params[TEE_NUM_PARAMS])
 	TEE_ObjectHandle obj_h = TEE_HANDLE_NULL;
 	keymaster_blob_t client_id = EMPTY_BLOB;
 	keymaster_blob_t app_data = EMPTY_BLOB;
-	tee_key_attributes attrs;
+	tee_key_attributes attrs = EMPTY_ATTRS;
 
 	DMSG("%s %d", __func__, __LINE__);
 
