@@ -302,7 +302,8 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 			/*If the request contains both,
 			 * use the curve specified by Tag::EC_CURVE,
 			 * and validate that the specified key size is appropriate*/
-			if (ec_curve != TA_size_to_ECcurve(*key_size, is_curve25519)) {
+			if (ec_curve != KM_EC_CURVE_UNKNOWN &&
+					ec_curve != TA_size_to_ECcurve(*key_size, is_curve25519)) {
 				EMSG("For EC algorithm specified key size"
 						"is not appropriate for that curve");
 				return KM_ERROR_INVALID_ARGUMENT;

@@ -2095,6 +2095,7 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 		}
 
 		uint32_t key_size_set_in_tag = key_size;
+		uint64_t temp_rsa_public_exponent = key_rsa_public_exponent;
 		res = mbedTLS_decode_pkcs8(key_data, &attrs_in,
 					   &attrs_in_count, key_algorithm,
 					   &key_size,
@@ -2117,6 +2118,14 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 				goto out;
 			}
+			if (temp_rsa_public_exponent != UNDEFINED &&
+					temp_rsa_public_exponent != key_rsa_public_exponent) {
+				EMSG("Key_rsa_public_exponent: %lu setting in TAG::RSA_PUBLIC_EXPONENT "
+				     "is mismatch with key material: %lu", temp_rsa_public_exponent,
+					 key_rsa_public_exponent);
+				res = KM_ERROR_IMPORT_PARAMETER_MISMATCH;
+				goto out;
+			}
 		}
 		if (key_algorithm == KM_ALGORITHM_RSA ||
 		    key_algorithm == KM_ALGORITHM_EC) {
@@ -2127,15 +2136,25 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 				goto out;
 			}
 		}
-		if (key_algorithm == KM_ALGORITHM_EC && ec_curve == KM_EC_CURVE_CURVE_25519) {
-			is_curve25519 = true;
-			if (is_ed25519 == false && is_ed25519_oid == true) {
-				EMSG("Key purpose: %s setting in TAG::KM_TAG_PURPOSE is mismatch "
-				     "with key material: %s", (is_ed25519 == true ? ("SIGN") : ("AGREE_KEY")),
-				     (is_ed25519_oid == true ? ("SIGN") : ("AGREE_KEY")));
-				res = KM_ERROR_INCOMPATIBLE_PURPOSE;
+		if (key_algorithm == KM_ALGORITHM_EC) {
+			if (ec_curve == KM_EC_CURVE_CURVE_25519) {
+				is_curve25519 = true;
+				if (is_ed25519 == false && is_ed25519_oid == true) {
+					EMSG("Key purpose: %s setting in TAG::KM_TAG_PURPOSE is mismatch "
+					  "with key material: %s", (is_ed25519 == true ? ("SIGN") : ("AGREE_KEY")),
+					  (is_ed25519_oid == true ? ("SIGN") : ("AGREE_KEY")));
+					res = KM_ERROR_INCOMPATIBLE_PURPOSE;
+					goto out;
+				}
+			}
+			if (ec_curve != KM_EC_CURVE_UNKNOWN &&
+					TA_size_to_ECcurve(key_size, is_curve25519) != ec_curve) {
+				EMSG("EC curve provided in TAG::EC_CURVE is %u and deduced from key materia is %u",
+						TA_size_to_ECcurve(key_size, is_curve25519), ec_curve);
+				res = KM_ERROR_IMPORT_PARAMETER_MISMATCH;
 				goto out;
 			}
+			ec_curve = TA_size_to_ECcurve(key_size, is_curve25519);
 		}
 	}
 	TA_add_to_params(&params_t, key_size, key_rsa_public_exponent, is_curve25519);
