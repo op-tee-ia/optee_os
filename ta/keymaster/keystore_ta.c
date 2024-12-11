@@ -1133,14 +1133,9 @@ static keymaster_error_t TA_CompareAttestationId(uint8_t *att_id, uint32_t att_i
 	DMSG("%s %d", __func__, __LINE__);
 	keymaster_error_t res = KM_ERROR_OK;
 
-	if(att_id_ctx_size == 0){
-		EMSG("Attestation ID is not set. Cannot attest.");
-		res = KM_ERROR_ATTESTATION_IDS_NOT_PROVISIONED;
-		return res;
-	}
-
-	if (att_id_size != att_id_ctx_size || memcmp(att_id, att_id_ctx, att_id_size) != 0) {
-		EMSG("Attestation IDs are dismatch. Cannot attest.");
+	if (att_id_ctx_size == 0 || att_id_size != att_id_ctx_size ||
+			memcmp(att_id, att_id_ctx, att_id_size) != 0) {
+		EMSG("Cannot attest. att_id_size: %d, att_id_ctx_size: %d", att_id_size, att_id_ctx_size);
 		res = KM_ERROR_CANNOT_ATTEST_IDS;
 	}
 	return res;
