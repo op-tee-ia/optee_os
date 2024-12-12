@@ -1289,7 +1289,7 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		match = false;
 		if (*op_padding == UNDEFINED) {
 			EMSG("Operation padding is not set");
-			res = KM_ERROR_UNSUPPORTED_PURPOSE;
+			res = KM_ERROR_UNSUPPORTED_PADDING_MODE;
 			goto out_cp;
 		}
 		for (uint32_t i = 0; i < padding_count; i++) {
