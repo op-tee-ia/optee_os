@@ -2031,12 +2031,8 @@ static keymaster_error_t TA_importKey(TEE_Param params[TEE_NUM_PARAMS])
 			     "192 and 256", key_size);
 			res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 			goto out;
-		} else if (key_algorithm == KM_ALGORITHM_TRIPLE_DES &&
-						key_size != 112 &&
-						key_size != 168 &&
-						key_size != 192) {
-			 EMSG("Unsupported key size %d ! Supported only 112, "
-			      "168 and 192", key_size);
+		} else if (key_algorithm == KM_ALGORITHM_TRIPLE_DES && key_size != 168) {
+			 EMSG("Unsupported key size %d ! Supported only 168", key_size);
 			 res = KM_ERROR_UNSUPPORTED_KEY_SIZE;
 			 goto out;
 		}

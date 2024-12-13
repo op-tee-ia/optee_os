@@ -172,6 +172,7 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_purpose_t key_purpose = UNDEFINED;
 	*key_size = UNDEFINED; /*set default value*/
+	keymaster_block_mode_t block_mode = UNDEFINED;
 
 	DMSG("%s %d", __func__, __LINE__);
 	for (size_t i = 0; i < params_t.length; i++) {
@@ -192,9 +193,9 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 				(params_t.params + i)->key_param.long_integer;
 			break;
 		case KM_TAG_BLOCK_MODE:
+			block_mode = (params_t.params + i)->key_param.enumerated;
 			if (!check_min_mac_length && KM_MODE_GCM ==
-					(params_t.params + i)->
-					key_param.enumerated) {
+					block_mode) {
 				check_min_mac_length = true;
 			}
 			break;
@@ -253,6 +254,16 @@ keymaster_error_t TA_parse_params(const keymaster_key_param_set_t params_t,
 		}
 	}
 	//Check:
+	if (*key_algorithm == KM_ALGORITHM_TRIPLE_DES) {
+		if (block_mode != KM_MODE_CBC && block_mode != KM_MODE_ECB) {
+			EMSG("Unsupported block mode! 3DES only supports CBC and ECB");
+			return KM_ERROR_UNSUPPORTED_BLOCK_MODE;
+		}
+		if (*key_size != 168) {
+			EMSG("Unsupported key size %u ! 3DES only supports 168", *key_size);
+			return KM_ERROR_UNSUPPORTED_KEY_SIZE;
+		}
+	}
 	if (*key_algorithm == KM_ALGORITHM_RSA && (*key_size % 8 != 0 ||
 						*key_size > MAX_KEY_RSA)
 						&& !import) {
