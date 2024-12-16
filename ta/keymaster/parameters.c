@@ -415,11 +415,11 @@ keymaster_error_t TA_fill_characteristics(
 		case KM_TAG_BOOTLOADER_ONLY:
 		case KM_TAG_NONCE:
 		case KM_TAG_AUTH_TOKEN:
-		case KM_TAG_MAC_LENGTH:
 		case KM_TAG_ASSOCIATED_DATA:
 		case KM_TAG_UNIQUE_ID:
 			EMSG("Unexpected TAG %x", params->params[i].tag);
 			return KM_ERROR_INVALID_KEY_BLOB;
+		case KM_TAG_MAC_LENGTH:
 		case KM_TAG_ROLLBACK_RESISTANT:
 		case KM_TAG_APPLICATION_ID:
 		case KM_TAG_APPLICATION_DATA:
@@ -1250,7 +1250,9 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 		}
 		if (*mac_length == UNDEFINED) {
 			if (*algorithm == KM_ALGORITHM_AES) {
-				*mac_length = kMaxGcmTagLength;
+				EMSG("MAC Length must be specified");
+				res = KM_ERROR_MISSING_MAC_LENGTH;
+				goto out_cp;
 			} else if (*algorithm == KM_ALGORITHM_HMAC) {
 				*mac_length = min_mac_length;/*FIXME*/
 			} else {

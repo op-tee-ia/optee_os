@@ -638,7 +638,7 @@ keymaster_error_t TA_construct_transport_key_params(keymaster_key_param_set_t *a
 		return KM_ERROR_INVALID_ARGUMENT;
 	}
 
-	aes_params->length = 8;
+	aes_params->length = 9;
 	if (MUL_OVERFLOW(sizeof(keymaster_key_param_t), aes_params->length, &aes_set_size)) {
 		EMSG("Overflow: too many key params! Abort!");
 		return KM_ERROR_INVALID_INPUT_LENGTH;
@@ -666,6 +666,8 @@ keymaster_error_t TA_construct_transport_key_params(keymaster_key_param_set_t *a
 	aes_params->params[6].key_param.integer = 128;
 	aes_params->params[7].tag = KM_TAG_NO_AUTH_REQUIRED;
 	aes_params->params[7].key_param.boolean = true;
+	aes_params->params[8].tag = KM_TAG_MAC_LENGTH;
+	aes_params->params[8].key_param.integer = MAX_GCM_MAC;
 
 	return 0;
 }
