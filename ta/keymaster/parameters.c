@@ -851,6 +851,9 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 	bool no_auth_req = false;
 	bool match;
 	bool caller_nonce = false;
+	bool is_ec_curve = false;
+	bool is_curve25519 = false;
+	keymaster_ec_curve_t ec_curve = KM_EC_CURVE_UNKNOWN;
 	keymaster_error_t res = KM_ERROR_OK;
 
 	DMSG("%s %d", __func__, __LINE__);
@@ -930,6 +933,14 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 			digest[digest_count] = (keymaster_digest_t)
 				key_params->params[i].key_param.integer;
 			digest_count++;
+			break;
+		case KM_TAG_EC_CURVE:
+			DMSG("KM_TAG_EC_CURVE");
+			is_ec_curve = true;
+			ec_curve = (keymaster_ec_curve_t)
+				key_params->params[i].key_param.enumerated;
+			if (ec_curve == KM_EC_CURVE_CURVE_25519)
+				is_curve25519 = true;
 			break;
 		case KM_TAG_RSA_OAEP_MGF_DIGEST:
 			DMSG("KM_TAG_RSA_OAEP_MGF_DIGEST");
@@ -1204,6 +1215,14 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 	/* RSA, EC, HMAC    KM_PAD_RSA_PKCS1_1_5_ENCRYPT
 	 * padding does not require a digest
 	 */
+	if (*algorithm == KM_ALGORITHM_EC &&
+			is_curve25519 &&
+			op_purpose!= KM_PURPOSE_AGREE_KEY &&
+			digest_count == 1 &&
+			*op_digest != KM_DIGEST_NONE) {
+		EMSG("EC key with ed25519 only supports NONE digest");
+		return KM_ERROR_UNSUPPORTED_DIGEST;
+	}
 	if (*algorithm != KM_ALGORITHM_AES &&
 			*op_padding != KM_PAD_RSA_PKCS1_1_5_ENCRYPT) {
 		match = false;
