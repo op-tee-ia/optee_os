@@ -713,7 +713,7 @@ exit:
 	return res;
 }
 
-TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx, uint32_t cmd_id,
+TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx __unused, uint32_t cmd_id,
 			uint32_t param_types, TEE_Param params[TEE_NUM_PARAMS])
 {
 	if (TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT,
@@ -733,8 +733,4 @@ TEE_Result TA_InvokeCommandEntryPoint(void *sess_ctx, uint32_t cmd_id,
 	default:
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
-
-	(void)&sess_ctx; /* Unused parameter */
-
-	return TEE_ERROR_BAD_PARAMETERS;
 }
