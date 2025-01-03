@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+/* Copyright (c) 2024-2025, Intel Corporation */
+
 /*
  * The name of this file must not be modified
  */

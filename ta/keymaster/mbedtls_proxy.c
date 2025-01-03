@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /* Copyright (c) 2018, Linaro Limited */
+/* Copyright (c) 2024-2025, Intel Corporation */
 
 #include <attestation.h>
 #include <generator.h>
