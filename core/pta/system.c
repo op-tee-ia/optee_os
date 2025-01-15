@@ -36,9 +36,13 @@
 #include <string.h>
 #include <trace.h>
 #include <kernel/tee_common_otp.h>
-
+#include <kernel/early_ta.h>
+#include <tee/tee_cryp_utl.h>
+#include <drivers/ivshmem.h>
 static unsigned int system_pnum;
 extern uint8_t g_uds[32];
+#define TA_KEYMASTER_UUID { 0xdba51a17, 0x0563, 0x11e7, \
+        { 0x93, 0xb1, 0x6f, 0xa7, 0xb0, 0x07, 0x1a, 0x51} }
 
 static TEE_Result system_rng_reseed(uint32_t param_types,
 				    TEE_Param params[TEE_NUM_PARAMS])
@@ -182,6 +186,36 @@ static TEE_Result system_set_rot(struct user_mode_ctx *uctx,
 }
 #endif
 
+static TEE_Result tee_sha512_ta(uint8_t *ta_hash, size_t len)
+{
+	TEE_Result res = TEE_SUCCESS;
+	TEE_UUID keymaster_uuid = TA_KEYMASTER_UUID;
+	const struct embedded_ts *ta = NULL;
+	if (!ta_hash || len < TEE_SHA512_HASH_SIZE)
+		return TEE_ERROR_BAD_PARAMETERS;
+	ta = find_early_ta(&keymaster_uuid);
+	if (!ta) {
+		EMSG("Failed to find Keymaster TA");
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	}
+	size_t ta_size;
+	if(ta->uncompressed_size){
+		EMSG("Keymaster TA uncompressed size: %u", ta->uncompressed_size);
+		ta_size = ta->uncompressed_size;
+	} else {
+		EMSG("Keymaster TA compressed size: %u", ta->size);
+		ta_size = ta->size;
+	}
+	res = tee_hash_createdigest(TEE_ALG_SHA512, ta->ts, ta_size, ta_hash, len);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to calculate Keymaster TA hash");
+	}
+	return res;
+}
+
+/* Reference:
+* https://pigweed.googlesource.com/open-dice/+/HEAD/docs/specification.md#configuration-input-value-details-optional
+*/
 static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 				  uint32_t param_types,
 				  TEE_Param params[TEE_NUM_PARAMS])
@@ -189,6 +223,7 @@ static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 	TEE_Result res = TEE_SUCCESS;
 	uint8_t next_cdi_seal[DICE_CDI_SIZE] = { 0 };
 	DiceInputValues input_values = { 0 };
+	struct ex_rot_data_t ex_rot_data;
 
 	int32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
 					  TEE_PARAM_TYPE_VALUE_OUTPUT,
@@ -198,17 +233,34 @@ static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 	if (exp_pt != param_types)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	uint8_t digest[TEE_SHA256_HASH_SIZE];
-	if (TEE_SUCCESS != tee_sha256_pcrs(digest, sizeof(digest))) {
-		EMSG("DICE failed to get the hash of PCR 0~7");
-		return TEE_ERROR_GENERIC;
+	uint8_t ta_hash[TEE_SHA512_HASH_SIZE];
+	res = tee_sha512_ta(ta_hash, sizeof(ta_hash));
+	if (res != TEE_SUCCESS) {
+		EMSG("DICE failed to get the hash of keymint ta");
+		return res;
 	}
+	memcpy(input_values.code_hash, ta_hash, sizeof(ta_hash));
 
-	/* Reference:
-	 * https://pigweed.googlesource.com/open-dice/+/HEAD/docs/specification.md#configuration-input-value-details-optional
-	 * Todo: Fill in Byte 0~4
-	 */
+	input_values.config_value[0] = 0x11;
+	input_values.config_value[1] = CFG_TEE_TA_LOG_LEVEL;
+	input_values.config_value[2] = 0x01;
+	input_values.config_value[3] = CFG_OPTEE_REVISION_MAJOR;
+	input_values.config_value[4] = CFG_OPTEE_REVISION_MINOR;
+
+	uint8_t digest[TEE_SHA256_HASH_SIZE];
+	res = tee_sha256_pcrs(digest, sizeof(digest));
+	if (res != TEE_SUCCESS) {
+		EMSG("DICE failed to get the hash of PCR 0~7");
+		return res;
+	}
 	memcpy(input_values.config_value + 32, digest, sizeof(digest));
+
+	res = ivshmem_rot_copy(0, &ex_rot_data, sizeof(ex_rot_data));
+	if (res != TEE_SUCCESS) {
+		EMSG("DICE failed to get rot");
+		return res;
+	}
+	memcpy(input_values.authority_hash, ex_rot_data.rot_data.keyHash256, TEE_SHA256_HASH_SIZE);
 
 	DiceResult ret = DiceMainFlow(NULL,
 				      g_uds,

@@ -14,5 +14,7 @@
 #define for_each_early_ta(_ta) \
 	SCATTERED_ARRAY_FOREACH(_ta, early_tas, struct embedded_ts)
 
+const struct embedded_ts *find_early_ta(const TEE_UUID *uuid);
+
 #endif /* KERNEL_EARLY_TA_H */
 

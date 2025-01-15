@@ -15,7 +15,7 @@
 #include <utee_defines.h>
 #include <util.h>
 
-static const struct embedded_ts *find_early_ta(const TEE_UUID *uuid)
+const struct embedded_ts *find_early_ta(const TEE_UUID *uuid)
 {
 	const struct embedded_ts *ta = NULL;
 
