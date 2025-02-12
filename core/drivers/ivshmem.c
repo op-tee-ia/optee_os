@@ -297,7 +297,7 @@ static uint8_t ivshmem_get_dev_func(void)
 				g_ivshmem_devs[num].dev = device;
 				g_ivshmem_devs[num].func = function;
 				if (++num >= TEE_MAX_IVSHMEM_DEVICE)
-					break;
+					return num;
 			}
 		}
 	}

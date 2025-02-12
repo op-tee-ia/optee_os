@@ -1046,7 +1046,9 @@ static unsigned long init_mem_map(struct tee_mmap_region *memory_map,
 	qsort(memory_map, last, sizeof(struct tee_mmap_region),
 	      cmp_init_mem_map);
 
-	add_pager_vaspace(memory_map, num_elems, &last);
+	if (IS_ENABLED(CFG_WITH_PAGER))
+		add_pager_vaspace(memory_map, num_elems, &last);
+
 	if (IS_ENABLED(CFG_CORE_ASLR) && seed) {
 		vaddr_t base_addr = TEE_RAM_START + seed;
 		const unsigned int va_width = get_va_width();
@@ -2842,6 +2844,9 @@ void core_mmu_init_ta_ram(void)
 #else
 	virt_get_ta_ram(&s, &e);
 #endif
+	if (s >= e)
+		panic("invalid TA RAM");
+
 	ps = virt_to_phys((void *)s);
 	pe = virt_to_phys((void *)(e - 1)) + 1;
 

@@ -666,19 +666,21 @@ keymaster_error_t mbedTLS_decode_raw(keymaster_blob_t key_data,
 	}
 	if (algorithm == KM_ALGORITHM_EC && (pk_type != MBEDTLS_PK_ECKEY && pk_type != MBEDTLS_PK_EDDSA)) {
 		EMSG ("Algorithm mismatch.");
-		ret = KM_ERROR_INVALID_KEY_BLOB;
-		goto out;
+		return KM_ERROR_INVALID_ARGUMENT;
 	}
 
 	pk_info = mbedtls_pk_info_from_type(pk_type);
 	mbedtls_ret = mbedtls_pk_setup(&pk, pk_info);
 	if (mbedtls_ret != 0) {
 		EMSG("mbedtls_pk_setup returned -%#x", -mbedtls_ret);
-		ret = KM_ERROR_INVALID_KEY_BLOB;
-		goto out;
+		return KM_ERROR_INVALID_ARGUMENT;
 	}
 
-	ecc = pk.pk_ctx;
+	if ((ecc = pk.pk_ctx) == NULL) {
+		EMSG ("pk_ctx is null");
+		return KM_ERROR_UNEXPECTED_NULL_POINTER;
+	}
+
 	mbedtls_ecp_keypair_init(ecc);
 
 	mbedtls_ret = mbedtls_ecp_group_load(&ecc->grp, ec_grp_id);
@@ -757,7 +759,12 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 	mbedtls_entropy_init(&entropy);
 	mbedtls_ecp_point_init(&Q);
 
-	TEE_GetObjectInfo1(key_obj, &obj_info);
+	res = TEE_GetObjectInfo1(key_obj, &obj_info);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to get key obj, res=%x", res);
+		goto out;
+	}
+
 	if (obj_info.objectType == TEE_TYPE_ECDSA_KEYPAIR ||
 		obj_info.objectType == TEE_TYPE_ECDH_KEYPAIR) {
 		pk_type = MBEDTLS_PK_ECKEY;
@@ -790,6 +797,12 @@ static TEE_Result mbedTLS_import_ecc_pk(mbedtls_pk_context *pk,
 		     mbedtls_ret);
 		res = TEE_ERROR_GENERIC;
 		mbedtls_pk_free(pk);
+		goto out;
+	}
+
+	if (pk->pk_ctx ==  NULL) {
+		EMSG ("pk_ctx is null");
+		res = TEE_ERROR_NOT_SUPPORTED;
 		goto out;
 	}
 
@@ -1048,7 +1061,11 @@ static TEE_Result mbedTLS_import_rsa_pk(mbedtls_pk_context *pk,
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_entropy_init(&entropy);
 
-	TEE_GetObjectInfo1(key_obj, &obj_info);
+	res = TEE_GetObjectInfo1(key_obj, &obj_info);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to get key obj info");
+		goto out;
+	}
 
 	mbedtls_ret = mbedtls_ctr_drbg_seed(&ctr_drbg, f_rng,
 					    &entropy, NULL, 0);
@@ -1068,7 +1085,11 @@ static TEE_Result mbedTLS_import_rsa_pk(mbedtls_pk_context *pk,
 		goto out;
 	}
 
-	rsa = pk->pk_ctx;
+	if ((rsa = pk->pk_ctx) == NULL) {
+		EMSG ("pk_ctx is null");
+		res = TEE_ERROR_NOT_SUPPORTED;
+		goto out;
+	}
 
 	mbedtls_rsa_init(rsa);
 
@@ -2505,7 +2526,12 @@ keymaster_error_t mbedTLS_decode_ecc_subpubkey(uint8_t *input,
 		goto out;
 	}
 
-    mbedtls_ecp_keypair *ec_key = (mbedtls_ecp_keypair *) pk.pk_ctx;
+	mbedtls_ecp_keypair *ec_key = (mbedtls_ecp_keypair *) pk.pk_ctx;
+	if (ec_key == NULL) {
+		EMSG("ec_key is null");
+		res = KM_ERROR_UNEXPECTED_NULL_POINTER;
+		goto out;
+	}
 
 	if (ec_key->grp.id == MBEDTLS_ECP_DP_CURVE25519)
 	{
@@ -3654,7 +3680,7 @@ static int write_authorization_lists(keymaster_key_characteristics_t *chr,
 		        }
 
 	                default:
-			        break;
+			        continue;
 		}
 
 		par_count = extract_param(params,

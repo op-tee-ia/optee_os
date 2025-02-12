@@ -931,6 +931,8 @@ keymaster_error_t TA_read_root_attest_cert(uint32_t type,
 		res = TA_open_root_rsa_attest_cert(&rootAttCert);
 	} else if (type == TEE_TYPE_ECDSA_KEYPAIR) {
 		res = TA_open_root_ec_attest_cert(&rootAttCert);
+	} else {
+		res = TEE_ERROR_BAD_PARAMETERS;
 	}
 
 	if (res != TEE_SUCCESS) {

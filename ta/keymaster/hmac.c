@@ -159,8 +159,13 @@ TEE_Result TA_hmac_execute(uint8_t *message, size_t message_len,
 	if (res != KM_ERROR_OK) {
 		EMSG("Failed to read secret key");
 		goto exit;
-	}	
-	TEE_GetObjectInfo1(secretKey, &info);
+	}
+	
+	res = TEE_GetObjectInfo1(secretKey, &info);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to secretKey info, res=%x", res);
+		goto exit;
+	}
 
 	res = TEE_AllocateOperation(&op, TEE_ALG_HMAC_SHA256, TEE_MODE_MAC, info.maxKeySize);
 	if (res != TEE_SUCCESS) {

@@ -227,7 +227,12 @@ TEE_Result TA_execute(uint8_t *data, const size_t size,
 		res = KM_ERROR_MEMORY_ALLOCATION_FAILED;
 		goto exit;
 	}
-	TEE_GetObjectInfo1(secretKey, &info);
+	
+	res = TEE_GetObjectInfo1(secretKey, &info);
+	if (res != TEE_SUCCESS) {
+		EMSG("Failed to get secretKey info, res=%x", res);
+		goto exit;
+	}
 
 	res = TEE_AllocateOperation(&op, TEE_ALG_AES_GCM, mode, info.maxKeySize);
 	if (res != TEE_SUCCESS) {

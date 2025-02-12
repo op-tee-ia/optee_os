@@ -1139,7 +1139,13 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 		EMSG("Unsupported algorithm");
 		return KM_ERROR_UNSUPPORTED_ALGORITHM;
 	}
-	TEE_GetObjectInfo1(obj_h, &info);
+
+	res = TEE_GetObjectInfo1(obj_h, &info);
+	if (res != TEE_SUCCESS) {
+		EMSG("Error get object info, res=%x", res);
+		goto out_co;
+	}
+
 	res = TEE_AllocateOperation(operation, algo, mode, info.maxKeySize);
 	if (res != TEE_SUCCESS) {
 		EMSG("Error TEE_AllocateOperation maxKeySize=%d", info.maxKeySize);
@@ -1154,7 +1160,7 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 	case (KM_ALGORITHM_AES):
 	case (KM_ALGORITHM_TRIPLE_DES):
 		if (op_mode == KM_MODE_GCM) {
-			TEE_AEInit(*operation, nonce.data,
+			res = TEE_AEInit(*operation, nonce.data,
 					nonce.data_length,
 					mac_length, 0, 0);
 		} else {
@@ -1172,15 +1178,13 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 		break;
 	default:
 		EMSG("Unsupported algorithm");
-		res = KM_ERROR_UNSUPPORTED_ALGORITHM;
-		goto out_co;
+		return KM_ERROR_UNSUPPORTED_ALGORITHM;
 	}
 out_co:
-	if ((res != TEE_SUCCESS) && (*operation != TEE_HANDLE_NULL))
-	{
-		TEE_FreeOperation(*operation);
-	}
-	return res;
+	if (res != TEE_SUCCESS)
+		return KM_ERROR_UNKNOWN_ERROR;
+	else
+		return KM_ERROR_OK;
 }
 
 keymaster_error_t TA_create_digest_op(TEE_OperationHandle *digest_op,
