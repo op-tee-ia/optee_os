@@ -34,7 +34,7 @@ typedef struct {
 /*
  * Initialize failure record table
  */
-void InitFailureRecords(void);
+TEE_Result InitFailureRecords(void);
 
 /*
  * Returns failure @record for secure @user_id
@@ -45,17 +45,17 @@ void GetFailureRecord(secure_id_t user_id, failure_record_t *record);
  * Write failure @record to failure record table. Function will rewrite the
  * oldest record if failure record table is full
  */
-void WriteFailureRecord(const failure_record_t *record);
+TEE_Result WriteFailureRecord(const failure_record_t *record);
 
 /*
  * Increment failure counter for @record and set new @timestamp
  */
-void IncrementFailureRecord(failure_record_t *record, uint64_t timestamp);
+TEE_Result IncrementFailureRecord(failure_record_t *record, uint64_t timestamp);
 
 /*
  * Clean failure record counter and timestamp for @user_id
  */
-void ClearFailureRecord(secure_id_t user_id);
+TEE_Result ClearFailureRecord(secure_id_t user_id);
 
 /*
  * Calculates the timeout in milliseconds as a function of the failure

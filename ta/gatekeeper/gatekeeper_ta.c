@@ -68,6 +68,7 @@ void TA_DestroyEntryPoint(void)
 TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 		TEE_Param  params[TEE_NUM_PARAMS], void **sess_ctx)
 {
+	TEE_Result res = TEE_SUCCESS;
 	uint32_t exp_param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_NONE,
 						   TEE_PARAM_TYPE_NONE,
 						   TEE_PARAM_TYPE_NONE,
@@ -75,7 +76,11 @@ TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 	if (param_types != exp_param_types)
 		return TEE_ERROR_BAD_PARAMETERS;
 
-	InitFailureRecords();
+	res = InitFailureRecords();
+	if (res != TEE_SUCCESS) {
+		EMSG("InitFailureRecords failed, res=%x", res);
+		return res;
+	}
 
 	/* Unused parameters */
 	(void)&params;
@@ -498,6 +503,10 @@ static TEE_Result TA_Enroll(TEE_Param params[TEE_NUM_PARAMS])
 			}
 
 			IncrementFailureRecord(&record, timestamp);
+			if (res != TEE_SUCCESS) {
+				EMSG("IncrementFailureRecord failed, res=%x", res);
+				goto exit;
+			}
 		}
 
 		res = TA_DoVerify(pw_handle, current_password,
@@ -518,7 +527,11 @@ static TEE_Result TA_Enroll(TEE_Param params[TEE_NUM_PARAMS])
 		}
 	}
 
-	ClearFailureRecord(user_id);
+	res = ClearFailureRecord(user_id);
+	if (res != TEE_SUCCESS) {
+		EMSG("ClearFailureRecord failed, res=%x", res);
+		goto exit;
+	}
 
 	TEE_GenerateRandom(&salt, sizeof(salt));
 	res = TA_CreatePasswordHandle(&password_handle, salt, user_id, flags,
@@ -662,7 +675,11 @@ static TEE_Result TA_Verify(TEE_Param params[TEE_NUM_PARAMS])
 			goto serialize_response;
 		}
 
-		IncrementFailureRecord(&record, timestamp);
+		res = IncrementFailureRecord(&record, timestamp);
+		if (res != TEE_SUCCESS) {
+			EMSG("IncrementFailureRecord failed, res=%x", res);
+			goto exit;
+		}
 	} else {
 		request_reenroll = true;
 	}
@@ -674,7 +691,11 @@ static TEE_Result TA_Verify(TEE_Param params[TEE_NUM_PARAMS])
 		TA_MintAuthToken(&auth_token, timestamp, user_id,
 				authenticator_id, challenge);
 		if (throttle) {
-			ClearFailureRecord(user_id);
+			res = ClearFailureRecord(user_id);
+			if (res != TEE_SUCCESS) {
+				EMSG("ClearFailureRecord failed, res=%x", res);
+				goto exit;
+			}
 		}
 		goto serialize_response;
 	case TEE_FALSE:
