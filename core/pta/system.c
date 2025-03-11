@@ -242,8 +242,8 @@ static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 	memcpy(input_values.code_hash, ta_hash, sizeof(ta_hash));
 
 	input_values.config_value[0] = 0x11;
-	input_values.config_value[1] = CFG_TEE_TA_LOG_LEVEL;
-	input_values.config_value[2] = 0x01;
+	input_values.config_value[1] = 0x0;
+	input_values.config_value[2] = 0x0;
 	input_values.config_value[3] = CFG_OPTEE_REVISION_MAJOR;
 	input_values.config_value[4] = CFG_OPTEE_REVISION_MINOR;
 
@@ -261,6 +261,26 @@ static TEE_Result system_get_dice(struct user_mode_ctx *uctx,
 		return res;
 	}
 	memcpy(input_values.authority_hash, ex_rot_data.rot_data.keyHash256, TEE_SHA256_HASH_SIZE);
+
+	input_values.mode = 0x01;
+
+	DMSG("DICE input values:");
+	DMSG("Code Hash:");
+	for (size_t i = 0; i < sizeof(input_values.code_hash); i++) {
+		DMSG("%02x", input_values.code_hash[i]);
+	}
+
+	DMSG("Config Value:");
+	for (size_t i = 0; i < sizeof(input_values.config_value); i++) {
+		DMSG("%02x", input_values.config_value[i]);
+	}
+
+	DMSG("Authority Hash:");
+	for (size_t i = 0; i < sizeof(input_values.authority_hash); i++) {
+		DMSG("%02x", input_values.authority_hash[i]);
+	}
+
+	DMSG("Mode: %02x", input_values.mode);
 
 	DiceResult ret = DiceMainFlow(NULL,
 				      g_uds,
