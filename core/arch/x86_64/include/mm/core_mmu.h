@@ -99,7 +99,11 @@ typedef uint64_t arch_flags_t;
 #define NO_OF_PDPT_ENTRIES    512
 #define NO_OF_PD_ENTRIES      512
 #define NO_OF_PT_ENTRIES      512
+#ifdef CFG_VIRTUALIZATION
+#define NO_OF_PT_TABLES       256
+#else
 #define NO_OF_PT_TABLES       40
+#endif
 
 // User mode definitions
 #define NO_OF_USER_PD_ENTRIES 512
