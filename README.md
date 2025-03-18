@@ -1,4 +1,4 @@
-# OP-TEE Trusted OS
+# OP-TEE Trusted OS test
 This git contains source code for the secure side implementation of OP-TEE
 project.
 
