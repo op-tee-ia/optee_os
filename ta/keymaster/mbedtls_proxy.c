@@ -3460,8 +3460,8 @@ static int asn1_add_to_sequence(asn1_sequence **dst, void *p,
 	return 0;
 
 err:
-	TEE_Free(cur);
 	seq->next = NULL;
+	TEE_Free(cur);
 	return -1;
 }
 

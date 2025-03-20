@@ -825,7 +825,7 @@ keymaster_error_t TA_check_params(const keymaster_key_param_set_t *key_params,
 				uint32_t *min_sec, bool *do_auth,
 				uint8_t *key_id)
 {
-	hw_auth_token_t auth_token;
+	hw_auth_token_t auth_token = {0};
 	hw_authenticator_type_t auth_type = HW_AUTH_NONE;
 	keymaster_blob_t client_id = {.data = NULL, .data_length = 0};
 	keymaster_blob_t app_data = {.data = NULL, .data_length = 0};

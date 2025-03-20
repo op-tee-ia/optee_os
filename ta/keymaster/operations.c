@@ -453,7 +453,7 @@ void TA_add_to_nonce(keymaster_operation_t *operation, const uint64_t value)
 	uint8_t add;
 	uint8_t old_val;
 	uint8_t one = 0;
-	uint8_t remainder = value;
+	uint64_t remainder = value;
 	uint32_t i = operation->nonce.data_length - 1;
 
 	while (remainder != 0 || one != 0) {
