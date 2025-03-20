@@ -554,9 +554,6 @@ serialize_response:
 		serialize_blob(&i_resp, (const uint8_t *)&password_handle,
 				sizeof(password_handle));
 		break;
-	default:
-		EMSG("Unknown error message!");
-		res = TEE_ERROR_GENERIC;
 	}
 	params[1].memref.size = get_size(response, i_resp);
 exit:
@@ -723,9 +720,6 @@ serialize_response:
 		serialize_blob(&i_resp, (uint8_t *)&auth_token, sizeof(auth_token));
 		serialize_int(&i_resp, (uint32_t) request_reenroll);
 		break;
-	default:
-		EMSG("Unknown error message!");
-		res = TEE_ERROR_GENERIC;
 	}
 	params[1].memref.size = get_size(response, i_resp);
 exit:

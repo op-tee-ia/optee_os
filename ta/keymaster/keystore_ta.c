@@ -2632,6 +2632,14 @@ exit:
 		TEE_Free(key_material);
 	if(attrs.attrs)
 		free_attrs(attrs.attrs, attrs.attrs_count);
+	
+	if (client_id.data)
+		TEE_Free(client_id.data);
+	if (app_data.data)
+		TEE_Free(app_data.data);
+	if (hidden)
+		TEE_Free(hidden);
+
 	return res;
 }
 

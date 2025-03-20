@@ -193,6 +193,7 @@ keymaster_error_t TA_check_hmac_key_size(keymaster_blob_t *key_data,
 				&digest_out_size);
 		if (res != KM_ERROR_OK) {
 			EMSG("Failed to hash HMAC key");
+			TEE_FreeOperation(digest_op);
 			return res;
 		}
 		TEE_MemMove(key_data->data, digest_out, digest_out_size);
@@ -1176,9 +1177,6 @@ keymaster_error_t TA_create_operation(TEE_OperationHandle *operation,
 	case (KM_ALGORITHM_HMAC):
 		TEE_MACInit(*operation, NULL, 0);
 		break;
-	default:
-		EMSG("Unsupported algorithm");
-		return KM_ERROR_UNSUPPORTED_ALGORITHM;
 	}
 out_co:
 	if (res != TEE_SUCCESS)
