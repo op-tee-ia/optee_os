@@ -9,6 +9,9 @@
 #ifndef __ASSEMBLER__
 #include <assert.h>
 #include <compiler.h>
+#ifdef CFG_IVSHMEM
+#include <drivers/ivshmem.h>
+#endif
 #include <kernel/user_ta.h>
 #include <mm/tee_mmu_types.h>
 #include <types_ext.h>
