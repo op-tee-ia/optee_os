@@ -9,6 +9,8 @@
 #include <compiler.h>
 #include <tee_api_types.h>
 
+#define TEE_MAX_IVSHMEM_DEVICE	4
+
 #define OPTEE_SHM_QUEUE_SIZE 64
 #define SHA256_DIGEST_LENGTH    32
 #define AVB_SHA512_DIGEST_SIZE  64

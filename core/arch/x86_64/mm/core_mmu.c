@@ -197,7 +197,7 @@ register_phys_mem(MEM_AREA_TA_RAM, TA_RAM_START, TA_RAM_SIZE);
 #endif
 #ifdef CFG_CORE_RESERVED_SHM
 #ifdef CFG_IVSHMEM
-paddr_t tee_shmem_start = 0;
+paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE] = {0x0};
 #else
 register_phys_mem(MEM_AREA_NSEC_SHM, TEE_SHMEM_START, TEE_SHMEM_SIZE);
 #endif

@@ -26,7 +26,6 @@
 #define IVSHMEM_VENDOR_ID	0x1AF4
 #define IVSHMEM_DEVICE_ID	0x1110
 
-#define TEE_MAX_IVSHMEM_DEVICE	2
 #define IVSHMEM_DOORBELL_VECTOR	0xF0
 
 #define IVPOSITION_OFF 0x08
@@ -92,14 +91,15 @@ static struct ex_rot_data_t g_rot_data;
 
 static bool g_rot_already_set = false;
 
-extern paddr_t tee_shmem_start;
+extern paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE];
 extern bool g_tpm_nv_bootloader_lock;
 
-struct thread_smc_args *g_smc_args = NULL;
-struct optee_smc_ring *smc_avail_ring = NULL;
-struct optee_smc_ring *smc_used_ring = NULL;
-struct optee_vm_ids *smc_vm_ids = NULL;
+struct thread_smc_args *g_smc_args[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
+struct optee_smc_ring *smc_avail_ring[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
+struct optee_smc_ring *smc_used_ring[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
+struct optee_vm_ids *smc_vm_ids[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
 uint32_t *smc_evt_src = NULL;
+uint8_t g_ivshmem_dev_num = 0;
 
 #ifdef CFG_EDK2_TPM
 struct tpm2_int_req {
@@ -131,6 +131,11 @@ static inline void asm_out8(uint16_t port, uint8_t val8)
 
 static bool check_if_vm_reset(uint8_t vmid)
 {
+	IMSG("Checking if there is a reset for VM %d", vmid);
+
+	assert(vmid <= TEE_MAX_IVSHMEM_DEVICE);
+	assert(vmid >= 1);
+
 	if (!g_tpm_nv_bootloader_lock)
 		return true;
 
@@ -146,7 +151,7 @@ static bool check_if_vm_reset(uint8_t vmid)
 	return !g_tpm_nv_bootloader_lock;
 }
 
-static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
+static enum itr_return ivshmem_rot_itr_cb_0(struct itr_handler *h __unused)
 {
 	/* TODO: currently only have one ivsh device */
 
@@ -166,7 +171,7 @@ static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h __unused)
 	return ITRR_HANDLED;
 }
 
-static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unused)
+static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __unused)
 {
 #ifdef CFG_EDK2_TPM
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
@@ -188,7 +193,7 @@ static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h __unu
 	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
 	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
 
-	uint8_t vmid = smc_vm_ids->ree_id; /* TODO: only support one REE VM for now */
+	uint8_t vmid = smc_vm_ids[0]->ree_id;
 	if (!check_if_vm_reset(vmid)) {
 		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
 		req->ret = EFI_DEVICE_ERROR;
@@ -248,32 +253,86 @@ static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
 	if (!is_qnx)
 		return ret;
 
-	if (g_ivshmem_devs[0].ctrl->status & (1 << smc_vm_ids->ree_id)) {
+	if (g_ivshmem_devs[0].ctrl->status & (1 << smc_vm_ids[0]->ree_id)) {
 		if (*smc_evt_src == EVENT_ROT)
-			ret = ivshmem_rot_itr_cb(NULL);
+			ret = ivshmem_rot_itr_cb_0(NULL);
 		else if (*smc_evt_src == EVENT_ROLLBACK)
-			ret = ivshmem_rollback_index_itr_cb(NULL);
+			ret = ivshmem_rollback_index_itr_cb_0(NULL);
 	}
 
 	return ret;
 }
 
-static struct itr_handler ivshmem_doorbell_itr = {
+static struct itr_handler ivshmem_doorbell_itr_0 = {
 	.it = IVSHMEM_DOORBELL_VECTOR,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_rot_itr = {
-	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
+static struct itr_handler ivshmem_doorbell_itr_1 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb,
+	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_rollback_index_itr = {
+static struct itr_handler ivshmem_doorbell_itr_2 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_doorbell_itr_cb,
+};
+
+static struct itr_handler ivshmem_doorbell_itr_3 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_doorbell_itr_cb,
+};
+
+static struct itr_handler ivshmem_rot_itr_0 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rot_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rot_itr_1 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rot_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rot_itr_2 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rot_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rot_itr_3 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rot_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rollback_index_itr_0 = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rollback_index_itr_cb,
+	.handler = ivshmem_rollback_index_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rollback_index_itr_1 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rollback_index_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rollback_index_itr_2 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rollback_index_itr_cb_0,
+};
+
+static struct itr_handler ivshmem_rollback_index_itr_3 = {
+	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = ivshmem_rollback_index_itr_cb_0,
 };
 
 static uint8_t ivshmem_get_dev_func(void)
@@ -307,7 +366,6 @@ static uint8_t ivshmem_get_dev_func(void)
 
 static void generic_ivshmem_init(void)
 {
-	uint8_t dev_num = 0;
 	uint8_t i = 0, j = 0;
 	uint8_t dev, func;
 	uint8_t cap_offset = 0;
@@ -324,18 +382,21 @@ static void generic_ivshmem_init(void)
 	 * device. To speed up probe, read 32 bits combination of vendor ID and
 	 * device ID directly insteading of read 16 bits twice.
 	 */
-	dev_num = ivshmem_get_dev_func();
-	if (dev_num == 0) {
+	g_ivshmem_dev_num = ivshmem_get_dev_func();
+	if (g_ivshmem_dev_num == 0) {
 		panic("Error: IVSHMEM PCI device not found!\n");
+	} else if (g_ivshmem_dev_num > TEE_MAX_IVSHMEM_DEVICE) {
+		EMSG("Found too many ivshmem devices %d", g_ivshmem_dev_num);
+		panic("Error: IVSHMEM PCI devices found too many!\n");
 	} else {
-		IMSG("Found %d IVSHMEM device\n", dev_num);
+		IMSG("Found %d IVSHMEM device\n", g_ivshmem_dev_num);
 	}
 
-	for (i = 0; i < dev_num; i++) {
+	for (i = 0; i < g_ivshmem_dev_num; i++) {
 		dev = g_ivshmem_devs[i].dev;
 		func = g_ivshmem_devs[i].func;
 		g_ivshmem_devs[i].revision = pci_read8(0, dev, func, PCI_CONFIG_REVISION_OFFSET);
-		IMSG("IVSHMEM device %d: revision=%d\n", i, g_ivshmem_devs[i].revision);
+		IMSG("IVSHMEM device %d/%d/%d: revision=%d\n", i, dev, func, g_ivshmem_devs[i].revision);
 
 		/* Enable BAR address MMIO support. */
 		val16 = pci_read16(0, dev, func, PCI_CONFIG_COMMAND_OFFSET);
@@ -376,44 +437,44 @@ static void generic_ivshmem_init(void)
 			MEM_AREA_RAM_NSEC);
 		IMSG("IVSHMEM device %d: smc_addr=0x%lx\n", i, g_ivshmem_devs[i].smc_addr);
 
-		smc_vm_ids = (struct optee_vm_ids *)g_ivshmem_devs[i].smc_addr;
-		smc_avail_ring = (struct optee_smc_ring *)(g_ivshmem_devs[i].smc_addr +
+		smc_vm_ids[i] = (struct optee_vm_ids *)g_ivshmem_devs[i].smc_addr;
+		smc_avail_ring[i] = (struct optee_smc_ring *)(g_ivshmem_devs[i].smc_addr +
 			sizeof(struct optee_vm_ids));
-		smc_used_ring = (struct optee_smc_ring *)(g_ivshmem_devs[i].smc_addr +
+		smc_used_ring[i] = (struct optee_smc_ring *)(g_ivshmem_devs[i].smc_addr +
 			sizeof(struct optee_vm_ids) + sizeof(struct optee_smc_ring));
-		g_smc_args = (struct thread_smc_args *)(g_ivshmem_devs[i].smc_addr +
+		g_smc_args[i] = (struct thread_smc_args *)(g_ivshmem_devs[i].smc_addr +
 			sizeof(struct optee_vm_ids) + sizeof(struct optee_smc_ring) +
 			sizeof(struct optee_smc_ring));
-		smc_avail_ring->head = 0;
-		smc_avail_ring->tail = 0;
+		smc_avail_ring[i]->head = 0;
+		smc_avail_ring[i]->tail = 0;
 		for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
-			smc_avail_ring->ring[j] = j;
+			smc_avail_ring[i]->ring[j] = j;
 		}
-		smc_used_ring->head = 0;
-		smc_used_ring->tail = 0;
+		smc_used_ring[i]->head = 0;
+		smc_used_ring[i]->tail = 0;
 		for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
-			smc_used_ring->ring[j] = OPTEE_SHM_QUEUE_SIZE;
+			smc_used_ring[i]->ring[j] = OPTEE_SHM_QUEUE_SIZE;
 		}
 
 		g_ivshmem_devs[i].rot_addr = g_ivshmem_devs[i].smc_addr + 0x100000;
 		IMSG("IVSHMEM device %d: rot_addr=0x%lx\n", i, g_ivshmem_devs[i].rot_addr);
 
-		tee_shmem_start = ROUNDUP(g_ivshmem_devs[i].bar2_addr + 0x200000, 0x100000);
-		IMSG("IVSHMEM device %d: tee_shmem_start=0x%lx\n", i, tee_shmem_start);
-		if ((tee_shmem_start + TEE_SHMEM_SIZE) >
+		tee_shmem_start[i] = ROUNDUP(g_ivshmem_devs[i].bar2_addr + 0x200000, 0x100000);
+		IMSG("IVSHMEM device %d: tee_shmem_start=0x%lx\n", i, tee_shmem_start[i]);
+		if ((tee_shmem_start[i] + TEE_SHMEM_SIZE) >
 			(g_ivshmem_devs[i].bar2_addr + g_ivshmem_devs[i].bar2_len))
 			panic("nsec shm is out of bar2");
-		if (!core_mmu_add_mapping(MEM_AREA_NSEC_SHM, tee_shmem_start, TEE_SHMEM_SIZE)) {
+		if (!core_mmu_add_mapping(MEM_AREA_NSEC_SHM, tee_shmem_start[i], TEE_SHMEM_SIZE)) {
 			EMSG("IVSHMEM device %d: nsec shm map failed\n", i);
 			panic();
 		}
 		IMSG("IVSHMEM device %d: tee_shmem_start vaddr=0x%lx\n", i,
-			(vaddr_t)phys_to_virt(tee_shmem_start, MEM_AREA_NSEC_SHM));
+			(vaddr_t)phys_to_virt(tee_shmem_start[i], MEM_AREA_NSEC_SHM));
 
 		if (g_ivshmem_devs[i].revision == 1) {
-			smc_vm_ids->tee_id = 
+			smc_vm_ids[i]->tee_id = 
 				io_read_32((void *)(g_ivshmem_devs[i].regs_addr + IVPOSITION_OFF));
-			IMSG("IVSHMEM device %d: ivposition=%d\n", i, smc_vm_ids->tee_id);
+			IMSG("IVSHMEM device %d: ivposition=%d\n", i, smc_vm_ids[i]->tee_id);
 
 			if (g_ivshmem_devs[i].bar1_addr != 0 && g_ivshmem_devs[i].bar1_len != 0) {
 				if (!core_mmu_add_mapping(MEM_AREA_RAM_SEC, g_ivshmem_devs[i].bar1_addr,
@@ -470,16 +531,24 @@ static void generic_ivshmem_init(void)
 		}
 	}
 
-	itr_add(&ivshmem_doorbell_itr);
-	itr_add(&ivshmem_rot_itr);
-	itr_add(&ivshmem_rollback_index_itr);
+	itr_add(&ivshmem_doorbell_itr_0);
+	itr_add(&ivshmem_doorbell_itr_1);
+	itr_add(&ivshmem_doorbell_itr_2);
+	itr_add(&ivshmem_doorbell_itr_3);
+	itr_add(&ivshmem_rot_itr_0);
+	itr_add(&ivshmem_rot_itr_1);
+	itr_add(&ivshmem_rot_itr_2);
+	itr_add(&ivshmem_rot_itr_3);
+	itr_add(&ivshmem_rollback_index_itr_0);
+	itr_add(&ivshmem_rollback_index_itr_1);
+	itr_add(&ivshmem_rollback_index_itr_2);
+	itr_add(&ivshmem_rollback_index_itr_3);
 
 	return;
 }
 
 static void qnx_ivshmem_init(void)
 {
-	uint8_t dev_num = 0;
 	uint8_t j = 0;
 	uint8_t dev, func;
 	uint32_t shmem_addr;
@@ -493,11 +562,14 @@ static void qnx_ivshmem_init(void)
 	 * device. To speed up probe, read 32 bits combination of vendor ID and
 	 * device ID directly insteading of read 16 bits twice.
 	 */
-	dev_num = ivshmem_get_dev_func();
-	if (dev_num == 0) {
+	g_ivshmem_dev_num = ivshmem_get_dev_func();
+	if (g_ivshmem_dev_num == 0) {
 		panic("Error: IVSHMEM PCI device not found!!\n");
+	} else if (g_ivshmem_dev_num > TEE_MAX_IVSHMEM_DEVICE) {
+		EMSG("Found too many ivshmem devices %d", g_ivshmem_dev_num);
+		panic("Error: IVSHMEM PCI devices found too many!\n");
 	} else {
-		IMSG("Found %d IVSHMEM device\n", dev_num);
+		IMSG("Found %d IVSHMEM device\n", g_ivshmem_dev_num);
 	}
 
 	// Support only 1 ivshmem device on QNX currently
@@ -559,47 +631,47 @@ static void qnx_ivshmem_init(void)
 	g_ivshmem_devs[0].smc_addr = (vaddr_t)phys_to_virt(shmem_addr, MEM_AREA_RAM_NSEC);
 
 	smc_evt_src = (uint32_t *)g_ivshmem_devs[0].smc_addr;
-	smc_vm_ids = (struct optee_vm_ids *)(g_ivshmem_devs[0].smc_addr +
+	smc_vm_ids[0] = (struct optee_vm_ids *)(g_ivshmem_devs[0].smc_addr +
 	  sizeof(uint32_t));
-	smc_avail_ring = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
+	smc_avail_ring[0] = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
 	  sizeof(uint32_t) + sizeof(struct optee_vm_ids));
-	smc_used_ring = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
+	smc_used_ring[0] = (struct optee_smc_ring *)(g_ivshmem_devs[0].smc_addr +
 	  sizeof(uint32_t) + sizeof(struct optee_vm_ids) +
 	  sizeof(struct optee_smc_ring));
-	g_smc_args = (struct thread_smc_args *)(g_ivshmem_devs[0].smc_addr +
+	g_smc_args[0] = (struct thread_smc_args *)(g_ivshmem_devs[0].smc_addr +
 	  sizeof(uint32_t) + sizeof(struct optee_vm_ids) +
 	  sizeof(struct optee_smc_ring) + sizeof(struct optee_smc_ring));
 
-	smc_avail_ring->head = 0;
-	smc_avail_ring->tail = 0;
+	smc_avail_ring[0]->head = 0;
+	smc_avail_ring[0]->tail = 0;
 	for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
-		smc_avail_ring->ring[j] = j;
+		smc_avail_ring[0]->ring[j] = j;
 	}
 
-	smc_used_ring->head = 0;
-	smc_used_ring->tail = 0;
+	smc_used_ring[0]->head = 0;
+	smc_used_ring[0]->tail = 0;
 	for (j = 0; j < OPTEE_SHM_QUEUE_SIZE; j++) {
-		smc_used_ring->ring[j] = OPTEE_SHM_QUEUE_SIZE;
+		smc_used_ring[0]->ring[j] = OPTEE_SHM_QUEUE_SIZE;
 	}
 
 	g_ivshmem_devs[0].rot_addr = g_ivshmem_devs[0].smc_addr + 0x100000;
 
-	tee_shmem_start = ROUNDUP(shmem_addr + 0x200000, PAGE_SIZE);
+	tee_shmem_start[0] = ROUNDUP(shmem_addr + 0x200000, PAGE_SIZE);
 
-	if ((tee_shmem_start + TEE_SHMEM_SIZE) > (shmem_addr + shmem_len))
+	if ((tee_shmem_start[0] + TEE_SHMEM_SIZE) > (shmem_addr + shmem_len))
 		panic("nsec shm is out of bar2");
 
-	if (!core_mmu_add_mapping(MEM_AREA_NSEC_SHM, tee_shmem_start, TEE_SHMEM_SIZE)) {
+	if (!core_mmu_add_mapping(MEM_AREA_NSEC_SHM, tee_shmem_start[0], TEE_SHMEM_SIZE)) {
 		EMSG("IVSHMEM device: nsec shm map failed\n");
 		panic();
 	}
 
-	smc_vm_ids->tee_id = g_ivshmem_devs[0].ctrl->idx;
-	IMSG("IVSHMEM device: tee_id:%d ree_id:%d", smc_vm_ids->tee_id, smc_vm_ids->ree_id);
+	smc_vm_ids[0]->tee_id = g_ivshmem_devs[0].ctrl->idx;
+	IMSG("IVSHMEM device: tee_id:%d ree_id:%d", smc_vm_ids[0]->tee_id, smc_vm_ids[0]->ree_id);
 
 #ifdef CFG_IO_APIC
-	ivshmem_doorbell_itr.it = ioapic_get_it_num(g_ivshmem_devs[0].fact->vector);
-	itr_add(&ivshmem_doorbell_itr);
+	ivshmem_doorbell_itr_0.it = ioapic_get_it_num(g_ivshmem_devs[0].fact->vector);
+	itr_add(&ivshmem_doorbell_itr_0);
 
 	ioapic_enable_interrupt(g_ivshmem_devs[0].fact->vector);
 #endif
