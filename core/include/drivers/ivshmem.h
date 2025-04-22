@@ -16,6 +16,8 @@
 #define AVB_SHA512_DIGEST_SIZE  64
 #define KM_INFO_SLOT_NUM 4
 
+extern uint8_t g_ivshmem_dev_num;
+
 /* Structure for RoT info (fields defined by Google Keymaster2)
 */
 struct rot_data_t {
