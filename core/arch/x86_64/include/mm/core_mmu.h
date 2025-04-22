@@ -413,8 +413,13 @@ struct mmu_initial_mapping {
 
 #ifdef CFG_CORE_RESERVED_SHM
 /* Default NSec shared memory allocated from NSec world */
+#ifdef CFG_IVSHMEM
+extern unsigned long default_nsec_shm_size[TEE_MAX_IVSHMEM_DEVICE];
+extern unsigned long default_nsec_shm_paddr[TEE_MAX_IVSHMEM_DEVICE];
+#else
 extern unsigned long default_nsec_shm_paddr;
 extern unsigned long default_nsec_shm_size;
+#endif
 #endif
 
 /*

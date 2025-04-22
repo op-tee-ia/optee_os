@@ -112,9 +112,16 @@ uint32_t pt_user_index[CFG_NUM_THREADS];
 
 #ifdef CFG_CORE_RESERVED_SHM
 /* Default NSec shared memory allocated from NSec world */
+#ifdef CFG_IVSHMEM
+unsigned long default_nsec_shm_size[TEE_MAX_IVSHMEM_DEVICE] __nex_bss;
+unsigned long default_nsec_shm_paddr[TEE_MAX_IVSHMEM_DEVICE] __nex_bss;
+#else
 unsigned long default_nsec_shm_size __nex_bss;
 unsigned long default_nsec_shm_paddr __nex_bss;
 #endif
+#endif
+
+extern uint8_t g_ivshmem_dev_num;
 
 static struct tee_mmap_region static_memory_map[CFG_MMAP_REGIONS
 #ifdef CFG_CORE_ASLR
@@ -139,11 +146,20 @@ static struct memaccess_area secure_only[] __nex_data = {
 	MEMACCESS_AREA(TZDRAM_BASE, TZDRAM_SIZE),
 };
 
+#ifdef CFG_IVSHMEM
+static struct memaccess_area nsec_shared[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
+	MEMACCESS_AREA(0, 0),
+	MEMACCESS_AREA(0, 0),
+	MEMACCESS_AREA(0, 0),
+	MEMACCESS_AREA(0, 0),
+};
+#else
 static struct memaccess_area nsec_shared[] __nex_data = {
 #ifdef CFG_CORE_RESERVED_SHM
 	MEMACCESS_AREA(TEE_SHMEM_START, TEE_SHMEM_SIZE),
 #endif
 };
+#endif
 
 #if defined(CFG_SECURE_DATA_PATH)
 #ifdef CFG_TEE_SDP_MEM_BASE
@@ -2163,8 +2179,7 @@ bool core_pbuf_is(uint32_t attr, paddr_t pbuf, size_t len)
 #ifdef CFG_CORE_RESERVED_SHM
 	case CORE_MEM_NSEC_SHM:
 #ifdef CFG_IVSHMEM
-		return core_is_buffer_inside(pbuf, len, tee_shmem_start,
-							TEE_SHMEM_SIZE);
+		return pbuf_is_inside(nsec_shared, pbuf, len);
 #else
 		return core_is_buffer_inside(pbuf, len, TEE_SHMEM_START,
 							TEE_SHMEM_SIZE);
@@ -2793,15 +2808,29 @@ vaddr_t io_pa_or_va_nsec(struct io_pa_va *p)
 }
 
 #ifdef CFG_CORE_RESERVED_SHM
+#ifdef CFG_IVSHMEM
+static TEE_Result teecore_init_pub_ram(void)
+{
+	uint8_t i = 0;
+
+	assert(g_ivshmem_dev_num <= TEE_MAX_IVSHMEM_DEVICE);
+
+	for (i = 0; i < g_ivshmem_dev_num; i++) {
+		nsec_shared[i].paddr = tee_shmem_start[i];
+		nsec_shared[i].size = TEE_SHMEM_SIZE;
+		IMSG("Change nsec_shared[%d].paddr to 0x%lx\n", i, nsec_shared[i].paddr);
+
+		default_nsec_shm_paddr[i] = nsec_shared[i].paddr;
+		default_nsec_shm_size[i] = nsec_shared[i].size;
+	}
+
+	return TEE_SUCCESS;
+}
+#else
 static TEE_Result teecore_init_pub_ram(void)
 {
 	vaddr_t s = 0;
 	vaddr_t e = 0;
-
-#ifdef CFG_IVSHMEM
-	nsec_shared->paddr = tee_shmem_start;
-	IMSG("Change nsec_shared->paddr to 0x%lx\n", nsec_shared->paddr);
-#endif
 
 	/* get virtual addr/size of NSec shared mem allocated from teecore */
 	core_mmu_get_mem_by_type(MEM_AREA_NSEC_SHM, &s, &e);
@@ -2813,18 +2842,12 @@ static TEE_Result teecore_init_pub_ram(void)
 	if (!tee_vbuf_is_non_sec(s, e - s))
 		panic("PUB RAM is not non-secure");
 
-#ifdef CFG_PL310
-	/* Allocate statically the l2cc mutex */
-	tee_l2cc_store_mutex_boot_pa(virt_to_phys((void *)s));
-	s += sizeof(uint32_t);			/* size of a pl310 mutex */
-	s = ROUNDUP(s, SMALL_PAGE_SIZE);	/* keep required alignment */
-#endif
-
 	default_nsec_shm_paddr = virt_to_phys((void *)s);
 	default_nsec_shm_size = e - s;
 
 	return TEE_SUCCESS;
 }
+#endif
 early_init(teecore_init_pub_ram);
 #endif /*CFG_CORE_RESERVED_SHM*/
 

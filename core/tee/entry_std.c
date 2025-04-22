@@ -33,7 +33,11 @@ static struct tee_ta_session_head tee_open_sessions =
 TAILQ_HEAD_INITIALIZER(tee_open_sessions);
 
 #ifdef CFG_CORE_RESERVED_SHM
+#ifdef CFG_IVSHMEM
+static struct mobj **shm_mobjs;
+#else
 static struct mobj *shm_mobj;
+#endif
 #endif
 #ifdef CFG_SECURE_DATA_PATH
 static struct mobj **sdp_mem_mobjs;
@@ -137,8 +141,14 @@ static TEE_Result set_tmem_param(const struct optee_msg_param_tmem *tmem,
 
 #ifdef CFG_CORE_RESERVED_SHM
 	/* Handle memory reference in the contiguous shared memory */
+#ifdef CFG_IVSHMEM
+	for (mobj = shm_mobjs; *mobj; mobj++)
+		if (param_mem_from_mobj(mem, *mobj, pa, sz))
+			return TEE_SUCCESS;
+#else
 	if (param_mem_from_mobj(mem, shm_mobj, pa, sz))
 		return TEE_SUCCESS;
+#endif
 #endif
 
 #ifdef CFG_SECURE_DATA_PATH
@@ -611,14 +621,45 @@ uint32_t __tee_entry_std(struct optee_msg_arg *arg, uint32_t num_params)
 	return rv;
 }
 
+#ifdef CFG_IVSHMEM
+/* Alloc and fill SHM memory objects table - table is NULL terminated */
+static struct mobj **core_shm_create_mobjs(void)
+{
+	struct mobj **mobj_base;
+	struct mobj **mobj;
+	uint8_t i = 0;
+
+	assert(g_ivshmem_dev_num <= TEE_MAX_IVSHMEM_DEVICE);
+
+	/* SHM mobjs table must end with a NULL entry */
+	mobj_base = calloc(g_ivshmem_dev_num + 1, sizeof(struct mobj *));
+	if (!mobj_base)
+		panic("Out of memory");
+
+	for (i = 0, mobj = mobj_base; i < g_ivshmem_dev_num; i++, mobj++) {
+		*mobj = mobj_phys_alloc(default_nsec_shm_paddr[i], default_nsec_shm_size[i],
+					SHM_CACHE_ATTRS, CORE_MEM_NSEC_SHM);
+		if (!*mobj)
+			panic("can't create SHM physical memory object");
+	}
+	return mobj_base;
+}
+#endif
+
 static TEE_Result default_mobj_init(void)
 {
 #ifdef CFG_CORE_RESERVED_SHM
+#ifdef CFG_IVSHMEM
+	shm_mobjs = core_shm_create_mobjs();
+	if (!shm_mobjs)
+		panic("Failed to register shared memory");
+#else
 	shm_mobj = mobj_phys_alloc(default_nsec_shm_paddr,
 				   default_nsec_shm_size, SHM_CACHE_ATTRS,
 				   CORE_MEM_NSEC_SHM);
 	if (!shm_mobj)
 		panic("Failed to register shared memory");
+#endif
 #endif
 
 #ifdef CFG_SECURE_DATA_PATH
