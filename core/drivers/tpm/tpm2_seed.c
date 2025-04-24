@@ -23,13 +23,13 @@
 #include "tpm2_ops.h"
 #include <drivers/tpm2_seed.h>
 
-uint64_t g_tpm_base_vaddr = 0;
+uint64_t g_tpm_base_vaddr __nex_data = 0;
 
-static bool g_huk_initialized = false;
+static bool g_huk_initialized __nex_data = false;
 // TODO: Expand to array for multiple Android support.
-bool g_tpm_nv_bootloader_lock = false;
+bool g_tpm_nv_bootloader_lock __nex_data = false;
 
-static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
+static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] __nex_data = {0};
 
 #define DIGEST_SIZE 32
 

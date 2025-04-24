@@ -20,7 +20,12 @@ DATA(_gdtr)
     .short _gdt_end - _gdt - 1
     .quad _gdt
 
+#ifdef CFG_VIRTUALIZATION
+.section .nex_data
+#else
 .data
+#endif
+
 .align 8
 DATA(_gdt)
     .int 0

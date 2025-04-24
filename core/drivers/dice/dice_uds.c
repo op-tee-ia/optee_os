@@ -22,26 +22,31 @@
 #include <dice/known_test_values.h>
 #include <kernel/tee_common_otp.h>
 
-uint8_t g_uds[UDS_LENGTH] = { 0 };
+uint8_t g_uds[UDS_LENGTH] __nex_data = { 0 };
+static bool g_dice_initialized __nex_data = false;
 
 
 static TEE_Result dice_init(void)
 {
-    DMSG("%s %d", __func__, __LINE__);
+	TEE_Result ret = TEE_SUCCESS;
 
-    TEE_Result ret = TEE_SUCCESS;
 #ifdef CFG_EDK2_TPM
-    ret = tee_otp_get_hw_uds(g_uds, sizeof(g_uds));
-    if (TEE_SUCCESS != ret) {
-        panic("Failed to get UDS.");
-    }
+	if (!g_dice_initialized) {
+		ret = tee_otp_get_hw_uds(g_uds, sizeof(g_uds));
+		if (TEE_SUCCESS != ret) {
+			panic("Failed to get UDS.");
+		}
 
-    DMSG("Successfully init UDS from TPM.");
+		g_dice_initialized = true;
+		DMSG("Successfully init UDS from TPM.");
+	} else {
+		DMSG("DICE already initialized");
+	}
 #else
-    DMSG("FAKE UDS is used!");
+	DMSG("FAKE UDS is used!");
 #endif
 
-    return ret;
+	return ret;
 }
 
 driver_init(dice_init);

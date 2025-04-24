@@ -85,21 +85,21 @@ struct ivshmem_device {
 	volatile struct guest_shm_control *ctrl;
 };
 
-static struct ivshmem_device g_ivshmem_devs[TEE_MAX_IVSHMEM_DEVICE];
+static struct ivshmem_device g_ivshmem_devs[TEE_MAX_IVSHMEM_DEVICE] __nex_bss;
 
-static struct ex_rot_data_t g_rot_data;
+static struct ex_rot_data_t g_rot_data __nex_bss;
 
-static bool g_rot_already_set = false;
+static bool g_rot_already_set __nex_data = false;
 
 extern paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE];
 extern bool g_tpm_nv_bootloader_lock;
 
-struct thread_smc_args *g_smc_args[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
-struct optee_smc_ring *smc_avail_ring[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
-struct optee_smc_ring *smc_used_ring[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
-struct optee_vm_ids *smc_vm_ids[TEE_MAX_IVSHMEM_DEVICE] = {NULL};
-uint32_t *smc_evt_src = NULL;
-uint8_t g_ivshmem_dev_num = 0;
+struct thread_smc_args *g_smc_args[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+struct optee_smc_ring *smc_avail_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+struct optee_smc_ring *smc_used_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+struct optee_vm_ids *smc_vm_ids[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+uint32_t *smc_evt_src __nex_data = NULL;
+uint8_t g_ivshmem_dev_num __nex_data = 0;
 
 #ifdef CFG_EDK2_TPM
 struct tpm2_int_req {
@@ -263,73 +263,73 @@ static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
 	return ret;
 }
 
-static struct itr_handler ivshmem_doorbell_itr_0 = {
+static struct itr_handler ivshmem_doorbell_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_doorbell_itr_1 = {
+static struct itr_handler ivshmem_doorbell_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_doorbell_itr_2 = {
+static struct itr_handler ivshmem_doorbell_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_doorbell_itr_3 = {
+static struct itr_handler ivshmem_doorbell_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
-static struct itr_handler ivshmem_rot_itr_0 = {
+static struct itr_handler ivshmem_rot_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rot_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rot_itr_1 = {
+static struct itr_handler ivshmem_rot_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rot_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rot_itr_2 = {
+static struct itr_handler ivshmem_rot_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rot_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rot_itr_3 = {
+static struct itr_handler ivshmem_rot_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rot_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rollback_index_itr_0 = {
+static struct itr_handler ivshmem_rollback_index_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rollback_index_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rollback_index_itr_1 = {
+static struct itr_handler ivshmem_rollback_index_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rollback_index_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rollback_index_itr_2 = {
+static struct itr_handler ivshmem_rollback_index_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rollback_index_itr_cb_0,
 };
 
-static struct itr_handler ivshmem_rollback_index_itr_3 = {
+static struct itr_handler ivshmem_rollback_index_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rollback_index_itr_cb_0,

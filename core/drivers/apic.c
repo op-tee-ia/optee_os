@@ -35,13 +35,13 @@
 #define APIC_DEST_SELF    0x40000
 #define APIC_DEST_EXCLUDE 0xC0000
 
-static volatile vaddr_t lapic_base_virtual_addr = 0;
+static volatile vaddr_t lapic_base_virtual_addr __nex_data = 0;
 
-static char master_pic, slave_pic;
+static char master_pic __nex_bss, slave_pic __nex_bss;
 
-static struct apic_data lapic_data;
+static struct apic_data lapic_data __nex_bss;
 
-static uint8_t lvt_timer_vec;
+static uint8_t lvt_timer_vec __nex_bss;
 
 //dummy functions on x86
 static void apic_op_add(struct itr_chip *chip __unused, size_t it __unused,

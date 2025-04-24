@@ -51,7 +51,7 @@
 #define PADDR_INVALID		ULONG_MAX
 
 /* early stack */
-uint8_t _kstack[PAGE_SIZE * CFG_TEE_CORE_NB_CORE] __aligned(STACK_ALIGNMENT);
+uint8_t _kstack[PAGE_SIZE * CFG_TEE_CORE_NB_CORE] __aligned(STACK_ALIGNMENT) __nex_bss;
 
 #if defined(CFG_BOOT_SECONDARY_REQUEST)
 struct ns_entry_context {
@@ -76,7 +76,7 @@ DECLARE_KEEP_PAGER(sem_cpu_sync);
 static uint32_t cntfrq;
 #endif
 
-bool is_qnx = false;
+bool is_qnx __nex_data = false;
 
 /* May be overridden in plat-$(PLATFORM)/main.c */
 __weak void plat_primary_init_early(void)
