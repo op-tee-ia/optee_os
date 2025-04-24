@@ -119,7 +119,11 @@ FUNCTION(setup_idt)
 
     ret
 
+#ifdef CFG_VIRTUALIZATION
+.section .nex_data
+#else
 .data
+#endif
 
 .align 8
 DATA(_idtr)

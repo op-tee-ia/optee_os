@@ -418,7 +418,7 @@ void __nostackcheck thread_clr_boot_thread(void)
 }
 
 /* main tss */
-static tss_t system_tss;
+static tss_t system_tss __nex_bss;
 
 static void switch_interrupt_stack(short int thread_id)
 {
@@ -688,9 +688,6 @@ void thread_state_free(void)
 	threads[ct].flags = 0;
 	l->curr_thread = THREAD_ID_INVALID;
 
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
 	thread_unlock_global();
 }
 
@@ -752,10 +749,6 @@ int thread_state_suspend(uint32_t flags, vaddr_t sp, vaddr_t pc)
 	}
 
 	l->curr_thread = THREAD_ID_INVALID;
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
 
 	thread_unlock_global();
 

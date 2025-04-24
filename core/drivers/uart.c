@@ -7,8 +7,8 @@
 #include <util.h>
 #include <platform_config.h>
 
-uint8_t (*io_get_reg)(uint64_t base_addr, uint32_t reg_id);
-void (*io_set_reg)(uint64_t base_addr, uint32_t reg_id, uint8_t val);
+uint8_t (*io_get_reg)(uint64_t base_addr, uint32_t reg_id) __nex_bss;
+void (*io_set_reg)(uint64_t base_addr, uint32_t reg_id, uint8_t val) __nex_bss;
 
 #if PRINT_USE_MMIO
 static uint8_t uart_mmio_get_reg(uint64_t base_addr, uint32_t reg_id)

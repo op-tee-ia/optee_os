@@ -195,7 +195,7 @@ SECTIONS
 	}
 	.nex_nozi (NOLOAD) : {
 		ASSERT(!(ABSOLUTE(.) & (16 * 1024 - 1)), "align nozi to 16kB");
-		KEEP(*(.nozi.mmu.l1 .nozi.mmu.l2))
+		KEEP(*(.nozi.mmu.nex))
 	}
 
 	. = ALIGN(SMALL_PAGE_SIZE);
@@ -237,11 +237,7 @@ SECTIONS
 #ifndef CFG_WITH_PAGER
 		. += CFG_CORE_HEAP_SIZE;
 #endif
-#ifdef CFG_WITH_LPAE
-		. = ALIGN(4 * 1024);
-#else
 		. = ALIGN(16 * 1024);
-#endif
 		__heap1_end = .;
 	}
 	/*

@@ -11,7 +11,7 @@
 #include <string_ext.h>
 #include <trace.h>
 
-volatile struct ioapic *ioapic;
+volatile struct ioapic *ioapic __nex_bss;
 
 uint32_t ioapic_read(int reg)
 {

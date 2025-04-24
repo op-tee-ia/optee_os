@@ -16,6 +16,7 @@
 #include <config.h>
 #include <kernel/boot.h>
 #include <kernel/linker.h>
+#include <kernel/misc.h>
 #include <kernel/panic.h>
 #include <kernel/spinlock.h>
 #ifdef CFG_TDX
@@ -57,7 +58,7 @@
 #define IS_ALIGNED(p, align_to) (!(((uintptr_t)(p)) & (((uintptr_t)(align_to))-1)))
 
 /* Indicates kernel runtime MMU map status */
-int optee_mem_structs_ready;
+static int optee_mem_structs_ready __nex_data = 0;
 
 /*
  * These variables are initialized before .bss is cleared. To avoid
@@ -66,8 +67,8 @@ int optee_mem_structs_ready;
  */
 
 /* Address width including virtual/physical address*/
-uint8_t g_vaddr_width;
-uint8_t g_paddr_width;
+uint8_t g_vaddr_width __nex_bss;
+uint8_t g_paddr_width __nex_bss;
 
 #ifdef CFG_TDX
 uint8_t g_td_shared_bit = 0;
@@ -88,6 +89,22 @@ uint64_t g_pml4_init[512] __aligned(PAGE_SIZE);
 uint64_t g_pdpt_init[512] __aligned(PAGE_SIZE);
 uint64_t g_pd_init[2048] __aligned(PAGE_SIZE);
 
+#ifdef CFG_VIRTUALIZATION
+/* PML4 PDP table for each thread */
+pml4_xlat_tbls_t g_thread_pml4[CFG_NUM_THREADS] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+pdpt_xlat_tbls_t g_thread_pdpt[CFG_NUM_THREADS] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+
+/* MMU tables for runtime usage for kernel */
+/* The kernel space of each thread shares the same pd and pte*/
+uint64_t g_pml4[NO_OF_PML4_ENTRIES] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+uint64_t g_pdpt[NO_OF_PDPT_ENTRIES] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+uint64_t g_pd[NO_OF_PD_ENTRIES] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+pt_xlat_tbls_t g_pte[NO_OF_PT_TABLES] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+
+/* MMU tables for runtime usage for user mode of each thread*/
+pd_xlat_tbls_t g_thread_user_ta_pd[CFG_NUM_THREADS] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+pt_thread_xlat_tbls_t g_thread_user_ta_pte[CFG_NUM_THREADS] __aligned(PAGE_SIZE) __section(".nozi.mmu.nex");
+#else
 /* PML4 PDP table for each thread */
 pml4_xlat_tbls_t g_thread_pml4[CFG_NUM_THREADS] __aligned(PAGE_SIZE);
 pdpt_xlat_tbls_t g_thread_pdpt[CFG_NUM_THREADS] __aligned(PAGE_SIZE);
@@ -102,6 +119,7 @@ pt_xlat_tbls_t g_pte[NO_OF_PT_TABLES] __aligned(PAGE_SIZE);
 /* MMU tables for runtime usage for user mode of each thread*/
 pd_xlat_tbls_t g_thread_user_ta_pd[CFG_NUM_THREADS] __aligned(PAGE_SIZE);
 pt_thread_xlat_tbls_t g_thread_user_ta_pte[CFG_NUM_THREADS] __aligned(PAGE_SIZE);
+#endif
 
 
 struct mmu_partition {
@@ -256,7 +274,7 @@ register_phys_mem(MEM_AREA_TA_RAM, TA_RAM_START, TA_RAM_SIZE);
 #endif
 #ifdef CFG_CORE_RESERVED_SHM
 #ifdef CFG_IVSHMEM
-paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE] = {0x0};
+paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {0x0};
 #else
 register_phys_mem(MEM_AREA_NSEC_SHM, TEE_SHMEM_START, TEE_SHMEM_SIZE);
 #endif
@@ -1286,6 +1304,14 @@ void core_init_mmu(struct tee_mmap_region *mm)
 
 	/* Initialize default page tables */
 	core_init_mmu_prtn(&default_partition, mm);
+
+#ifdef CFG_VIRTUALIZATION
+	/*
+	 * Initialize partition tables for each partition to
+	 * default_partition which has been relocated now to a different VA
+	 */
+	core_mmu_set_default_prtn_tbl();
+#endif
 }
 
 static arch_flags_t get_x86_arch_flags(arch_flags_t flags);
@@ -1323,10 +1349,14 @@ static void print_memory_attr(uint32_t optee_mmu_flags __unused)
 
 static void *paddr_to_kvaddr(paddr_t pa)
 {
+#ifdef CFG_VIRTUALIZATION
 	if (optee_mem_structs_ready == 0)
 		return (void *)pa;
 	else
 		return phys_to_virt(pa, MEM_AREA_SEC_RAM_OVERALL);
+#else
+	return (void *)pa;
+#endif
 }
 
 /**
@@ -2058,6 +2088,98 @@ static void init_kernel_mmu_table(struct mmu_partition *prtn)
 			(virt_to_phys((void *)&prtn->pdpt_thread_tables[thread_id][0]) & X86_PG_PA_FRAME);
 	}
 }
+
+#ifdef CFG_VIRTUALIZATION
+size_t core_mmu_get_total_pages_size(void)
+{
+	return sizeof(g_pml4) + sizeof(g_pdpt) + sizeof(g_pd) + sizeof(g_pte) +
+		sizeof(g_thread_pml4) + sizeof(g_thread_pdpt) +
+		sizeof(g_thread_user_ta_pd) + sizeof(g_thread_user_ta_pte);
+}
+
+struct mmu_partition *core_alloc_mmu_prtn(void *tables)
+{
+	struct mmu_partition *prtn;
+	uint8_t *tbl = tables;
+
+	assert(tbl != NULL);
+	assert(((vaddr_t)tbl) % SMALL_PAGE_SIZE == 0);
+
+	prtn = nex_malloc(sizeof(*prtn));
+	if (!prtn) {
+		return NULL;
+	}
+
+	prtn->pml4_tables = (uint64_t *)tbl;
+	memset(prtn->pml4_tables, 0, sizeof(g_pml4));
+	tbl += ROUNDUP(sizeof(g_pml4), SMALL_PAGE_SIZE);
+
+	prtn->pdpt_tables = (uint64_t *)tbl;
+	memset(prtn->pdpt_tables, 0, sizeof(g_pdpt));
+	tbl += ROUNDUP(sizeof(g_pdpt), SMALL_PAGE_SIZE);
+
+	prtn->pd_tables = (uint64_t *)tbl;
+	memset(prtn->pd_tables, 0, sizeof(g_pd));
+	tbl += ROUNDUP(sizeof(g_pd), SMALL_PAGE_SIZE);
+
+	prtn->pt_tables = (pt_xlat_tbls_t *)tbl;
+	memset(prtn->pt_tables, 0, sizeof(g_pte));
+	tbl += ROUNDUP(sizeof(g_pte), SMALL_PAGE_SIZE);
+
+	prtn->pml4_thread_tables = (pml4_xlat_tbls_t *)tbl;
+	memset(prtn->pml4_thread_tables, 0, sizeof(g_thread_pml4));
+	tbl += ROUNDUP(sizeof(g_thread_pml4), SMALL_PAGE_SIZE);
+
+	prtn->pdpt_thread_tables = (pdpt_xlat_tbls_t *)tbl;
+	memset(prtn->pdpt_thread_tables, 0, sizeof(g_thread_pdpt));
+	tbl += ROUNDUP(sizeof(g_thread_pdpt), SMALL_PAGE_SIZE);
+
+	prtn->pd_thread_user_tables = (pd_xlat_tbls_t *)tbl;
+	memset(prtn->pd_thread_user_tables, 0, sizeof(g_thread_user_ta_pd));
+	tbl += ROUNDUP(sizeof(g_thread_user_ta_pd), SMALL_PAGE_SIZE);
+
+	prtn->pt_thread_user_tables = (pt_thread_xlat_tbls_t *)tbl;
+	memset(prtn->pt_thread_user_tables, 0, sizeof(g_thread_user_ta_pte));
+
+	prtn->pdp_counter = 0;
+	prtn->pd_counter = 0;
+	prtn->pt_index = 0;
+	memset(prtn->pt_user_index, 0, sizeof(prtn->pt_user_index));
+
+	return prtn;
+}
+
+void core_free_mmu_prtn(struct mmu_partition *prtn)
+{
+	nex_free(prtn);
+}
+
+void core_mmu_set_prtn(struct mmu_partition *prtn)
+{
+	/*
+	 * We are changing mappings for current CPU,
+	 * so make sure that we will not be rescheduled
+	 */
+	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
+
+	current_prtn[get_core_pos()] = prtn;
+
+	x86_set_cr3(virt_to_phys((void *)prtn->pml4_tables));
+}
+
+void core_mmu_set_default_prtn(void)
+{
+	core_mmu_set_prtn(&default_partition);
+}
+
+void core_mmu_set_default_prtn_tbl(void)
+{
+	size_t n = 0;
+
+	for (n = 0; n < CFG_TEE_CORE_NB_CORE; n++)
+		current_prtn[n] = &default_partition;
+}
+#endif
 
 void core_init_mmu_prtn(struct mmu_partition *prtn, struct tee_mmap_region *mm)
 {

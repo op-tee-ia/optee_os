@@ -35,7 +35,7 @@
 
 static bool thread_prealloc_rpc_cache;
 static unsigned int thread_rpc_pnum;
-uint32_t is_optee_boot_complete = 0;
+uint32_t is_optee_boot_complete __nex_data = 0;
 
 void thread_handle_fast_smc(struct thread_smc_args *args)
 {
@@ -726,9 +726,9 @@ extern struct optee_smc_ring *smc_used_ring[];
 extern struct optee_vm_ids *smc_vm_ids[];
 extern uint8_t g_ivshmem_dev_num;
 
-static unsigned int smc_lock = SPINLOCK_UNLOCK;
+static unsigned int smc_lock __nex_data = SPINLOCK_UNLOCK;
 //TODO: need to consider SMP case
-uint8_t g_smc_idx = 0;
+uint8_t g_smc_idx __nex_data = 0;
 
 static uint8_t check_ree_requests(uint8_t start_idx)
 {
@@ -755,6 +755,13 @@ void __noreturn sm_sched_nonsecure(void)
 	while (true) {
 		if (is_optee_boot_complete == 0) {
 			x86_set_cr8(0);
+#ifdef CFG_VIRTUALIZATION
+			for (index = 1; index <= TEE_MAX_IVSHMEM_DEVICE; index++) {
+				if (virt_guest_created(index) != OPTEE_SMC_RETURN_OK) {
+					EMSG("Guest %d creation failed", index);
+				}
+			}
+#endif
 			is_optee_boot_complete = 1;
 			IMSG("waiting for request from REE, boot=%d\n", is_optee_boot_complete);
 		}
@@ -790,6 +797,11 @@ void __noreturn sm_sched_nonsecure(void)
 			g_smc_args[g_smc_idx][index].a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
 			continue;
 		}
+
+#ifdef CFG_VIRTUALIZATION
+		//Set guest id for fast call or standard call
+		g_smc_args[g_smc_idx][index].a7 = smc_vm_ids[g_smc_idx]->ree_id;
+#endif
 
 		if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
 			thread_handle_fast_smc(&g_smc_args[g_smc_idx][index]);
