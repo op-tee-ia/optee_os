@@ -17,7 +17,6 @@
 #include <drivers/ivshmem.h>
 #endif
 
-extern uint8_t g_smc_idx;
 extern paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE];
 
 #ifdef CFG_CORE_RESERVED_SHM
@@ -25,8 +24,8 @@ static void tee_entry_get_shm_config(struct thread_smc_args *args)
 {
 	args->a0 = OPTEE_SMC_RETURN_OK;
 #ifdef CFG_IVSHMEM
-	assert(g_smc_idx < TEE_MAX_IVSHMEM_DEVICE);
-	args->a1 = tee_shmem_start[g_smc_idx];
+	assert(get_cur_smc_idx() < TEE_MAX_IVSHMEM_DEVICE);
+	args->a1 = tee_shmem_start[get_cur_smc_idx()];
 	args->a2 = TEE_SHMEM_SIZE;
 #else
 	args->a1 = default_nsec_shm_paddr;

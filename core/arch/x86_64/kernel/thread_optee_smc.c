@@ -728,7 +728,7 @@ extern uint8_t g_ivshmem_dev_num;
 
 static unsigned int smc_lock __nex_data = SPINLOCK_UNLOCK;
 //TODO: need to consider SMP case
-uint8_t g_smc_idx __nex_data = 0;
+static uint8_t g_smc_idx __nex_data = 0;
 
 static uint8_t check_ree_requests(uint8_t start_idx)
 {
@@ -737,6 +737,7 @@ static uint8_t check_ree_requests(uint8_t start_idx)
 	do {
 		if (smc_used_ring[idx]->head != smc_used_ring[idx]->tail) {
 			//There is a request in smc queue
+			g_smc_idx = idx;
 			return idx;
 		}
 		idx = (idx + 1) % g_ivshmem_dev_num;
@@ -744,6 +745,11 @@ static uint8_t check_ree_requests(uint8_t start_idx)
 
 	//No requests found in smc queue, return one maximum value
 	return TEE_MAX_IVSHMEM_DEVICE;
+}
+
+uint8_t get_cur_smc_idx(void)
+{
+	return g_smc_idx;
 }
 
 void __noreturn sm_sched_nonsecure(void)
@@ -767,7 +773,7 @@ void __noreturn sm_sched_nonsecure(void)
 		}
 		
 		//Check if there are more reqeusts in shm queue
-		if (check_ree_requests(g_smc_idx) == TEE_MAX_IVSHMEM_DEVICE) {
+		if (check_ree_requests(ivsh_idx) == TEE_MAX_IVSHMEM_DEVICE) {
 			//If no more requests, just halt
 			x86_sti();
 			x86_hlt();
@@ -777,42 +783,43 @@ void __noreturn sm_sched_nonsecure(void)
 
 		//Get request from shm queue
 		cpu_spin_lock(&smc_lock);
-		ivsh_idx = check_ree_requests(g_smc_idx);
+		ivsh_idx = check_ree_requests(ivsh_idx);
 		if (ivsh_idx == TEE_MAX_IVSHMEM_DEVICE) {
 			//Still no requests
+			ivsh_idx = 0;
 			cpu_spin_unlock(&smc_lock);
 			continue;
 		}
-		g_smc_idx = ivsh_idx;
-		index = smc_used_ring[g_smc_idx]->ring[smc_used_ring[g_smc_idx]->head];
-		smc_used_ring[g_smc_idx]->head =
-			(smc_used_ring[g_smc_idx]->head + 1) % OPTEE_SHM_QUEUE_SIZE;
+
+		index = smc_used_ring[ivsh_idx]->ring[smc_used_ring[ivsh_idx]->head];
+		smc_used_ring[ivsh_idx]->head =
+			(smc_used_ring[ivsh_idx]->head + 1) % OPTEE_SHM_QUEUE_SIZE;
 		cpu_spin_unlock(&smc_lock);
 
-		smc_nr = g_smc_args[g_smc_idx][index].a0;
-		IMSG("get request %d/%d/%d/%d/%d/%d/0x%x\n", g_smc_idx, index,
-			smc_avail_ring[g_smc_idx]->head, smc_avail_ring[g_smc_idx]->tail,
-			smc_used_ring[g_smc_idx]->head, smc_used_ring[g_smc_idx]->tail, smc_nr);
+		smc_nr = g_smc_args[ivsh_idx][index].a0;
+		IMSG("get request %d/%d/%d/%d/%d/%d/0x%x\n", ivsh_idx, index,
+			smc_avail_ring[ivsh_idx]->head, smc_avail_ring[ivsh_idx]->tail,
+			smc_used_ring[ivsh_idx]->head, smc_used_ring[ivsh_idx]->tail, smc_nr);
 		if (OPTEE_SMC_IS_64(smc_nr)) {
-			g_smc_args[g_smc_idx][index].a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
+			g_smc_args[ivsh_idx][index].a0 = OPTEE_SMC_RETURN_ENOTAVAIL;
 			continue;
 		}
 
 #ifdef CFG_VIRTUALIZATION
 		//Set guest id for fast call or standard call
-		g_smc_args[g_smc_idx][index].a7 = smc_vm_ids[g_smc_idx]->ree_id;
+		g_smc_args[ivsh_idx][index].a7 = smc_vm_ids[ivsh_idx]->ree_id;
 #endif
 
 		if (OPTEE_SMC_IS_FAST_CALL(smc_nr))
-			thread_handle_fast_smc(&g_smc_args[g_smc_idx][index]);
+			thread_handle_fast_smc(&g_smc_args[ivsh_idx][index]);
 		else
-			thread_handle_std_smc(&g_smc_args[g_smc_idx][index]);
+			thread_handle_std_smc(&g_smc_args[ivsh_idx][index]);
 
-		g_smc_args[g_smc_idx][index].a8 = OPTEE_HANDLE_DONE;
+		g_smc_args[ivsh_idx][index].a8 = OPTEE_HANDLE_DONE;
 
-		ivshmem_doorbell_ring(g_smc_idx, smc_vm_ids[g_smc_idx]->ree_id);
+		ivshmem_doorbell_ring(ivsh_idx, smc_vm_ids[ivsh_idx]->ree_id);
 
-		g_smc_idx = (g_smc_idx + 1) % g_ivshmem_dev_num;
+		ivsh_idx = (ivsh_idx + 1) % g_ivshmem_dev_num;
 	}
 }
 #else

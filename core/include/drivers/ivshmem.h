@@ -87,4 +87,7 @@ TEE_Result ivshmem_rot_copy(uint8_t dev, void *dest, size_t size);
  * by keymaster ta */
 TEE_Result ivshmem_rot_set(uint8_t dev __unused, uint32_t a, uint32_t b);
 
+/* Get current using ivshmem device index */
+uint8_t get_cur_smc_idx(void);
+
 #endif
