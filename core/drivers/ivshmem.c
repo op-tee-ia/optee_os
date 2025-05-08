@@ -13,6 +13,7 @@
 #include <kernel/interrupt.h>
 #include <kernel/panic.h>
 #include <kernel/thread.h>
+#include <kernel/virtualization.h>
 #include <mm/core_mmu.h>
 #include <mm/core_memprot.h>
 #include <sm/optee_smc.h>
@@ -87,9 +88,9 @@ struct ivshmem_device {
 
 static struct ivshmem_device g_ivshmem_devs[TEE_MAX_IVSHMEM_DEVICE] __nex_bss;
 
-static struct ex_rot_data_t g_rot_data __nex_bss;
+static struct ex_rot_data_t g_rot_data;
 
-static bool g_rot_already_set __nex_data = false;
+static bool g_rot_already_set = false;
 
 extern paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE];
 extern bool g_tpm_nv_bootloader_lock;
@@ -155,7 +156,11 @@ static bool check_if_vm_reset(uint8_t vmid)
 
 static enum itr_return ivshmem_rot_itr_cb_0(struct itr_handler *h __unused)
 {
-	/* TODO: currently only have one ivsh device */
+#ifdef CFG_VIRTUALIZATION
+	if (!virt_set_guest(smc_vm_ids[0]->ree_id)) {
+		return ITRR_NONE;
+	}
+#endif
 
 	if (!g_rot_already_set) {
 		assert(g_ivshmem_devs[0].rot_addr != 0);
@@ -170,12 +175,106 @@ static enum itr_return ivshmem_rot_itr_cb_0(struct itr_handler *h __unused)
 		g_rot_already_set = true;
 	}
 
+#ifdef CFG_VIRTUALIZATION
+	virt_unset_guest();
+#endif
+
+	return ITRR_HANDLED;
+}
+
+static enum itr_return ivshmem_rot_itr_cb_1(struct itr_handler *h __unused)
+{
+#ifdef CFG_VIRTUALIZATION
+	if (!virt_set_guest(smc_vm_ids[1]->ree_id)) {
+		return ITRR_NONE;
+	}
+#endif
+
+	if (!g_rot_already_set) {
+		assert(g_ivshmem_devs[1].rot_addr != 0);
+
+		memset(&g_rot_data, 0, sizeof(g_rot_data));
+
+		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[1].rot_addr,
+						sizeof(struct rot_data_t));
+
+		memzero_explicit((void *)g_ivshmem_devs[1].rot_addr, sizeof(struct rot_data_t));
+
+		g_rot_already_set = true;
+	}
+
+#ifdef CFG_VIRTUALIZATION
+	virt_unset_guest();
+#endif
+
+	return ITRR_HANDLED;
+}
+
+static enum itr_return ivshmem_rot_itr_cb_2(struct itr_handler *h __unused)
+{
+#ifdef CFG_VIRTUALIZATION
+	if (!virt_set_guest(smc_vm_ids[2]->ree_id)) {
+		return ITRR_NONE;
+	}
+#endif
+
+	if (!g_rot_already_set) {
+		assert(g_ivshmem_devs[2].rot_addr != 0);
+
+		memset(&g_rot_data, 0, sizeof(g_rot_data));
+
+		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[2].rot_addr,
+						sizeof(struct rot_data_t));
+
+		memzero_explicit((void *)g_ivshmem_devs[2].rot_addr, sizeof(struct rot_data_t));
+
+		g_rot_already_set = true;
+	}
+
+#ifdef CFG_VIRTUALIZATION
+	virt_unset_guest();
+#endif
+
+	return ITRR_HANDLED;
+}
+
+static enum itr_return ivshmem_rot_itr_cb_3(struct itr_handler *h __unused)
+{
+#ifdef CFG_VIRTUALIZATION
+	if (!virt_set_guest(smc_vm_ids[3]->ree_id)) {
+		return ITRR_NONE;
+	}
+#endif
+
+	if (!g_rot_already_set) {
+		assert(g_ivshmem_devs[3].rot_addr != 0);
+
+		memset(&g_rot_data, 0, sizeof(g_rot_data));
+
+		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[3].rot_addr,
+						sizeof(struct rot_data_t));
+
+		memzero_explicit((void *)g_ivshmem_devs[3].rot_addr, sizeof(struct rot_data_t));
+
+		g_rot_already_set = true;
+	}
+
+#ifdef CFG_VIRTUALIZATION
+	virt_unset_guest();
+#endif
+
 	return ITRR_HANDLED;
 }
 
 static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __unused)
 {
 #ifdef CFG_EDK2_TPM
+#ifdef CFG_VIRTUALIZATION
+	if (!virt_set_guest(smc_vm_ids[0]->ree_id)) {
+		return ITRR_NONE;
+	}
+#endif
+
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
 	// offset 0x1000 is reserved for seed rot to use.
 	volatile struct tpm2_int_req *req =
@@ -199,6 +298,9 @@ static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __u
 	if (!check_if_vm_reset(vmid)) {
 		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
 		req->ret = EFI_DEVICE_ERROR;
+#ifdef CFG_VIRTUALIZATION
+		virt_unset_guest();
+#endif
 		return ITRR_HANDLED;
 	}
 
@@ -243,6 +345,10 @@ static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __u
 	}
 
 	req->ret = ret;
+
+#ifdef CFG_VIRTUALIZATION
+	virt_unset_guest();
+#endif
 #endif
 
 	return ITRR_HANDLED;
@@ -289,6 +395,10 @@ static struct itr_handler ivshmem_doorbell_itr_3 __nex_data = {
 	.handler = ivshmem_doorbell_itr_cb,
 };
 
+static struct itr_handler *ivshmem_doorbell_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
+	&ivshmem_doorbell_itr_0, &ivshmem_doorbell_itr_1,
+	&ivshmem_doorbell_itr_2, &ivshmem_doorbell_itr_3};
+
 static struct itr_handler ivshmem_rot_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
@@ -298,20 +408,23 @@ static struct itr_handler ivshmem_rot_itr_0 __nex_data = {
 static struct itr_handler ivshmem_rot_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_0,
+	.handler = ivshmem_rot_itr_cb_1,
 };
 
 static struct itr_handler ivshmem_rot_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_0,
+	.handler = ivshmem_rot_itr_cb_2,
 };
 
 static struct itr_handler ivshmem_rot_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_0,
+	.handler = ivshmem_rot_itr_cb_3,
 };
+
+static struct itr_handler *ivshmem_rot_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
+	&ivshmem_rot_itr_0, &ivshmem_rot_itr_1, &ivshmem_rot_itr_2, &ivshmem_rot_itr_3};
 
 static struct itr_handler ivshmem_rollback_index_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROLLBACK_INDEX_INTERRUPT_OFF,
@@ -336,6 +449,10 @@ static struct itr_handler ivshmem_rollback_index_itr_3 __nex_data = {
 	.flags = ITRF_TRIGGER_LEVEL,
 	.handler = ivshmem_rollback_index_itr_cb_0,
 };
+
+static struct itr_handler *ivshmem_rollback_index_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
+	&ivshmem_rollback_index_itr_0, &ivshmem_rollback_index_itr_1,
+	&ivshmem_rollback_index_itr_2, &ivshmem_rollback_index_itr_3};
 
 static uint8_t ivshmem_get_dev_func(void)
 {
@@ -530,21 +647,12 @@ static void generic_ivshmem_init(void)
 				IMSG("IVSHMEM device %d: msi-x table entry %d 0x%x/0x%x/0x%x/0x%x\n", i, j,
 					*msg_lower_addr, *msg_upper_addr, *msg_data, *vector_ctrl);
 			}
+
+			itr_add(ivshmem_doorbell_itr[i]);
+			itr_add(ivshmem_rot_itr[i]);
+			itr_add(ivshmem_rollback_index_itr[i]);
 		}
 	}
-
-	itr_add(&ivshmem_doorbell_itr_0);
-	itr_add(&ivshmem_doorbell_itr_1);
-	itr_add(&ivshmem_doorbell_itr_2);
-	itr_add(&ivshmem_doorbell_itr_3);
-	itr_add(&ivshmem_rot_itr_0);
-	itr_add(&ivshmem_rot_itr_1);
-	itr_add(&ivshmem_rot_itr_2);
-	itr_add(&ivshmem_rot_itr_3);
-	itr_add(&ivshmem_rollback_index_itr_0);
-	itr_add(&ivshmem_rollback_index_itr_1);
-	itr_add(&ivshmem_rollback_index_itr_2);
-	itr_add(&ivshmem_rollback_index_itr_3);
 
 	return;
 }
