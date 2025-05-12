@@ -89,4 +89,9 @@ struct tee_mmap_region *virt_get_memory_map(void);
  */
 void virt_get_ta_ram(vaddr_t *start, vaddr_t *end);
 
+/**
+ * get_partition_guest_id() - get current partition guest id
+ */
+uint16_t get_partition_guest_id(void);
+
 #endif	/* KERNEL_VIRTUALIZATION_H */

@@ -22,8 +22,8 @@
 #include <dice/known_test_values.h>
 #include <kernel/tee_common_otp.h>
 
-uint8_t g_uds[UDS_LENGTH] __nex_data = { 0 };
-static bool g_dice_initialized __nex_data = false;
+uint8_t g_uds[UDS_LENGTH] = { 0 };
+static bool g_dice_initialized = false;
 
 
 static TEE_Result dice_init(void)

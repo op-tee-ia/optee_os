@@ -17,19 +17,18 @@
 #include <mm/core_memprot.h>
 #include <types_ext.h>
 #include <kernel/tee_common_otp.h>
+#include <kernel/virtualization.h>
 #include <mbedtls/platform_util.h>
 #include <mbedtls/constant_time.h>
 #include <mbedtls/sha256.h>
 #include "tpm2_ops.h"
 #include <drivers/tpm2_seed.h>
 
-uint64_t g_tpm_base_vaddr __nex_data = 0;
+uint64_t g_tpm_base_vaddr __nex_bss;
 
-static bool g_huk_initialized __nex_data = false;
-// TODO: Expand to array for multiple Android support.
-bool g_tpm_nv_bootloader_lock __nex_data = false;
-
-static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] __nex_data = {0};
+static bool g_huk_initialized = false;
+bool g_tpm_nv_bootloader_lock = false;
+static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
 
 #define DIGEST_SIZE 32
 
@@ -42,6 +41,8 @@ static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] __nex_data = {0};
 #define NV_INDEX_BOOTLOADER    (NV_INDEX_BASE + NV_ID_BOOTLOADER)
 #define NV_INDEX_UDS           (NV_INDEX_BASE + NV_ID_UDS)
 
+#define NV_INDEX_TYPE_NUM        3
+
 #define NV_INDEX_BOOTLOADER_STRUCT_VER  1
 /* Since can't create new NV index after lock owner, so allocate more space for future usage */
 #define NV_INDEX_BOOTLOADER_SIZE        512
@@ -52,9 +53,9 @@ typedef struct {
 	TPMA_NV attribute;
 } attribute_matrix_t;
 
-static const attribute_matrix_t config_table[] =
+static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TYPE_NUM] __nex_data =
 {
-	{NV_INDEX_OPTEEOS_SEED,
+	{{NV_INDEX_OPTEEOS_SEED,
 	 HW_UNIQUE_KEY_LENGTH,
 		{
 		/* Authorization failures of the Index do not affect the DA logic
@@ -108,7 +109,175 @@ static const attribute_matrix_t config_table[] =
 		.TPMA_NV_WRITE_STCLEAR = 1,
 		.TPMA_NV_READ_STCLEAR = 1,
 		}
+	}},
+
+	{{NV_INDEX_OPTEEOS_SEED + NV_INDEX_TYPE_NUM,
+	 HW_UNIQUE_KEY_LENGTH,
+		{
+		/* Authorization failures of the Index do not affect the DA logic
+		* and authorization of the Index is not blocked when the TPM is in
+		* Lockout mode.
+		*/
+		.TPMA_NV_NO_DA = 1,
+		/* Authorizations to change the Index contents that require
+		* USER role may be provided with an HMAC session or password.
+		*/
+		.TPMA_NV_AUTHWRITE = 1,
+		/* The Index data may be read if the authValue is provided. */
+		.TPMA_NV_AUTHREAD = 1,
+		/* A partial write of the Index data is not allowed. The write size
+		* shall match the defined space size.
+		*/
+		.TPMA_NV_WRITEALL = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITEDEFINE = 1,
+		/* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
+		* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
+		* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
+		*/
+		.TPMA_NV_READ_STCLEAR = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		}
 	},
+	{NV_INDEX_BOOTLOADER + NV_INDEX_TYPE_NUM,
+	 NV_INDEX_BOOTLOADER_SIZE,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	},
+	{NV_INDEX_UDS + NV_INDEX_TYPE_NUM,
+	 UDS_LENGTH,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITEALL = 1,
+		.TPMA_NV_WRITEDEFINE = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	}},
+
+	{{NV_INDEX_OPTEEOS_SEED + 2 * NV_INDEX_TYPE_NUM,
+	 HW_UNIQUE_KEY_LENGTH,
+		{
+		/* Authorization failures of the Index do not affect the DA logic
+		* and authorization of the Index is not blocked when the TPM is in
+		* Lockout mode.
+		*/
+		.TPMA_NV_NO_DA = 1,
+		/* Authorizations to change the Index contents that require
+		* USER role may be provided with an HMAC session or password.
+		*/
+		.TPMA_NV_AUTHWRITE = 1,
+		/* The Index data may be read if the authValue is provided. */
+		.TPMA_NV_AUTHREAD = 1,
+		/* A partial write of the Index data is not allowed. The write size
+		* shall match the defined space size.
+		*/
+		.TPMA_NV_WRITEALL = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITEDEFINE = 1,
+		/* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
+		* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
+		* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
+		*/
+		.TPMA_NV_READ_STCLEAR = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		}
+	},
+	{NV_INDEX_BOOTLOADER + 2 * NV_INDEX_TYPE_NUM,
+	 NV_INDEX_BOOTLOADER_SIZE,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	},
+	{NV_INDEX_UDS + 2 * NV_INDEX_TYPE_NUM,
+	 UDS_LENGTH,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITEALL = 1,
+		.TPMA_NV_WRITEDEFINE = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	}},
+
+	{{NV_INDEX_OPTEEOS_SEED + 3 * NV_INDEX_TYPE_NUM,
+	 HW_UNIQUE_KEY_LENGTH,
+		{
+		/* Authorization failures of the Index do not affect the DA logic
+		* and authorization of the Index is not blocked when the TPM is in
+		* Lockout mode.
+		*/
+		.TPMA_NV_NO_DA = 1,
+		/* Authorizations to change the Index contents that require
+		* USER role may be provided with an HMAC session or password.
+		*/
+		.TPMA_NV_AUTHWRITE = 1,
+		/* The Index data may be read if the authValue is provided. */
+		.TPMA_NV_AUTHREAD = 1,
+		/* A partial write of the Index data is not allowed. The write size
+		* shall match the defined space size.
+		*/
+		.TPMA_NV_WRITEALL = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITEDEFINE = 1,
+		/* TPM2_NV_ReadLock may be used to SET TPMA_NV_READLOCKED
+		* for this Index. When TPMA_NV_READLOCKED is set after calling TPM2_NV_ReadLock,
+		* Reads of this Index are blocked until the next TPM Reset or TPM Restart.
+		*/
+		.TPMA_NV_READ_STCLEAR = 1,
+		/* TPM2_NV_WriteLock may be used to prevent further writes
+		* to this location regardless of TPM reset/restart.
+		*/
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		}
+	},
+	{NV_INDEX_BOOTLOADER + 3 * NV_INDEX_TYPE_NUM,
+	 NV_INDEX_BOOTLOADER_SIZE,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	},
+	{NV_INDEX_UDS + 3 * NV_INDEX_TYPE_NUM,
+	 UDS_LENGTH,
+		{
+		.TPMA_NV_NO_DA = 1,
+		.TPMA_NV_AUTHWRITE = 1,
+		.TPMA_NV_AUTHREAD = 1,
+		.TPMA_NV_WRITEALL = 1,
+		.TPMA_NV_WRITEDEFINE = 1,
+		.TPMA_NV_WRITE_STCLEAR = 1,
+		.TPMA_NV_READ_STCLEAR = 1,
+		}
+	}}
 };
 
 
@@ -148,37 +317,37 @@ static EFI_STATUS tpm2_check_cap_permanent(void)
 	return ret;
 }
 
-static EFI_STATUS tpm2_fuse_optee_secret(UINT16 type)
+static EFI_STATUS tpm2_fuse_optee_secret(UINT16 id, UINT16 type)
 {
 	EFI_STATUS ret;
 	TPM2B_DIGEST optee_secret;
 
 	if (type != NV_ID_OPTEEOS_SEED && type != NV_ID_UDS) {
-		EMSG("Unexpected secret type: %d.", type);
+		EMSG("Unexpected secret type: %d/%d.", id, type);
 		return EFI_INVALID_PARAMETER;
 	}
 
-	ret = Tpm2GetRandom(config_table[type].nv_size, &optee_secret);
+	ret = Tpm2GetRandom(config_table[id][type].nv_size, &optee_secret);
 	if (EFI_ERROR(ret)) {
-		EMSG("Tpm2GetRandom failed(%ld).", ret);
+		EMSG("Tpm2GetRandom %d/%d failed(%ld).", id, type, ret);
 		goto out;
 	}
 
-	ret = create_index_and_write_lock(config_table[type].nv_index,
-					config_table[type].attribute,
-					config_table[type].nv_size, optee_secret.buffer);
+	ret = create_index_and_write_lock(config_table[id][type].nv_index,
+					config_table[id][type].attribute,
+					config_table[id][type].nv_size, optee_secret.buffer);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%ld) to create and write optee secret(%d)", ret, type);
+		EMSG("Failed(%ld) to create and write optee secret(%d/%d)", ret, id, type);
 		goto out;
 	}
-	IMSG("Success create and write optee secret %d", type);
+	IMSG("Success create and write optee secret %d/%d", id, type);
 
 out:
-	mbedtls_platform_zeroize(optee_secret.buffer, config_table[type].nv_size);
+	mbedtls_platform_zeroize(optee_secret.buffer, config_table[id][type].nv_size);
 	return ret;
 }
 
-static EFI_STATUS tpm2_check_optee_secret_index(UINT16 type)
+static EFI_STATUS tpm2_check_optee_secret_index(UINT16 id, UINT16 type)
 {
 	EFI_STATUS ret;
 	TPM2B_NV_PUBLIC NvPublic;
@@ -189,26 +358,26 @@ static EFI_STATUS tpm2_check_optee_secret_index(UINT16 type)
 		return EFI_INVALID_PARAMETER;
 	}
 
-	ret = Tpm2NvReadPublic(config_table[type].nv_index, &NvPublic, &NvName);
+	ret = Tpm2NvReadPublic(config_table[id][type].nv_index, &NvPublic, &NvName);
 	if (EFI_ERROR(ret)) {
 		if (ret != EFI_NOT_FOUND) {
-			EMSG("Read optee secret NV index failed(%lx)", ret);
+			EMSG("Read optee secret NV index %d/%d failed(%lx)", id, type, ret);
 			return ret;
 		}
 
-		ret = tpm2_fuse_optee_secret(type);
+		ret = tpm2_fuse_optee_secret(id, type);
 		if (EFI_ERROR(ret))
-			EMSG("Failed(%lx) to fuse optee secret(%d)", ret, type);
+			EMSG("Failed(%lx) to fuse optee secret(%d/%d)", ret, id, type);
 
 		return ret;
 	}
 
-	DMSG("optee secret(%d) already fused", type);
+	DMSG("optee secret(%d/%d) already fused", id, type);
 
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS tpm2_init_secret(UINT16 type)
+static EFI_STATUS tpm2_init_secret(UINT16 id, UINT16 type)
 {
 	if (type != NV_ID_OPTEEOS_SEED && type != NV_ID_UDS) {
 		EMSG("Unexpected secret type: 0x%X.", type);
@@ -223,16 +392,17 @@ static EFI_STATUS tpm2_init_secret(UINT16 type)
 		return ret;
 	}
 
-	ret = tpm2_check_optee_secret_index(type);
+	ret = tpm2_check_optee_secret_index(id, type);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to check optee %d status.", type, ret);
+		EMSG("Failed(%lx) to check optee %d/%d status.", ret, id, type);
 		return ret;
 	}
 
 	return ret;
 }
 
-static EFI_STATUS tpm2_read_lock_secret(IN UINT16 type, OUT BYTE *Key, IN UINT16 KeySize)
+static EFI_STATUS tpm2_read_lock_secret(IN UINT16 id, IN UINT16 type,
+	OUT BYTE *Key, IN UINT16 KeySize)
 {
 	if (type != NV_ID_OPTEEOS_SEED && type != NV_ID_UDS) {
 		EMSG("Unexpected secret type: 0x%X.", type);
@@ -240,7 +410,7 @@ static EFI_STATUS tpm2_read_lock_secret(IN UINT16 type, OUT BYTE *Key, IN UINT16
 	}
 
 	EFI_STATUS ret;
-	const UINT16 secret_size = config_table[type].nv_size;
+	const UINT16 secret_size = config_table[id][type].nv_size;
 	UINT8* TempKey = NULL;
 
 	if (KeySize < secret_size || Key == NULL)
@@ -250,19 +420,19 @@ static EFI_STATUS tpm2_read_lock_secret(IN UINT16 type, OUT BYTE *Key, IN UINT16
 	if (!TempKey)
 		return EFI_OUT_OF_RESOURCES;
 
-	ret = tpm2_read_nvindex(config_table[type].nv_index, secret_size, TempKey, 0);
+	ret = tpm2_read_nvindex(config_table[id][type].nv_index, secret_size, TempKey, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed to read nv index:%lx.\n", ret);
+		EMSG("Failed to read nv index %d/%d:%lx.\n", id, type, ret);
 		goto out;
 	}
 
-	ret = tpm2_read_lock_nvindex(config_table[type].nv_index);
+	ret = tpm2_read_lock_nvindex(config_table[id][type].nv_index);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed to read lock nv index:%lx.\n", ret);
+		EMSG("Failed to read lock nv index %d/%d:%lx.\n", id, type, ret);
 		goto out;
 	}
 
-	IMSG("Successfully to read and lock optee secret %d.\n", type);
+	IMSG("Successfully to read and lock optee secret %d/%d.\n", id, type);
 out:
 	if (ret == EFI_SUCCESS)
 		memcpy(Key, TempKey, secret_size);
@@ -332,6 +502,13 @@ err:
 TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 {
 	EFI_STATUS ret;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
+
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
 
 	g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
 
@@ -340,15 +517,15 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 
 	if (!g_huk_initialized)
 	{
-		ret = tpm2_init_secret(NV_ID_OPTEEOS_SEED);
+		ret = tpm2_init_secret(id, NV_ID_OPTEEOS_SEED);
 		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%lx) to init optee seed.", ret);
+			EMSG("Failed(%lx) to init optee seed %d.", ret, id);
 			return TEE_ERROR_GENERIC;
 		}
 
-		ret = tpm2_read_lock_secret(NV_ID_OPTEEOS_SEED, g_huk, HW_UNIQUE_KEY_LENGTH);
+		ret = tpm2_read_lock_secret(id, NV_ID_OPTEEOS_SEED, g_huk, HW_UNIQUE_KEY_LENGTH);
 		if (EFI_ERROR(ret)) {
-			EMSG("Failed(%lx) to read and lock optee seed.", ret);
+			EMSG("Failed(%lx) to read and lock optee seed %d.", ret, id);
 			return TEE_ERROR_GENERIC;
 		}
 
@@ -378,28 +555,35 @@ TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *hwkey)
 TEE_Result tee_otp_get_hw_uds(uint8_t *hwuds, size_t len)
 {
 	EFI_STATUS ret;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
+
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
 
 	if (!hwuds || len < UDS_LENGTH)
 		return TEE_ERROR_BAD_PARAMETERS;
 
 	g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
 
-	ret = tpm2_init_secret(NV_ID_UDS);
+	ret = tpm2_init_secret(id, NV_ID_UDS);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to init optee uds.", ret);
+		EMSG("Failed(%lx) to init optee uds %d.", ret, id);
 		return TEE_ERROR_GENERIC;
 	}
 
-	ret = tpm2_read_lock_secret(NV_ID_UDS, hwuds, UDS_LENGTH);
+	ret = tpm2_read_lock_secret(id, NV_ID_UDS, hwuds, UDS_LENGTH);
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to read and lock optee uds.", ret);
+		EMSG("Failed(%lx) to read and lock optee uds %d.", ret, id);
 		return TEE_ERROR_GENERIC;
 	}
 
 	return TEE_SUCCESS;
 }
 
-static EFI_STATUS tpm2_fuse_bootloader(void)
+static EFI_STATUS tpm2_fuse_bootloader(UINT16 id)
 {
 	EFI_STATUS ret;
 	BYTE data[NV_INDEX_BOOTLOADER_SIZE] = {0};
@@ -407,9 +591,10 @@ static EFI_STATUS tpm2_fuse_bootloader(void)
 	UINT16 data_read_size = sizeof(data);
 	tpm2_bootloader_t *bootloader = (tpm2_bootloader_t *)data;
 
-	ret = tpm2_create_nvindex(NV_INDEX_BOOTLOADER, config_table[NV_ID_BOOTLOADER].attribute, sizeof(data));
+	ret = tpm2_create_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+		config_table[id][NV_ID_BOOTLOADER].attribute, sizeof(data));
 	if (EFI_ERROR(ret)) {
-		EMSG("Failed(%lx) to create bootloader NV index", ret);
+		EMSG("Failed(%lx) to create bootloader NV index %d", ret, id);
 		return ret;
 	}
 
@@ -417,29 +602,31 @@ static EFI_STATUS tpm2_fuse_bootloader(void)
 	/* Set to unlock in a device just create the NV index. */
 	bootloader->lock_state = UNLOCKED;
 
-	ret = tpm2_write_nvindex(NV_INDEX_BOOTLOADER, sizeof(data), data, 0);
+	ret = tpm2_write_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+		sizeof(data), data, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Write bootloader NV index failed(%lx)", ret);
+		EMSG("Write bootloader NV index %d failed(%lx)", id, ret);
 		return ret;
 	}
 
 	/* Read the data again to verify it */
-	ret = tpm2_read_nvindex(NV_INDEX_BOOTLOADER, data_read_size, data_read, 0);
+	ret = tpm2_read_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+		data_read_size, data_read, 0);
 	if (EFI_ERROR(ret)) {
-		EMSG("Read bootloader NV index back failed(%lx) just after write it", ret);
+		EMSG("Read bootloader NV index %d back failed(%lx) just after write it", id, ret);
 		return ret;
 	}
 
 	if (mbedtls_ct_memcmp(data, data_read, sizeof(data))) {
-		EMSG("Security error! Read bootloader NV index back but verify failed!");
+		EMSG("Security error! Read bootloader NV index %d back but verify failed!", id);
 		return EFI_SECURITY_VIOLATION;
 	}
 
-	DMSG("Success create and write bootloader NV index");
+	DMSG("Success create and write bootloader NV index %d", id);
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS tpm2_check_bootloader_index(void)
+static EFI_STATUS tpm2_check_bootloader_index(UINT16 id)
 {
 	EFI_STATUS ret;
 	TPM2B_NV_PUBLIC NvPublic;
@@ -447,39 +634,42 @@ static EFI_STATUS tpm2_check_bootloader_index(void)
 	UINT8 struct_ver;
 	UINT16 data_size = sizeof(struct_ver);
 
-	ret = Tpm2NvReadPublic(NV_INDEX_BOOTLOADER, &NvPublic, &NvName);
+	ret = Tpm2NvReadPublic(config_table[id][NV_ID_BOOTLOADER].nv_index,
+		&NvPublic, &NvName);
 	if (EFI_ERROR(ret)) {
 		if (ret != EFI_NOT_FOUND) {
-			EMSG("Read bootloader NV index failed(%lx)", ret);
+			EMSG("Read bootloader NV index %d failed(%lx)", id, ret);
 			return ret;
 		}
 
-		DMSG("tpm2_check_bootloader_index not found.");
-		ret = tpm2_fuse_bootloader();
+		DMSG("tpm2_check_bootloader_index %d not found.", id);
+		ret = tpm2_fuse_bootloader(id);
 		if (EFI_ERROR(ret))
-			EMSG("Failed(%lx) to fuse bootloader NV index", ret);
+			EMSG("Failed(%lx) to fuse bootloader NV index %d", ret, id);
 
 		return ret;
 	}
 
-	ret = tpm2_read_nvindex(NV_INDEX_BOOTLOADER, data_size,
+	ret = tpm2_read_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index, data_size,
 			(BYTE *)&struct_ver,
 			offsetof(tpm2_bootloader_t, struct_ver));
 	if (EFI_ERROR(ret) || data_size != sizeof(struct_ver)) {
-		EMSG("Read bootloader NV index for struct version failed(%lx), read size: %d", ret, data_size);
+		EMSG("Read bootloader NV index %d for struct version failed(%lx), read size: %d",
+			id, ret, data_size);
 		return ret;
 	}
 
 	if (struct_ver > NV_INDEX_BOOTLOADER_STRUCT_VER)
-		DMSG("Bootloader NV index is fused with new struct version %d, are you running old software?", struct_ver);
+		DMSG("Bootloader NV index %d is fused with new struct version %d, are you running old software?", id, struct_ver);
 	else if (struct_ver < NV_INDEX_BOOTLOADER_STRUCT_VER)
-		DMSG("Bootloader NV index is fused with old struct version %d, are you running in old device?", struct_ver);
+		DMSG("Bootloader NV index %d is fused with old struct version %d, are you running in old device?", id, struct_ver);
 	else {
 		if (NvPublic.nvPublic.dataSize != NV_INDEX_BOOTLOADER_SIZE) {
-			DMSG("Find bootloader NV index, but the NV index size is %d", NvPublic.nvPublic.dataSize);
+			DMSG("Find bootloader NV index %d, but the NV index size is %d",
+				id, NvPublic.nvPublic.dataSize);
 			return EFI_COMPROMISED_DATA;
 		}
-		DMSG("Bootloader NV index already fused");
+		DMSG("Bootloader NV index %d already fused", id);
 	}
 	return EFI_SUCCESS;
 }
@@ -487,6 +677,13 @@ static EFI_STATUS tpm2_check_bootloader_index(void)
 EFI_STATUS tee_tpm2_init(void)
 {
 	EFI_STATUS ret;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
+
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
 
 	g_tpm_base_vaddr = (uint64_t)phys_to_virt(_PCD_VALUE_PcdTpmBaseAddress, MEM_AREA_IO_SEC);
 
@@ -494,11 +691,11 @@ EFI_STATUS tee_tpm2_init(void)
 	if (EFI_ERROR(ret))
 		return ret;
 
-	ret = tpm2_check_bootloader_index();
+	ret = tpm2_check_bootloader_index(id);
 	if (EFI_ERROR(ret))
 		return ret;
 
-	ret = tpm2_check_optee_secret_index(NV_ID_OPTEEOS_SEED);
+	ret = tpm2_check_optee_secret_index(id, NV_ID_OPTEEOS_SEED);
 	if (EFI_ERROR(ret)) {
 		EMSG("Failed(%lx) to init optee seed.", ret);
 		return TEE_ERROR_GENERIC;
@@ -542,35 +739,51 @@ EFI_STATUS tee_tpm2_read_device_state(UINT8 *state)
 {
 	EFI_STATUS ret;
 	UINT16 data_size = sizeof(UINT8);
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
 
-	ret = tpm2_read_nvindex(NV_INDEX_BOOTLOADER, data_size, (BYTE *)state,
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
+
+	ret = tpm2_read_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+			data_size, (BYTE *)state,
 			offsetof(tpm2_bootloader_t, lock_state));
 	if (EFI_ERROR(ret)) {
-		EMSG("Read device state from TPM failed(%lx)", ret);
+		EMSG("Read device state %d from TPM failed(%lx)", id, ret);
 		return ret;
 	}
 
 	if (data_size != sizeof(UINT8)) {
-		EMSG("Read device state from TPM, but data size is wrong: %d", data_size);
+		EMSG("Read device state %d from TPM, but data size is wrong: %d", id, data_size);
 		return EFI_COMPROMISED_DATA;
 	}
 
-	DMSG("Read device state from TPM success, state: %d", *state);
+	DMSG("Read device state %d from TPM success, state: %d", id, *state);
 	return ret;
 }
 
 EFI_STATUS tee_tpm2_write_device_state(UINT8 state)
 {
 	EFI_STATUS ret;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
 
-	ret = tpm2_write_nvindex(NV_INDEX_BOOTLOADER, sizeof(UINT8), (BYTE *)&state,
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
+
+	ret = tpm2_write_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+			sizeof(UINT8), (BYTE *)&state,
 			offsetof(tpm2_bootloader_t, lock_state));
 	if (EFI_ERROR(ret)) {
-		EMSG("Write device state %d to TPM failed(%lx)", state, ret);
+		EMSG("Write device state %d to TPM %d failed(%lx)", state, id, ret);
 		return ret;
 	}
 
-	DMSG("Write device state %d to TPM success", state);
+	DMSG("Write device state %d to TPM %d success", state, id);
 	return ret;
 }
 
@@ -578,25 +791,36 @@ EFI_STATUS tee_tpm2_read_rollback_index(size_t rollback_index_slot, uint64_t *ou
 {
 	EFI_STATUS ret;
 	UINT16 data_size = sizeof(uint64_t);
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
+
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
 
 	if (rollback_index_slot >= ARRAY_SIZE(((tpm2_bootloader_t *)0)->rollback_index)) {
 		EMSG("The rollback index slot is too large to write into TPM: %ld", rollback_index_slot);
 		return EFI_INVALID_PARAMETER;
 	}
 
-	ret = tpm2_read_nvindex(NV_INDEX_BOOTLOADER, data_size, (BYTE *)out_rollback_index,
+	ret = tpm2_read_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+			data_size, (BYTE *)out_rollback_index,
 			rollback_index_slot * sizeof(uint64_t) + offsetof(tpm2_bootloader_t, rollback_index));
 	if (EFI_ERROR(ret)) {
-		EMSG("Read rollback index from TPM failed(%lx), slot: %ld", ret, rollback_index_slot);
+		EMSG("Read rollback index %d from TPM failed(%lx), slot: %ld",
+			id, ret, rollback_index_slot);
 		return ret;
 	}
 
 	if (data_size != sizeof(uint64_t)) {
-		EMSG("Read rollback index from TPM, but data size is wrong: %d", data_size);
+		EMSG("Read rollback index %d from TPM, but data size is wrong: %d",
+			id, data_size);
 		return EFI_COMPROMISED_DATA;
 	}
 
-	DMSG("Read rollback index from TPM success, slot: %ld, index: 0x%lx", rollback_index_slot, *out_rollback_index);
+	DMSG("Read rollback index %d from TPM success, slot: %ld, index: 0x%lx",
+		id, rollback_index_slot, *out_rollback_index);
 	return ret;
 
 }
@@ -604,21 +828,30 @@ EFI_STATUS tee_tpm2_read_rollback_index(size_t rollback_index_slot, uint64_t *ou
 EFI_STATUS tee_tpm2_write_rollback_index(size_t rollback_index_slot, uint64_t rollback_index)
 {
 	EFI_STATUS ret;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
+
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
 
 	if (rollback_index_slot >= ARRAY_SIZE(((tpm2_bootloader_t *)0)->rollback_index)) {
 		EMSG("The rollback index slot is too large to write into TPM: %ld", rollback_index_slot);
 		return EFI_INVALID_PARAMETER;
 	}
 
-	ret = tpm2_write_nvindex(NV_INDEX_BOOTLOADER, sizeof(uint64_t), (BYTE *)&rollback_index,
+	ret = tpm2_write_nvindex(config_table[id][NV_ID_BOOTLOADER].nv_index,
+			sizeof(uint64_t), (BYTE *)&rollback_index,
 			rollback_index_slot * sizeof(uint64_t) + offsetof(tpm2_bootloader_t, rollback_index));
 	if (EFI_ERROR(ret)) {
-		EMSG("Write rollback index to TPM failed(%lx), slot: %ld, index: 0x%lx",
-				ret, rollback_index_slot, rollback_index);
+		EMSG("Write rollback index %d to TPM failed(%lx), slot: %ld, index: 0x%lx",
+				id, ret, rollback_index_slot, rollback_index);
 		return ret;
 	}
 
-	DMSG("Write rollback index to TPM success, slot: %ld, index: 0x%lx", rollback_index_slot, rollback_index);
+	DMSG("Write rollback index %d to TPM success, slot: %ld, index: 0x%lx",
+		id, rollback_index_slot, rollback_index);
 	return ret;
 }
 
@@ -627,13 +860,20 @@ BOOLEAN tee_tpm2_bootloader_need_init(void)
 	EFI_STATUS ret;
 	TPM2B_NV_PUBLIC NvPublic;
 	TPM2B_NAME NvName;
+#ifdef CFG_VIRTUALIZATION
+	UINT16 id = get_partition_guest_id() - 1;
+#else
+	UINT16 id = 0;
+#endif
 
-	ret = Tpm2NvReadPublic(NV_INDEX_BOOTLOADER, &NvPublic, &NvName);
+	assert(id < TEE_MAX_IVSHMEM_DEVICE);
+
+	ret = Tpm2NvReadPublic(config_table[id][NV_ID_BOOTLOADER].nv_index, &NvPublic, &NvName);
 	if (EFI_ERROR(ret)) {
 		if (ret == EFI_NOT_FOUND) {
 			return TRUE;
 		}
-		EMSG("Failed(%lx) to read NV_INDEX_BOOTLOADER", ret);
+		EMSG("Failed(%lx) to read NV_INDEX_BOOTLOADER %d", ret, id);
 	}
 
 	return FALSE;
