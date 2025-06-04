@@ -95,10 +95,10 @@ static bool g_rot_already_set = false;
 extern paddr_t tee_shmem_start;
 extern bool g_tpm_nv_bootloader_lock;
 
-struct thread_smc_args *g_smc_args = NULL;
-struct optee_smc_ring *smc_avail_ring = NULL;
-struct optee_smc_ring *smc_used_ring = NULL;
-struct optee_vm_ids *smc_vm_ids = NULL;
+volatile struct thread_smc_args *g_smc_args = NULL;
+volatile struct optee_smc_ring *smc_avail_ring = NULL;
+volatile struct optee_smc_ring *smc_used_ring = NULL;
+volatile struct optee_vm_ids *smc_vm_ids = NULL;
 uint32_t *smc_evt_src = NULL;
 
 #ifdef CFG_EDK2_TPM
@@ -367,13 +367,13 @@ static void generic_ivshmem_init(void)
 			EMSG("IVSHMEM device %d: bar2 size too small\n", i);
 			panic();
 		}
-		if (!core_mmu_add_mapping(MEM_AREA_RAM_NSEC, g_ivshmem_devs[i].bar2_addr,
+		if (!core_mmu_add_mapping(MEM_AREA_IO_NSEC, g_ivshmem_devs[i].bar2_addr,
 				IVSHMEM_SMC_SIZE)) {
 			EMSG("IVSHMEM device %d: smc map failed\n", i);
 			panic();
 		}
 		g_ivshmem_devs[i].smc_addr = (vaddr_t)phys_to_virt(g_ivshmem_devs[i].bar2_addr,
-			MEM_AREA_RAM_NSEC);
+			MEM_AREA_IO_NSEC);
 		IMSG("IVSHMEM device %d: smc_addr=0x%lx\n", i, g_ivshmem_devs[i].smc_addr);
 
 		smc_vm_ids = (struct optee_vm_ids *)g_ivshmem_devs[i].smc_addr;
