@@ -720,10 +720,10 @@ void __noreturn sm_sched_nonsecure(void)
 #elif defined CFG_IVSHMEM
 #define OPTEE_HANDLE_DONE 0xa5a5a5a5
 
-extern struct thread_smc_args *g_smc_args;
-extern struct optee_smc_ring *smc_avail_ring;
-extern struct optee_smc_ring *smc_used_ring;
-extern struct optee_vm_ids *smc_vm_ids;
+extern volatile struct thread_smc_args *g_smc_args;
+extern volatile struct optee_smc_ring *smc_avail_ring;
+extern volatile struct optee_smc_ring *smc_used_ring;
+extern volatile struct optee_vm_ids *smc_vm_ids;
 
 static unsigned int smc_lock = SPINLOCK_UNLOCK;
 
