@@ -96,10 +96,10 @@ extern paddr_t tee_shmem_start[TEE_MAX_IVSHMEM_DEVICE];
 extern bool g_tpm_nv_bootloader_lock;
 
 //TODO: put the following variables array into one data structure array
-struct thread_smc_args *g_smc_args[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
-struct optee_smc_ring *smc_avail_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
-struct optee_smc_ring *smc_used_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
-struct optee_vm_ids *smc_vm_ids[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+volatile struct thread_smc_args *g_smc_args[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+volatile struct optee_smc_ring *smc_avail_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+volatile struct optee_smc_ring *smc_used_ring[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
+volatile struct optee_vm_ids *smc_vm_ids[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {NULL};
 
 uint32_t *smc_evt_src __nex_data = NULL;
 uint8_t g_ivshmem_dev_num __nex_data = 0;
@@ -811,13 +811,13 @@ static void generic_ivshmem_init(void)
 			EMSG("IVSHMEM device %d: bar2 size too small\n", i);
 			panic();
 		}
-		if (!core_mmu_add_mapping(MEM_AREA_RAM_NSEC, g_ivshmem_devs[i].bar2_addr,
+		if (!core_mmu_add_mapping(MEM_AREA_IO_NSEC, g_ivshmem_devs[i].bar2_addr,
 				IVSHMEM_SMC_SIZE)) {
 			EMSG("IVSHMEM device %d: smc map failed\n", i);
 			panic();
 		}
 		g_ivshmem_devs[i].smc_addr = (vaddr_t)phys_to_virt(g_ivshmem_devs[i].bar2_addr,
-			MEM_AREA_RAM_NSEC);
+			MEM_AREA_IO_NSEC);
 		IMSG("IVSHMEM device %d: smc_addr=0x%lx\n", i, g_ivshmem_devs[i].smc_addr);
 
 		smc_vm_ids[i] = (struct optee_vm_ids *)g_ivshmem_devs[i].smc_addr;
@@ -997,12 +997,12 @@ static void qnx_ivshmem_init(void)
 		panic();
 	}
 
-	if (!core_mmu_add_mapping(MEM_AREA_RAM_NSEC, shmem_addr, IVSHMEM_SMC_SIZE)) {
+	if (!core_mmu_add_mapping(MEM_AREA_IO_NSEC, shmem_addr, IVSHMEM_SMC_SIZE)) {
 		EMSG("IVSHMEM device: smc map failed\n");
 		panic();
 	}
 
-	g_ivshmem_devs[0].smc_addr = (vaddr_t)phys_to_virt(shmem_addr, MEM_AREA_RAM_NSEC);
+	g_ivshmem_devs[0].smc_addr = (vaddr_t)phys_to_virt(shmem_addr, MEM_AREA_IO_NSEC);
 
 	smc_evt_src = (uint32_t *)g_ivshmem_devs[0].smc_addr;
 	smc_vm_ids[0] = (struct optee_vm_ids *)(g_ivshmem_devs[0].smc_addr +
