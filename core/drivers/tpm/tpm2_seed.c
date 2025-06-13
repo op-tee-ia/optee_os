@@ -43,6 +43,8 @@ static uint8_t g_huk[HW_UNIQUE_KEY_LENGTH] = {0};
 
 #define NV_INDEX_TYPE_NUM        3
 
+#define CALCULATE_NV_INDEX(dev, type)	(NV_INDEX_BASE + (dev) * NV_INDEX_TYPE_NUM + (type))
+
 #define NV_INDEX_BOOTLOADER_STRUCT_VER  1
 /* Since can't create new NV index after lock owner, so allocate more space for future usage */
 #define NV_INDEX_BOOTLOADER_SIZE        512
@@ -55,7 +57,7 @@ typedef struct {
 
 static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TYPE_NUM] __nex_data =
 {
-	{{NV_INDEX_OPTEEOS_SEED,
+	{{CALCULATE_NV_INDEX(0, NV_ID_OPTEEOS_SEED),
 	 HW_UNIQUE_KEY_LENGTH,
 		{
 		/* Authorization failures of the Index do not affect the DA logic
@@ -88,7 +90,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_WRITE_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_BOOTLOADER,
+	{CALCULATE_NV_INDEX(0, NV_ID_BOOTLOADER),
 	 NV_INDEX_BOOTLOADER_SIZE,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -98,7 +100,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_READ_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_UDS,
+	{CALCULATE_NV_INDEX(0, NV_ID_UDS),
 	 UDS_LENGTH,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -111,7 +113,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		}
 	}},
 
-	{{NV_INDEX_OPTEEOS_SEED + NV_INDEX_TYPE_NUM,
+	{{CALCULATE_NV_INDEX(1, NV_ID_OPTEEOS_SEED),
 	 HW_UNIQUE_KEY_LENGTH,
 		{
 		/* Authorization failures of the Index do not affect the DA logic
@@ -144,7 +146,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_WRITE_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_BOOTLOADER + NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(1, NV_ID_BOOTLOADER),
 	 NV_INDEX_BOOTLOADER_SIZE,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -154,7 +156,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_READ_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_UDS + NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(1, NV_ID_UDS),
 	 UDS_LENGTH,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -167,7 +169,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		}
 	}},
 
-	{{NV_INDEX_OPTEEOS_SEED + 2 * NV_INDEX_TYPE_NUM,
+	{{CALCULATE_NV_INDEX(2, NV_ID_OPTEEOS_SEED),
 	 HW_UNIQUE_KEY_LENGTH,
 		{
 		/* Authorization failures of the Index do not affect the DA logic
@@ -200,7 +202,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_WRITE_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_BOOTLOADER + 2 * NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(2, NV_ID_BOOTLOADER),
 	 NV_INDEX_BOOTLOADER_SIZE,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -210,7 +212,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_READ_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_UDS + 2 * NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(2, NV_ID_UDS),
 	 UDS_LENGTH,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -223,7 +225,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		}
 	}},
 
-	{{NV_INDEX_OPTEEOS_SEED + 3 * NV_INDEX_TYPE_NUM,
+	{{CALCULATE_NV_INDEX(3, NV_ID_OPTEEOS_SEED),
 	 HW_UNIQUE_KEY_LENGTH,
 		{
 		/* Authorization failures of the Index do not affect the DA logic
@@ -256,7 +258,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_WRITE_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_BOOTLOADER + 3 * NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(3, NV_ID_BOOTLOADER),
 	 NV_INDEX_BOOTLOADER_SIZE,
 		{
 		.TPMA_NV_NO_DA = 1,
@@ -266,7 +268,7 @@ static const attribute_matrix_t config_table[TEE_MAX_IVSHMEM_DEVICE][NV_INDEX_TY
 		.TPMA_NV_READ_STCLEAR = 1,
 		}
 	},
-	{NV_INDEX_UDS + 3 * NV_INDEX_TYPE_NUM,
+	{CALCULATE_NV_INDEX(3, NV_ID_UDS),
 	 UDS_LENGTH,
 		{
 		.TPMA_NV_NO_DA = 1,
