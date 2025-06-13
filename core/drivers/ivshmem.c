@@ -154,23 +154,28 @@ static bool check_if_vm_reset(uint8_t vmid)
 	return !g_tpm_nv_bootloader_lock;
 }
 
-static enum itr_return ivshmem_rot_itr_cb_0(struct itr_handler *h __unused)
+static enum itr_return ivshmem_rot_itr_cb(struct itr_handler *h)
 {
+	uint8_t dev_id = (h->it - IVSHMEM_DOORBELL_VECTOR - ROT_INTERRUPT_OFF) /
+		IVSHMEM_MSIX_ENTRY_NUM;
+	
+	assert (dev_id < TEE_MAX_IVSHMEM_DEVICE);
+
 #ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(smc_vm_ids[0]->ree_id)) {
+	if (!virt_set_guest(smc_vm_ids[dev_id]->ree_id)) {
 		return ITRR_NONE;
 	}
 #endif
 
 	if (!g_rot_already_set) {
-		assert(g_ivshmem_devs[0].rot_addr != 0);
+		assert(g_ivshmem_devs[dev_id].rot_addr != 0);
 
 		memset(&g_rot_data, 0, sizeof(g_rot_data));
 
-		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[0].rot_addr,
+		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[dev_id].rot_addr,
 						sizeof(struct rot_data_t));
 
-		memzero_explicit((void *)g_ivshmem_devs[0].rot_addr, sizeof(struct rot_data_t));
+		memzero_explicit((void *)g_ivshmem_devs[dev_id].rot_addr, sizeof(struct rot_data_t));
 
 		g_rot_already_set = true;
 	}
@@ -182,94 +187,15 @@ static enum itr_return ivshmem_rot_itr_cb_0(struct itr_handler *h __unused)
 	return ITRR_HANDLED;
 }
 
-static enum itr_return ivshmem_rot_itr_cb_1(struct itr_handler *h __unused)
+static enum itr_return ivshmem_rollback_index_itr_cb(struct itr_handler *h)
 {
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(smc_vm_ids[1]->ree_id)) {
-		return ITRR_NONE;
-	}
-#endif
+	uint8_t dev_id = (h->it - IVSHMEM_DOORBELL_VECTOR - ROLLBACK_INDEX_INTERRUPT_OFF) /
+		IVSHMEM_MSIX_ENTRY_NUM;
+	
+	assert (dev_id < TEE_MAX_IVSHMEM_DEVICE);
 
-	if (!g_rot_already_set) {
-		assert(g_ivshmem_devs[1].rot_addr != 0);
-
-		memset(&g_rot_data, 0, sizeof(g_rot_data));
-
-		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[1].rot_addr,
-						sizeof(struct rot_data_t));
-
-		memzero_explicit((void *)g_ivshmem_devs[1].rot_addr, sizeof(struct rot_data_t));
-
-		g_rot_already_set = true;
-	}
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_rot_itr_cb_2(struct itr_handler *h __unused)
-{
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(smc_vm_ids[2]->ree_id)) {
-		return ITRR_NONE;
-	}
-#endif
-
-	if (!g_rot_already_set) {
-		assert(g_ivshmem_devs[2].rot_addr != 0);
-
-		memset(&g_rot_data, 0, sizeof(g_rot_data));
-
-		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[2].rot_addr,
-						sizeof(struct rot_data_t));
-
-		memzero_explicit((void *)g_ivshmem_devs[2].rot_addr, sizeof(struct rot_data_t));
-
-		g_rot_already_set = true;
-	}
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_rot_itr_cb_3(struct itr_handler *h __unused)
-{
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(smc_vm_ids[3]->ree_id)) {
-		return ITRR_NONE;
-	}
-#endif
-
-	if (!g_rot_already_set) {
-		assert(g_ivshmem_devs[3].rot_addr != 0);
-
-		memset(&g_rot_data, 0, sizeof(g_rot_data));
-
-		memcpy(&g_rot_data.rot_data, (void *)g_ivshmem_devs[3].rot_addr,
-						sizeof(struct rot_data_t));
-
-		memzero_explicit((void *)g_ivshmem_devs[3].rot_addr, sizeof(struct rot_data_t));
-
-		g_rot_already_set = true;
-	}
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __unused)
-{
 #ifdef CFG_EDK2_TPM
-	uint8_t vmid = smc_vm_ids[0]->ree_id;
+	uint8_t vmid = smc_vm_ids[dev_id]->ree_id;
 #ifdef CFG_VIRTUALIZATION
 	if (!virt_set_guest(vmid)) {
 		return ITRR_NONE;
@@ -279,7 +205,7 @@ static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __u
 	EFI_STATUS ret = EFI_DEVICE_ERROR;
 	// offset 0x1000 is reserved for seed rot to use.
 	volatile struct tpm2_int_req *req =
-		(struct tpm2_int_req *)(g_ivshmem_devs[0].rot_addr + 0x1000);
+		(struct tpm2_int_req *)(g_ivshmem_devs[dev_id].rot_addr + 0x1000);
 
 	//TEE_TPM2_READ_DEVICE_STATE
 	UINT8 *rd_state = req->payload;
@@ -354,271 +280,7 @@ static enum itr_return ivshmem_rollback_index_itr_cb_0(struct itr_handler *h __u
 	return ITRR_HANDLED;
 }
 
-static enum itr_return ivshmem_rollback_index_itr_cb_1(struct itr_handler *h __unused)
-{
-#ifdef CFG_EDK2_TPM
-	uint8_t vmid = smc_vm_ids[1]->ree_id;
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(vmid)) {
-		return ITRR_NONE;
-	}
-#endif
-
-	EFI_STATUS ret = EFI_DEVICE_ERROR;
-	// offset 0x1000 is reserved for seed rot to use.
-	volatile struct tpm2_int_req *req =
-		(struct tpm2_int_req *)(g_ivshmem_devs[1].rot_addr + 0x1000);
-
-	//TEE_TPM2_READ_DEVICE_STATE
-	UINT8 *rd_state = req->payload;
-
-	//TEE_TPM2_WRITE_DEVICE_STATE:
-	UINT8 wr_state = *(UINT8*)(req->payload);
-
-	//TEE_TPM2_READ_ROLLBACK_INDEX
-	size_t rd_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t *rd_out_rollback_index = req->payload + sizeof(rd_rollback_index_slot);
-
-	//TEE_TPM2_WRITE_ROLLBACK_INDEX:
-	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
-
-	if (!check_if_vm_reset(vmid)) {
-		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
-		req->ret = EFI_DEVICE_ERROR;
-#ifdef CFG_VIRTUALIZATION
-		virt_unset_guest();
-#endif
-		return ITRR_HANDLED;
-	}
-
-	switch(req->cmd)
-	{
-	case TEE_TPM2_INIT:
-		ret = tee_tpm2_init();
-		break;
-	case TEE_TPM2_END:
-		ret = tee_tpm2_end();
-		break;
-	case TEE_TPM2_READ_DEVICE_STATE:
-		ret = tee_tpm2_read_device_state(rd_state);
-		break;
-	case TEE_TPM2_WRITE_DEVICE_STATE:
-		ret = tee_tpm2_write_device_state(wr_state);
-		break;
-	case TEE_TPM2_READ_ROLLBACK_INDEX:
-		ret = tee_tpm2_read_rollback_index(rd_rollback_index_slot, rd_out_rollback_index);
-		break;
-	case TEE_TPM2_WRITE_ROLLBACK_INDEX:
-		ret = tee_tpm2_write_rollback_index(wr_rollback_index_slot, wr_rollback_index);
-		break;
-	case TEE_TPM2_BOOTLOADER_NEED_INIT:
-		ret = tee_tpm2_bootloader_need_init();
-		break;
-	case TEE_TPM2_FUSE_LOCK_OWNER:
-		ret = tee_tpm2_fuse_lock_owner();
-		break;
-	case TEE_TPM2_FUSE_PROVISION_SEED:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_SHOW_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_DELETE_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	default:
-		ret = EFI_UNSUPPORTED;
-		break;
-	}
-
-	req->ret = ret;
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_rollback_index_itr_cb_2(struct itr_handler *h __unused)
-{
-#ifdef CFG_EDK2_TPM
-	uint8_t vmid = smc_vm_ids[2]->ree_id;
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(vmid)) {
-		return ITRR_NONE;
-	}
-#endif
-
-	EFI_STATUS ret = EFI_DEVICE_ERROR;
-	// offset 0x1000 is reserved for seed rot to use.
-	volatile struct tpm2_int_req *req =
-		(struct tpm2_int_req *)(g_ivshmem_devs[2].rot_addr + 0x1000);
-
-	//TEE_TPM2_READ_DEVICE_STATE
-	UINT8 *rd_state = req->payload;
-
-	//TEE_TPM2_WRITE_DEVICE_STATE:
-	UINT8 wr_state = *(UINT8*)(req->payload);
-
-	//TEE_TPM2_READ_ROLLBACK_INDEX
-	size_t rd_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t *rd_out_rollback_index = req->payload + sizeof(rd_rollback_index_slot);
-
-	//TEE_TPM2_WRITE_ROLLBACK_INDEX:
-	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
-
-	if (!check_if_vm_reset(vmid)) {
-		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
-		req->ret = EFI_DEVICE_ERROR;
-#ifdef CFG_VIRTUALIZATION
-		virt_unset_guest();
-#endif
-		return ITRR_HANDLED;
-	}
-
-	switch(req->cmd)
-	{
-	case TEE_TPM2_INIT:
-		ret = tee_tpm2_init();
-		break;
-	case TEE_TPM2_END:
-		ret = tee_tpm2_end();
-		break;
-	case TEE_TPM2_READ_DEVICE_STATE:
-		ret = tee_tpm2_read_device_state(rd_state);
-		break;
-	case TEE_TPM2_WRITE_DEVICE_STATE:
-		ret = tee_tpm2_write_device_state(wr_state);
-		break;
-	case TEE_TPM2_READ_ROLLBACK_INDEX:
-		ret = tee_tpm2_read_rollback_index(rd_rollback_index_slot, rd_out_rollback_index);
-		break;
-	case TEE_TPM2_WRITE_ROLLBACK_INDEX:
-		ret = tee_tpm2_write_rollback_index(wr_rollback_index_slot, wr_rollback_index);
-		break;
-	case TEE_TPM2_BOOTLOADER_NEED_INIT:
-		ret = tee_tpm2_bootloader_need_init();
-		break;
-	case TEE_TPM2_FUSE_LOCK_OWNER:
-		ret = tee_tpm2_fuse_lock_owner();
-		break;
-	case TEE_TPM2_FUSE_PROVISION_SEED:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_SHOW_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_DELETE_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	default:
-		ret = EFI_UNSUPPORTED;
-		break;
-	}
-
-	req->ret = ret;
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_rollback_index_itr_cb_3(struct itr_handler *h __unused)
-{
-#ifdef CFG_EDK2_TPM
-	uint8_t vmid = smc_vm_ids[3]->ree_id;
-#ifdef CFG_VIRTUALIZATION
-	if (!virt_set_guest(vmid)) {
-		return ITRR_NONE;
-	}
-#endif
-
-	EFI_STATUS ret = EFI_DEVICE_ERROR;
-	// offset 0x1000 is reserved for seed rot to use.
-	volatile struct tpm2_int_req *req =
-		(struct tpm2_int_req *)(g_ivshmem_devs[3].rot_addr + 0x1000);
-
-	//TEE_TPM2_READ_DEVICE_STATE
-	UINT8 *rd_state = req->payload;
-
-	//TEE_TPM2_WRITE_DEVICE_STATE:
-	UINT8 wr_state = *(UINT8*)(req->payload);
-
-	//TEE_TPM2_READ_ROLLBACK_INDEX
-	size_t rd_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t *rd_out_rollback_index = req->payload + sizeof(rd_rollback_index_slot);
-
-	//TEE_TPM2_WRITE_ROLLBACK_INDEX:
-	size_t wr_rollback_index_slot = *(size_t*)(req->payload);
-	uint64_t wr_rollback_index = *(uint64_t*)(req->payload + sizeof(wr_rollback_index_slot));
-
-	if (!check_if_vm_reset(vmid)) {
-		EMSG("Failure: VM(%d) TPM locked by TEE, refuse...", vmid);
-		req->ret = EFI_DEVICE_ERROR;
-#ifdef CFG_VIRTUALIZATION
-		virt_unset_guest();
-#endif
-		return ITRR_HANDLED;
-	}
-
-	switch(req->cmd)
-	{
-	case TEE_TPM2_INIT:
-		ret = tee_tpm2_init();
-		break;
-	case TEE_TPM2_END:
-		ret = tee_tpm2_end();
-		break;
-	case TEE_TPM2_READ_DEVICE_STATE:
-		ret = tee_tpm2_read_device_state(rd_state);
-		break;
-	case TEE_TPM2_WRITE_DEVICE_STATE:
-		ret = tee_tpm2_write_device_state(wr_state);
-		break;
-	case TEE_TPM2_READ_ROLLBACK_INDEX:
-		ret = tee_tpm2_read_rollback_index(rd_rollback_index_slot, rd_out_rollback_index);
-		break;
-	case TEE_TPM2_WRITE_ROLLBACK_INDEX:
-		ret = tee_tpm2_write_rollback_index(wr_rollback_index_slot, wr_rollback_index);
-		break;
-	case TEE_TPM2_BOOTLOADER_NEED_INIT:
-		ret = tee_tpm2_bootloader_need_init();
-		break;
-	case TEE_TPM2_FUSE_LOCK_OWNER:
-		ret = tee_tpm2_fuse_lock_owner();
-		break;
-	case TEE_TPM2_FUSE_PROVISION_SEED:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_SHOW_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	case TEE_TPM2_DELETE_INDEX:
-		ret = EFI_NOT_READY;
-		break;
-	default:
-		ret = EFI_UNSUPPORTED;
-		break;
-	}
-
-	req->ret = ret;
-
-#ifdef CFG_VIRTUALIZATION
-	virt_unset_guest();
-#endif
-#endif
-
-	return ITRR_HANDLED;
-}
-
-static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
+static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h)
 {
 	enum itr_return ret = ITRR_HANDLED;
 
@@ -627,9 +289,9 @@ static enum itr_return ivshmem_doorbell_itr_cb(struct itr_handler *h __unused)
 
 	if (g_ivshmem_devs[0].ctrl->status & (1 << smc_vm_ids[0]->ree_id)) {
 		if (*smc_evt_src == EVENT_ROT)
-			ret = ivshmem_rot_itr_cb_0(NULL);
+			ret = ivshmem_rot_itr_cb(h);
 		else if (*smc_evt_src == EVENT_ROLLBACK)
-			ret = ivshmem_rollback_index_itr_cb_0(NULL);
+			ret = ivshmem_rollback_index_itr_cb(h);
 	}
 
 	return ret;
@@ -666,25 +328,25 @@ static struct itr_handler *ivshmem_doorbell_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_da
 static struct itr_handler ivshmem_rot_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_0,
+	.handler = ivshmem_rot_itr_cb,
 };
 
 static struct itr_handler ivshmem_rot_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_1,
+	.handler = ivshmem_rot_itr_cb,
 };
 
 static struct itr_handler ivshmem_rot_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_2,
+	.handler = ivshmem_rot_itr_cb,
 };
 
 static struct itr_handler ivshmem_rot_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROT_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rot_itr_cb_3,
+	.handler = ivshmem_rot_itr_cb,
 };
 
 static struct itr_handler *ivshmem_rot_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
@@ -693,25 +355,25 @@ static struct itr_handler *ivshmem_rot_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = 
 static struct itr_handler ivshmem_rollback_index_itr_0 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rollback_index_itr_cb_0,
+	.handler = ivshmem_rollback_index_itr_cb,
 };
 
 static struct itr_handler ivshmem_rollback_index_itr_1 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rollback_index_itr_cb_1,
+	.handler = ivshmem_rollback_index_itr_cb,
 };
 
 static struct itr_handler ivshmem_rollback_index_itr_2 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 2 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rollback_index_itr_cb_2,
+	.handler = ivshmem_rollback_index_itr_cb,
 };
 
 static struct itr_handler ivshmem_rollback_index_itr_3 __nex_data = {
 	.it = IVSHMEM_DOORBELL_VECTOR + 3 * IVSHMEM_MSIX_ENTRY_NUM + ROLLBACK_INDEX_INTERRUPT_OFF,
 	.flags = ITRF_TRIGGER_LEVEL,
-	.handler = ivshmem_rollback_index_itr_cb_3,
+	.handler = ivshmem_rollback_index_itr_cb,
 };
 
 static struct itr_handler *ivshmem_rollback_index_itr[TEE_MAX_IVSHMEM_DEVICE] __nex_data = {
