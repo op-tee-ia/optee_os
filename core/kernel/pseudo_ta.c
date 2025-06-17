@@ -250,7 +250,7 @@ static const struct ts_ops pseudo_ta_ops = {
 
 bool is_pseudo_ta_ctx(struct ts_ctx *ctx)
 {
-	return ctx->ops == &pseudo_ta_ops;
+	return ctx && (ctx->ops == &pseudo_ta_ops);
 }
 
 /* Insures declared pseudo TAs conforms with core expectations */
